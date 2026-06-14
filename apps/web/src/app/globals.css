@@ -1,0 +1,47 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    @apply antialiased;
+  }
+  body {
+    @apply bg-paper font-sans text-ink;
+  }
+  h1,
+  h2,
+  h3,
+  h4 {
+    @apply font-display;
+  }
+  ::selection {
+    @apply bg-signal-soft text-signal-deep;
+  }
+}
+
+/* Subtle scrollbars that match the palette (WebKit). */
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: #d2d6de;
+  border-radius: 8px;
+  border: 2px solid #f7f8fa;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Respect users who opt out of motion: stop loops, settle bars statically. */
+@media (prefers-reduced-motion: reduce) {
+  .animate-wave-bar {
+    animation: none !important;
+    transform: scaleY(calc(var(--wave-max, 1) * 0.6));
+  }
+  .animate-fade-up,
+  .animate-pulse-ring {
+    animation: none !important;
+  }
+}

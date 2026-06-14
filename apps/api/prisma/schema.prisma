@@ -1,0 +1,239 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Industry {
+  CLINIC
+  CONSTRUCTION
+}
+
+enum SubscriptionStatus {
+  TRIALING
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
+
+enum Role {
+  OWNER
+  MANAGER
+  AGENT
+}
+
+enum CallStatus {
+  COMPLETED
+  FORWARDED
+  VOICEMAIL
+  FAILED
+  UNKNOWN
+}
+
+enum AppointmentStatus {
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+enum AppointmentSource {
+  VOICE_AGENT
+  MANUAL
+}
+
+model Tenant {
+  id                 String             @id @default(cuid())
+  companyName        String             @map("company_name")
+  /// White-label identifier; maps to `<slug>.yourplatform.com` in production.
+  slug               String             @unique
+  industry           Industry
+  subscriptionStatus SubscriptionStatus @default(TRIALING) @map("subscription_status")
+  /// Operator-set suspension. When true: users can't log in and the receptionist
+  /// refuses calls. Distinct from billing status and from a hard delete.
+  isBlocked          Boolean            @default(false) @map("is_blocked")
+  /// Tenant-facing profit markup applied to provider call costs, in basis
+  /// points (5000 = +50%). Adjustable per tenant by the platform operator.
+  markupBps          Int                @default(5000) @map("markup_bps")
+  createdAt          DateTime           @default(now()) @map("created_at")
+  updatedAt          DateTime           @updatedAt @map("updated_at")
+
+  users         User[]
+  onboarding    OnboardingStatus?
+  agentSettings AgentSettings?
+  callLogs      CallLog[]
+  appointments  Appointment[]
+
+  @@map("tenants")
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  fullName     String   @map("full_name")
+  role         Role     @default(OWNER)
+  tenantId     String   @map("tenant_id")
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@map("users")
+}
+
+model OnboardingStatus {
+  id                   String    @id @default(cuid())
+  tenantId             String    @unique @map("tenant_id")
+  tenant               Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  hasConfiguredProfile Boolean   @default(false) @map("has_configured_profile")
+  hasConfiguredPrompt  Boolean   @default(false) @map("has_configured_prompt")
+  hasTestedVoice       Boolean   @default(false) @map("has_tested_voice")
+  /// True once setup is complete and the receptionist is live for callers.
+  isActive             Boolean   @default(false) @map("is_active")
+  completedAt          DateTime? @map("completed_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  @@map("onboarding_status")
+}
+
+model AgentSettings {
+  id                 String   @id @default(cuid())
+  tenantId           String   @unique @map("tenant_id")
+  tenant             Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Vapi assistant ID assigned by founder during customer setup. Null until assigned.
+  /// When set, syncs all agent settings to this assistant on save.
+  assistantId        String?  @map("assistant_id")
+  /// Receptionist persona name spoken on calls (e.g. "Maya").
+  displayName        String   @default("Maya") @map("display_name")
+  /// Tenant-editable instructions; composed with runtime context per call.
+  systemPrompt       String   @db.Text @map("system_prompt")
+  firstMessage       String   @map("first_message")
+  voicemailGreeting  String   @db.Text @map("voicemail_greeting")
+  /// JSON: { mon..sun: { enabled, open: "HH:MM", close: "HH:MM" } }
+  businessHours      Json     @map("business_hours")
+  /// JSON: [{ id, label, number(E.164), whenToUse }] — drives live transfers.
+  forwardingNumbers  Json     @default("[]") @map("forwarding_numbers")
+  timezone           String   @default("America/New_York")
+  /// E.164 number assigned by the platform operator; maps inbound calls
+  /// to this tenant in the webhook. Null until a number is provisioned.
+  inboundPhoneNumber String?  @unique @map("inbound_phone_number")
+  voiceProvider      String   @default("vapi") @map("voice_provider")
+  /// "Emma" (Vapi V2) — warm, conversational, the most human-sounding match
+  /// for the default "Maya" persona. For provider "11labs" this holds an
+  /// ElevenLabs voice ID instead.
+  voiceId            String   @default("Emma") @map("voice_id")
+  /// Ambient audio mixed into calls: "office" | "off" — matches the
+  /// provider's backgroundSound field. Subtle office ambience makes the
+  /// receptionist sound like a real front desk.
+  backgroundSound    String   @default("office") @map("background_sound")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  @@map("agent_settings")
+}
+
+model Appointment {
+  id            String            @id @default(cuid())
+  tenantId      String            @map("tenant_id")
+  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerName  String            @map("customer_name")
+  customerPhone String?           @map("customer_phone")
+  /// Why the customer is coming in — spoken by the caller, shown on the calendar.
+  reason        String?           @db.Text
+  startsAt      DateTime          @map("starts_at")
+  endsAt        DateTime          @map("ends_at")
+  /// IANA timezone the appointment was booked in (display + slot math).
+  timezone      String
+  status        AppointmentStatus @default(CONFIRMED)
+  source        AppointmentSource @default(VOICE_AGENT)
+  /// Provider call id of the booking call (server-side only, like CallLog's).
+  externalCallId String?          @map("external_call_id")
+  /// Per-provider synced event ids, e.g. { "google": "...", "microsoft": "..." }.
+  /// Populated by calendar sync (phase 2); empty object until connected.
+  externalEventIds Json           @default("{}") @map("external_event_ids")
+  notes         String?           @db.Text
+  createdAt     DateTime          @default(now()) @map("created_at")
+  updatedAt     DateTime          @updatedAt @map("updated_at")
+
+  @@index([tenantId, startsAt])
+  @@map("appointments")
+}
+
+/// Operator-editable runtime configuration (API keys, public URLs).
+/// Values are AES-256-GCM encrypted; env vars act as fallback defaults.
+model PlatformSetting {
+  key       String   @id
+  valueEnc  String   @db.Text @map("value_enc")
+  updatedBy String   @map("updated_by")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("platform_settings")
+}
+
+/// Platform-operator access levels (distinct from the per-tenant `Role`).
+/// ADMIN = full god-mode (keys, billing, managing other admins).
+/// SUPPORT = help customers (view, reset passwords, pause/activate) but no
+/// access to API keys or admin management.
+enum PlatformRole {
+  ADMIN
+  SUPPORT
+}
+
+/// Operators granted access to the founder admin panel, manageable from the UI.
+/// Bootstrap superadmins in PLATFORM_ADMIN_EMAILS are always treated as ADMIN
+/// and are NOT stored here — so the founder can never be locked out via the UI.
+model PlatformAdmin {
+  id        String       @id @default(cuid())
+  email     String       @unique
+  role      PlatformRole @default(SUPPORT)
+  /// Email of the admin who granted this access.
+  createdBy String       @map("created_by")
+  createdAt DateTime     @default(now()) @map("created_at")
+
+  @@map("platform_admins")
+}
+
+/// Every admin-panel mutation lands here — the founder's undo trail.
+model AdminAuditLog {
+  id         String   @id @default(cuid())
+  adminEmail String   @map("admin_email")
+  action     String
+  target     String?
+  detail     Json     @default("{}")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt(sort: Desc)])
+  @@map("admin_audit_logs")
+}
+
+model CallLog {
+  id                String     @id @default(cuid())
+  tenantId          String     @map("tenant_id")
+  tenant            Tenant     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Provider call id — kept server-side only, never exposed to tenants.
+  externalCallId    String     @unique @map("external_call_id")
+  channel           String     @default("phone")
+  callerNumber      String?    @map("caller_number")
+  startedAt         DateTime   @map("started_at")
+  endedAt           DateTime?  @map("ended_at")
+  durationSeconds   Int        @default(0) @map("duration_seconds")
+  /// Raw provider cost in cents — internal only.
+  providerCostCents Int        @default(0) @map("provider_cost_cents")
+  /// Cost shown to the tenant: provider cost + tenant markup, in cents.
+  billedCostCents   Int        @default(0) @map("billed_cost_cents")
+  markupBpsApplied  Int        @default(0) @map("markup_bps_applied")
+  status            CallStatus @default(UNKNOWN)
+  endedReason       String?    @map("ended_reason")
+  summary           String?    @db.Text
+  transcript        String?    @db.Text
+  /// Provider-hosted recording URL — internal only; tenants stream audio
+  /// through the platform's masked media proxy instead.
+  recordingUrl      String?    @db.Text @map("recording_url")
+  createdAt         DateTime   @default(now()) @map("created_at")
+
+  @@index([tenantId, startedAt(sort: Desc)])
+  @@map("call_logs")
+}

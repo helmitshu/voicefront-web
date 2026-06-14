@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Environment variables (keep .example files)
+.env
+.env.local
+.env.*.local
+apps/**/.env
+!apps/**/.env.example
+
+# Local Claude Code settings (has local paths)
+.claude/settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+
+# Build outputs
+dist/
+.next/
+build/
+out/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Postgres data (Docker volume)
+postgres-data/
+
+# Temporary files
+.tmp/
+temp/

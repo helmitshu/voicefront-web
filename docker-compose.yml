@@ -1,0 +1,26 @@
+name: voicefront
+
+services:
+  db:
+    image: postgres:16-alpine
+    container_name: voicefront-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: voicefront
+      POSTGRES_PASSWORD: voicefront
+      POSTGRES_DB: voicefront
+    ports:
+      # Host port 5433: many Windows machines run a native PostgreSQL
+      # service on 5432, which silently shadows the container on IPv4.
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U voicefront -d voicefront"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+      start_period: 5s
+    volumes:
+      - voicefront_pgdata:/var/lib/postgresql/data
+
+volumes:
+  voicefront_pgdata:
