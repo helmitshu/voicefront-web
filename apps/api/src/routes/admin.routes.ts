@@ -14,7 +14,7 @@ import {
 import { hashPassword } from '../lib/passwords';
 import { randomSuffix, toSlug } from '../lib/slug';
 import { defaultBusinessHours } from '../domain/agent-config';
-import { industryDefaults } from '../domain/prompt-templates';
+import { industryDefaults, industryPersona } from '../domain/prompt-templates';
 import {
   SETTING_KEYS,
   SETTING_META,
@@ -37,6 +37,14 @@ import {
   validateAssistant,
 } from '../services/vapi.service';
 import { getMonthlyUsage } from '../services/usage.service';
+import {
+  addNumber,
+  availableCount,
+  listPool,
+  removeNumber,
+  releaseNumberForTenant,
+  toPoolEntry,
+} from '../services/phone-pool.service';
 
 /**
  * Founder control plane. Cross-tenant, gated by requirePlatformAdmin (admits
@@ -468,7 +476,11 @@ adminRouter.post(
     // One-time owner password for the founder to hand off.
     const tempPassword = `Welcome-${randomBytes(6).toString('base64url')}`;
     const passwordHash = await hashPassword(tempPassword);
-    const defaults = industryDefaults(body.industry, { companyName: body.companyName, personaName: 'Maya' });
+    const persona = industryPersona(body.industry);
+    const defaults = industryDefaults(body.industry, {
+      companyName: body.companyName,
+      personaName: persona.personaName,
+    });
 
     // Tenant + owner + onboarding + settings are one atomic unit. Retry on slug
     // collisions with a random suffix (mirrors self-serve registration).
@@ -495,6 +507,8 @@ adminRouter.post(
           await tx.agentSettings.create({
             data: {
               tenantId: tenant.id,
+              displayName: persona.personaName,
+              voiceId: persona.voiceId,
               systemPrompt: defaults.systemPrompt,
               firstMessage: defaults.firstMessage,
               voicemailGreeting: defaults.voicemailGreeting,
@@ -537,6 +551,9 @@ adminRouter.delete(
     if (tenant.slug === PLATFORM_TENANT_SLUG) {
       throw new HttpError(403, 'The platform workspace cannot be deleted.', 'FORBIDDEN');
     }
+    // Return any pooled number to inventory before the cascade removes the
+    // tenant (the pool link is a plain column, not an FK, so it won't cascade).
+    await releaseNumberForTenant(tenant.id);
     // Cascades to users, onboarding, settings, call logs, and appointments.
     await prisma.tenant.delete({ where: { id: tenant.id } });
     await recordAdminAction(adminEmail, 'tenant.delete', tenant.companyName, {});
@@ -706,5 +723,61 @@ adminRouter.get(
         createdAt: e.createdAt.toISOString(),
       })),
     });
+  }),
+);
+
+/* ------------------------------ phone number pool --------------------------- */
+/* Shared inventory of pre-provisioned Vapi numbers. Customers auto-claim one   */
+/* on activation. Adding/removing is a full-admin action.                       */
+
+adminRouter.get(
+  '/numbers',
+  asyncHandler(async (_req, res) => {
+    const [numbers, available] = await Promise.all([listPool(), availableCount()]);
+    // Map assigned tenant ids to company names so the UI reads naturally.
+    const tenantIds = numbers.map((n) => n.assignedTenantId).filter((id): id is string => Boolean(id));
+    const tenants = tenantIds.length
+      ? await prisma.tenant.findMany({
+          where: { id: { in: tenantIds } },
+          select: { id: true, companyName: true },
+        })
+      : [];
+    const nameById = new Map(tenants.map((t) => [t.id, t.companyName]));
+    res.json({
+      available,
+      numbers: numbers.map((n) => ({
+        ...toPoolEntry(n),
+        assignedCompany: n.assignedTenantId ? (nameById.get(n.assignedTenantId) ?? null) : null,
+      })),
+    });
+  }),
+);
+
+const AddNumberSchema = z.object({
+  number: z.string().trim().min(8).max(20),
+  country: z.string().trim().length(2).optional(),
+  vapiPhoneId: z.string().trim().max(100).optional(),
+});
+
+adminRouter.post(
+  '/numbers',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const adminEmail = getAdminEmail(req);
+    const body = AddNumberSchema.parse(req.body);
+    const created = await addNumber(body);
+    await recordAdminAction(adminEmail, 'number.add', created.number, {});
+    res.status(201).json({ number: toPoolEntry(created) });
+  }),
+);
+
+adminRouter.delete(
+  '/numbers/:id',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const adminEmail = getAdminEmail(req);
+    await removeNumber(req.params.id);
+    await recordAdminAction(adminEmail, 'number.remove', req.params.id, {});
+    res.json({ ok: true });
   }),
 );

@@ -533,7 +533,24 @@ export const AdminApi = {
     api<AddAdminResult>('/api/admin/team', { method: 'POST', body: { email, role } }),
   removeTeamMember: (email: string) =>
     api<{ ok: true }>(`/api/admin/team/${encodeURIComponent(email)}`, { method: 'DELETE' }),
+  numbers: (signal?: AbortSignal) =>
+    api<{ available: number; numbers: PooledNumberRow[] }>('/api/admin/numbers', { signal }),
+  addNumber: (input: { number: string; country?: string; vapiPhoneId?: string }) =>
+    api<{ number: PooledNumberRow }>('/api/admin/numbers', { method: 'POST', body: input }),
+  removeNumber: (id: string) => api<{ ok: true }>(`/api/admin/numbers/${id}`, { method: 'DELETE' }),
 };
+
+/** A number in the shared provisioning pool. */
+export interface PooledNumberRow {
+  id: string;
+  number: string;
+  country: string;
+  vapiPhoneId: string | null;
+  assignedTenantId: string | null;
+  assignedCompany: string | null;
+  assignedAt: string | null;
+  createdAt: string;
+}
 
 export const AppointmentsApi = {
   list: (range: { from: string; to: string }, signal?: AbortSignal) => {
