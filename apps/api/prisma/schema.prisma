@@ -66,6 +66,7 @@ model Tenant {
   agentSettings AgentSettings?
   callLogs      CallLog[]
   appointments  Appointment[]
+  documents     Document[]
 
   @@map("tenants")
 }
@@ -160,6 +161,29 @@ model Appointment {
 
   @@index([tenantId, startsAt])
   @@map("appointments")
+}
+
+/// A business document the tenant uploaded to power the voice agent's
+/// knowledge base (services, pricing, promotions, location, parking, etc.).
+/// The actual file lives in Vapi (uploaded + indexed there); we keep only
+/// metadata plus `vapiFileId`, which is attached to the assistant as a
+/// knowledge-base file so the agent can answer questions from it.
+model Document {
+  id         String   @id @default(cuid())
+  tenantId   String   @map("tenant_id")
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Vapi file id returned on upload — the pointer this row mirrors.
+  vapiFileId String   @map("vapi_file_id")
+  fileName   String   @map("file_name")
+  mimeType   String   @map("mime_type")
+  sizeBytes  Int      @map("size_bytes")
+  /// Vapi processing state: "processing" | "done" | "failed". Until "done"
+  /// the file isn't queryable yet; surfaced in the UI so the tenant knows.
+  status     String   @default("processing")
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId])
+  @@map("documents")
 }
 
 /// Operator-editable runtime configuration (API keys, public URLs).

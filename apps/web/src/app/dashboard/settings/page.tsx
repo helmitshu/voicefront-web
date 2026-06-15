@@ -24,6 +24,7 @@ import { Button } from '@/components/ui/Button';
 import { Input, Select, Textarea } from '@/components/ui/Field';
 import { Spinner } from '@/components/ui/Spinner';
 import { VoicePreviewButton } from '@/components/agent/VoicePreviewButton';
+import { DocumentsEditor } from '@/components/agent/DocumentsEditor';
 import { BusinessHoursEditor } from '@/components/agent/BusinessHoursEditor';
 import {
   ForwardingNumbersEditor,
@@ -422,6 +423,14 @@ export default function SettingsPage() {
             </span>
           }
         />
+      </Card>
+
+      <Card>
+        <CardHeader
+          title="Knowledge documents"
+          description="Upload files about your services, pricing, promotions, location, parking, or insurance. Your receptionist reads from them to answer callers' questions. Supports PDF, Word, TXT, CSV, Markdown, and more."
+        />
+        <DocumentsEditor disabled={readOnly} assistantConnected={Boolean(loaded.assistantId)} />
       </Card>
 
       <Card>

@@ -12,6 +12,7 @@ import { callsRouter } from './routes/calls.routes';
 import { voiceRouter } from './routes/voice.routes';
 import { mediaRouter } from './routes/media.routes';
 import { inboundRouter } from './routes/inbound.routes';
+import { documentsRouter } from './routes/documents.routes';
 
 export function createApp(): express.Express {
   const app = express();
@@ -25,7 +26,8 @@ export function createApp(): express.Express {
   app.use(
     cors({
       origin: corsOrigins,
-      allowedHeaders: ['Content-Type', 'Authorization'],
+      // X-File-Name / X-File-Type carry document metadata on raw-binary uploads.
+      allowedHeaders: ['Content-Type', 'Authorization', 'X-File-Name', 'X-File-Type'],
       methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     }),
   );
@@ -39,6 +41,7 @@ export function createApp(): express.Express {
   app.use('/api/onboarding', onboardingRouter);
   app.use('/api/admin', adminRouter);
   app.use('/api/agent', agentRouter);
+  app.use('/api/documents', documentsRouter);
   app.use('/api/appointments', appointmentsRouter);
   app.use('/api/calls', callsRouter);
   app.use('/api/voice', voiceRouter);
