@@ -211,7 +211,9 @@ export function buildTransientAssistant(
       : {}),
     transcriber: { provider: 'deepgram', model: 'nova-2', language: 'en' },
     voicemailMessage: settings.voicemailGreeting,
-    endCallMessage: `Thanks for calling ${tenant.companyName}. Have a great day!`,
+    // Front-load the meaningful goodbye; Vapi tends to clip the tail on hangup,
+    // so "take care now, bye!" is the disposable part that can be safely lost.
+    endCallMessage: `Thanks so much for calling ${tenant.companyName} — take care now, bye!`,
     maxDurationSeconds: 900,
     serverMessages: ['end-of-call-report', 'status-update', 'tool-calls'],
     analysisPlan: { summaryPlan: { enabled: true } },
@@ -363,7 +365,9 @@ export function buildAssistantUpdatePayload(
       : {}),
     transcriber: { provider: 'deepgram', model: 'nova-2', language: 'en' },
     voicemailMessage: settings.voicemailGreeting,
-    endCallMessage: `Thanks for calling ${tenant.companyName}. Have a great day!`,
+    // Front-load the meaningful goodbye; Vapi tends to clip the tail on hangup,
+    // so "take care now, bye!" is the disposable part that can be safely lost.
+    endCallMessage: `Thanks so much for calling ${tenant.companyName} — take care now, bye!`,
     maxDurationSeconds: 900,
     serverMessages: ['end-of-call-report', 'status-update', 'tool-calls'],
     analysisPlan: { summaryPlan: { enabled: true } },
