@@ -243,7 +243,7 @@ export function buildTransientAssistant(
     name: `${tenant.companyName} Receptionist`,
     firstMessage: openNow
       ? settings.firstMessage
-      : `${settings.firstMessage} Just so you know, you've reached us outside regular hours, but I can still help or take a message.`,
+      : `${settings.firstMessage} Just so you know, we're after hours at the moment, so I'll take a message and our team will follow up.`,
     model: {
       provider: 'openai',
       model: 'gpt-4o',
