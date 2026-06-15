@@ -21,10 +21,13 @@ export default function AdminNumbersPage() {
   const [error, setError] = useState<string | null>(null);
 
   const [number, setNumber] = useState('');
-  const [country, setCountry] = useState('CA');
+  const [country, setCountry] = useState('US');
   const [vapiPhoneId, setVapiPhoneId] = useState('');
   const [adding, setAdding] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
+
+  const [createCountry, setCreateCountry] = useState('US');
+  const [creating, setCreating] = useState(false);
 
   const load = useCallback(() => {
     AdminApi.numbers()
@@ -61,6 +64,20 @@ export default function AdminNumbersPage() {
       toast(err instanceof ApiError ? err.message : 'Could not add that number.', 'error');
     } finally {
       setAdding(false);
+    }
+  }
+
+  async function create() {
+    setCreating(true);
+    try {
+      await AdminApi.createNumber(createCountry);
+      toast('Number created in Vapi and added to the pool.', 'success');
+      setCreateCountry('US');
+      load();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not create that number.', 'error');
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -132,42 +149,63 @@ export default function AdminNumbersPage() {
         </p>
       )}
 
-      <Card>
-        <CardHeader
-          title="Add a number"
-          description="Buy a number in Vapi, point its Server URL at this app's inbound webhook, then add it here. New customers claim from this pool on activation."
-        />
-        <div className="grid gap-4 sm:grid-cols-[1fr_140px]">
-          <Input
-            label="Phone number (E.164)"
-            placeholder="+15551234567"
-            value={number}
-            onChange={(e) => setNumber(e.target.value)}
-            className="font-mono"
+      <div className="grid gap-6 lg:grid-cols-2">
+        <Card>
+          <CardHeader
+            title="Create new number in Vapi"
+            description="Select a country and we'll create a new Vapi phone number, auto-configure its webhook, and add it to the pool."
           />
-          <Select label="Country" value={country} onChange={(e) => setCountry(e.target.value)}>
-            {COUNTRIES.map((c) => (
-              <option key={c.value} value={c.value}>
-                {c.label}
-              </option>
-            ))}
-          </Select>
-        </div>
-        <div className="mt-4">
-          <Input
-            label="Vapi phone ID (optional)"
-            placeholder="For future programmatic reconfiguration"
-            value={vapiPhoneId}
-            onChange={(e) => setVapiPhoneId(e.target.value)}
-            className="font-mono text-sm"
+          <div>
+            <Select label="Country" value={createCountry} onChange={(e) => setCreateCountry(e.target.value)}>
+              {COUNTRIES.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </Select>
+          </div>
+          <div className="mt-4">
+            <Button loading={creating} onClick={create} className="w-full">
+              Create number
+            </Button>
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title="Add existing number"
+            description="If you created a number in Vapi manually, paste it here with its Vapi ID."
           />
-        </div>
-        <div className="mt-4">
-          <Button loading={adding} onClick={add}>
-            Add to pool
-          </Button>
-        </div>
-      </Card>
+          <div className="grid gap-4">
+            <Input
+              label="Phone number (E.164)"
+              placeholder="+15551234567"
+              value={number}
+              onChange={(e) => setNumber(e.target.value)}
+              className="font-mono"
+            />
+            <Select label="Country" value={country} onChange={(e) => setCountry(e.target.value)}>
+              {COUNTRIES.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </Select>
+            <Input
+              label="Vapi phone ID (optional)"
+              placeholder="ph_..."
+              value={vapiPhoneId}
+              onChange={(e) => setVapiPhoneId(e.target.value)}
+              className="font-mono text-sm"
+            />
+          </div>
+          <div className="mt-4">
+            <Button loading={adding} onClick={add} className="w-full">
+              Add to pool
+            </Button>
+          </div>
+        </Card>
+      </div>
 
       <Card>
         <CardHeader title="Pool" />

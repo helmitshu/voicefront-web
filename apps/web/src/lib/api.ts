@@ -537,6 +537,8 @@ export const AdminApi = {
     api<{ available: number; numbers: PooledNumberRow[] }>('/api/admin/numbers', { signal }),
   addNumber: (input: { number: string; country?: string; vapiPhoneId?: string }) =>
     api<{ number: PooledNumberRow }>('/api/admin/numbers', { method: 'POST', body: input }),
+  createNumber: (country?: string) =>
+    api<{ number: PooledNumberRow }>('/api/admin/numbers/create', { method: 'POST', body: { country } }),
   removeNumber: (id: string) => api<{ ok: true }>(`/api/admin/numbers/${id}`, { method: 'DELETE' }),
 };
 
