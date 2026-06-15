@@ -4,7 +4,7 @@
     "module": "commonjs",
     "moduleResolution": "node",
     "lib": ["ES2022"],
-    "rootDir": ".",
+    "rootDir": "src",
     "outDir": "dist",
     "strict": true,
     "noUnusedLocals": true,
@@ -17,6 +17,6 @@
     "resolveJsonModule": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "prisma/seed.ts"],
+  "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }
