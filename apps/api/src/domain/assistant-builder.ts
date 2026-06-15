@@ -224,8 +224,11 @@ export function buildTransientAssistant(
     // Wait a beat longer before talking so the caller's natural pauses don't
     // trigger an interruption, and require a few words (not one stray sound)
     // before the agent yields — this stops the "Got it. Got it." stutter.
-    startSpeakingPlan: { waitSeconds: 0.8, smartEndpointingEnabled: true },
-    stopSpeakingPlan: { numWords: 3, voiceSeconds: 0.3, backoffSeconds: 1.5 },
+    // Tighter response timing: smart endpointing detects turn-end, and a lower
+    // wait floor (0.6s) cuts the laggy gap before she replies. Faster resume
+    // after an interruption too. numWords:3 still guards against twitchy cut-ins.
+    startSpeakingPlan: { waitSeconds: 0.6, smartEndpointingEnabled: true },
+    stopSpeakingPlan: { numWords: 3, voiceSeconds: 0.3, backoffSeconds: 1.0 },
     // Let the agent hang up once the caller is done. endCallPhrases is forced
     // empty — phrase triggers cut the goodbye off mid-sentence; the model's
     // end-call tool lets Vapi finish speaking before it disconnects. (Must be
@@ -378,8 +381,11 @@ export function buildAssistantUpdatePayload(
     // Wait a beat longer before talking so the caller's natural pauses don't
     // trigger an interruption, and require a few words (not one stray sound)
     // before the agent yields — this stops the "Got it. Got it." stutter.
-    startSpeakingPlan: { waitSeconds: 0.8, smartEndpointingEnabled: true },
-    stopSpeakingPlan: { numWords: 3, voiceSeconds: 0.3, backoffSeconds: 1.5 },
+    // Tighter response timing: smart endpointing detects turn-end, and a lower
+    // wait floor (0.6s) cuts the laggy gap before she replies. Faster resume
+    // after an interruption too. numWords:3 still guards against twitchy cut-ins.
+    startSpeakingPlan: { waitSeconds: 0.6, smartEndpointingEnabled: true },
+    stopSpeakingPlan: { numWords: 3, voiceSeconds: 0.3, backoffSeconds: 1.0 },
     // Let the agent hang up once the caller is done. endCallPhrases is forced
     // empty — phrase triggers cut the goodbye off mid-sentence; the model's
     // end-call tool lets Vapi finish speaking before it disconnects. (Must be
