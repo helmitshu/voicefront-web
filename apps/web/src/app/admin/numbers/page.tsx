@@ -26,7 +26,7 @@ export default function AdminNumbersPage() {
   const [adding, setAdding] = useState(false);
   const [removingId, setRemovingId] = useState<string | null>(null);
 
-  const [createCountry, setCreateCountry] = useState('US');
+  const [areaCode, setAreaCode] = useState('');
   const [creating, setCreating] = useState(false);
 
   const load = useCallback(() => {
@@ -68,11 +68,16 @@ export default function AdminNumbersPage() {
   }
 
   async function create() {
+    const code = areaCode.trim();
+    if (code.length > 0 && !/^\d{3}$/.test(code)) {
+      toast('Area code must be exactly 3 digits, e.g. 415.', 'error');
+      return;
+    }
     setCreating(true);
     try {
-      await AdminApi.createNumber(createCountry);
+      await AdminApi.createNumber(code || undefined);
       toast('Number created in Vapi and added to the pool.', 'success');
-      setCreateCountry('US');
+      setAreaCode('');
       load();
     } catch (err) {
       toast(err instanceof ApiError ? err.message : 'Could not create that number.', 'error');
@@ -153,17 +158,22 @@ export default function AdminNumbersPage() {
         <Card>
           <CardHeader
             title="Create new number in Vapi"
-            description="Select a country and we'll create a new Vapi phone number, auto-configure its webhook, and add it to the pool."
+            description="Instantly provisions a free Vapi number, auto-configures its webhook, and adds it to the pool."
           />
           <div>
-            <Select label="Country" value={createCountry} onChange={(e) => setCreateCountry(e.target.value)}>
-              {COUNTRIES.map((c) => (
-                <option key={c.value} value={c.value}>
-                  {c.label}
-                </option>
-              ))}
-            </Select>
+            <Input
+              label="Area code (optional)"
+              placeholder="e.g. 415 — leave blank for any"
+              value={areaCode}
+              onChange={(e) => setAreaCode(e.target.value)}
+              inputMode="numeric"
+              maxLength={3}
+            />
           </div>
+          <p className="mt-2 text-xs text-ink-muted">
+            Free Vapi numbers are <span className="font-medium text-ink">US only</span>. For Canadian or other
+            numbers, buy one elsewhere (e.g. Twilio) and use “Add existing.”
+          </p>
           <div className="mt-4">
             <Button loading={creating} onClick={create} className="w-full">
               Create number
