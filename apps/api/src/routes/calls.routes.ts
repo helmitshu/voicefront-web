@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { prisma } from '../lib/prisma';
 import { asyncHandler } from '../lib/http';
 import { signMediaToken } from '../lib/jwt';
 import { getAuth, requireAuth } from '../middleware/auth';
@@ -10,6 +11,7 @@ import {
   toCallDto,
   type CallDetailDto,
 } from '../services/calllog.service';
+import { getMonthlyUsage } from '../services/usage.service';
 
 export const callsRouter = Router();
 callsRouter.use(requireAuth);
@@ -35,7 +37,15 @@ callsRouter.get(
   '/stats',
   asyncHandler(async (req, res) => {
     const auth = getAuth(req);
-    res.json({ stats: await getCallStats(auth.tenantId) });
+    const [stats, tenant] = await Promise.all([
+      getCallStats(auth.tenantId),
+      prisma.tenant.findUnique({
+        where: { id: auth.tenantId },
+        select: { monthlyMinuteLimit: true },
+      }),
+    ]);
+    const usage = await getMonthlyUsage(auth.tenantId, tenant?.monthlyMinuteLimit ?? 500);
+    res.json({ stats, usage });
   }),
 );
 

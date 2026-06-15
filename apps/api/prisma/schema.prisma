@@ -58,6 +58,11 @@ model Tenant {
   /// Tenant-facing profit markup applied to provider call costs, in basis
   /// points (5000 = +50%). Adjustable per tenant by the platform operator.
   markupBps          Int                @default(5000) @map("markup_bps")
+  /// Hard cap on answered call minutes per calendar month. Protects the shared
+  /// provider account: once a tenant crosses this, their receptionist stops
+  /// answering until the month rolls over (or the operator raises the cap for
+  /// a higher tier). Enforced per call in the assistant-request webhook.
+  monthlyMinuteLimit Int                @default(500) @map("monthly_minute_limit")
   createdAt          DateTime           @default(now()) @map("created_at")
   updatedAt          DateTime           @updatedAt @map("updated_at")
 

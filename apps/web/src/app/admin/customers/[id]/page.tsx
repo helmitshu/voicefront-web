@@ -33,6 +33,9 @@ export default function AdminCustomerDetailPage() {
   const [assistantInput, setAssistantInput] = useState('');
   const [assistantBusy, setAssistantBusy] = useState(false);
 
+  // Monthly minute cap (full-admin only)
+  const [limitInput, setLimitInput] = useState('');
+
   // Invite a user to this workspace
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteName, setInviteName] = useState('');
@@ -44,6 +47,7 @@ export default function AdminCustomerDetailPage() {
       .then(({ tenant }) => {
         setTenant(tenant);
         setAssistantInput(tenant.settings?.assistantId ?? '');
+        setLimitInput(String(tenant.monthlyMinuteLimit));
       })
       .catch((err: unknown) =>
         setError(err instanceof ApiError ? err.message : 'Could not load this workspace.'),
@@ -91,6 +95,18 @@ export default function AdminCustomerDetailPage() {
     } finally {
       setBusy(null);
     }
+  }
+
+  function saveLimit() {
+    if (!tenant) return;
+    const n = Number.parseInt(limitInput, 10);
+    if (!Number.isFinite(n) || n < 0) {
+      setLimitInput(String(tenant.monthlyMinuteLimit));
+      toast('Enter a whole number of minutes.', 'error');
+      return;
+    }
+    if (n === tenant.monthlyMinuteLimit) return; // no change
+    patch({ monthlyMinuteLimit: n });
   }
 
   async function resetPassword(userId: string, email: string) {
@@ -401,6 +417,53 @@ export default function AdminCustomerDetailPage() {
                 +{(tenant.markupBps / 100).toFixed(0)}% on provider cost
               </p>
               <p className="mt-0.5 text-xs text-ink-muted">Your margin on every billed call.</p>
+            </div>
+
+            <div className="border-t border-line/60 pt-3">
+              <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-muted">
+                Minutes this month
+              </p>
+              <p className="mt-1 text-sm text-ink">
+                {tenant.usage.usedMinutes} / {tenant.monthlyMinuteLimit} min
+                {tenant.usage.overLimit && (
+                  <span className="ml-2 align-middle">
+                    <Badge tone="danger" dot>
+                      Over limit
+                    </Badge>
+                  </span>
+                )}
+              </p>
+              <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-paper ring-1 ring-inset ring-ink/5">
+                <div
+                  className={`h-full rounded-full ${
+                    tenant.usage.overLimit
+                      ? 'bg-danger'
+                      : tenant.usage.fractionUsed >= 0.8
+                        ? 'bg-construction'
+                        : 'bg-clinic'
+                  }`}
+                  style={{ width: `${Math.max(2, Math.min(100, Math.round(tenant.usage.fractionUsed * 100)))}%` }}
+                />
+              </div>
+              {isFullAdmin ? (
+                <div className="mt-3">
+                  <Input
+                    label="Monthly minute cap"
+                    type="number"
+                    min={0}
+                    value={limitInput}
+                    disabled={busy === 'patch'}
+                    onChange={(e) => setLimitInput(e.target.value)}
+                    onBlur={saveLimit}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+                    }}
+                    hint="Calls stop once this is reached, until the 1st. Raise it for a higher tier."
+                  />
+                </div>
+              ) : (
+                <p className="mt-1 text-xs text-ink-muted">Resets on the 1st.</p>
+              )}
             </div>
           </div>
         </Card>

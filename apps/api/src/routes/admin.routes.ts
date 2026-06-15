@@ -36,6 +36,7 @@ import {
   syncAssistantForTenant,
   validateAssistant,
 } from '../services/vapi.service';
+import { getMonthlyUsage } from '../services/usage.service';
 
 /**
  * Founder control plane. Cross-tenant, gated by requirePlatformAdmin (admits
@@ -195,7 +196,7 @@ adminRouter.get(
     });
     if (!tenant) throw new HttpError(404, 'Workspace not found.', 'NOT_FOUND');
 
-    const [recentCalls, upcomingAppointments] = await Promise.all([
+    const [recentCalls, upcomingAppointments, usage] = await Promise.all([
       prisma.callLog.findMany({
         where: { tenantId: tenant.id },
         orderBy: { startedAt: 'desc' },
@@ -225,6 +226,7 @@ adminRouter.get(
           reason: true,
         },
       }),
+      getMonthlyUsage(tenant.id, tenant.monthlyMinuteLimit),
     ]);
 
     res.json({
@@ -235,6 +237,8 @@ adminRouter.get(
         industry: tenant.industry,
         subscriptionStatus: tenant.subscriptionStatus,
         markupBps: tenant.markupBps,
+        monthlyMinuteLimit: tenant.monthlyMinuteLimit,
+        usage,
         blocked: tenant.isBlocked,
         createdAt: tenant.createdAt.toISOString(),
         receptionistActive: tenant.onboarding?.isActive ?? false,
@@ -266,6 +270,7 @@ const TenantPatchSchema = z
     subscriptionStatus: z.enum(['TRIALING', 'ACTIVE', 'PAST_DUE', 'CANCELED']),
     receptionistActive: z.boolean(),
     markupBps: z.coerce.number().int().min(0).max(30000),
+    monthlyMinuteLimit: z.coerce.number().int().min(0).max(100000),
     blocked: z.boolean(),
   })
   .partial()
@@ -279,7 +284,10 @@ adminRouter.patch(
 
     // Billing and suspension are full-admin actions; SUPPORT may only pause/activate.
     const touchesRestricted =
-      patch.subscriptionStatus !== undefined || patch.markupBps !== undefined || patch.blocked !== undefined;
+      patch.subscriptionStatus !== undefined ||
+      patch.markupBps !== undefined ||
+      patch.monthlyMinuteLimit !== undefined ||
+      patch.blocked !== undefined;
     if (touchesRestricted && getAdminRole(req) !== 'ADMIN') {
       throw new HttpError(
         403,
@@ -297,6 +305,7 @@ adminRouter.patch(
     if (
       patch.subscriptionStatus !== undefined ||
       patch.markupBps !== undefined ||
+      patch.monthlyMinuteLimit !== undefined ||
       patch.blocked !== undefined
     ) {
       await prisma.tenant.update({
@@ -304,6 +313,7 @@ adminRouter.patch(
         data: {
           ...(patch.subscriptionStatus !== undefined ? { subscriptionStatus: patch.subscriptionStatus } : {}),
           ...(patch.markupBps !== undefined ? { markupBps: patch.markupBps } : {}),
+          ...(patch.monthlyMinuteLimit !== undefined ? { monthlyMinuteLimit: patch.monthlyMinuteLimit } : {}),
           ...(patch.blocked !== undefined ? { isBlocked: patch.blocked } : {}),
         },
       });

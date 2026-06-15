@@ -9,6 +9,7 @@ import {
   CallsApi,
   type CallDto,
   type CallStats,
+  type MonthlyUsage,
 } from '@/lib/api';
 import { formatCents, formatDateTime, formatDuration, formatPhone } from '@/lib/format';
 import { Card, CardHeader, CallStatusBadge, EmptyState, StatCard } from '@/components/ui/Card';
@@ -18,6 +19,7 @@ import { Spinner } from '@/components/ui/Spinner';
 export default function OverviewPage() {
   const { me } = useAuth();
   const [stats, setStats] = useState<CallStats | null>(null);
+  const [usage, setUsage] = useState<MonthlyUsage | null>(null);
   const [recent, setRecent] = useState<CallDto[] | null>(null);
   const [inboundNumber, setInboundNumber] = useState<string | null | undefined>(undefined);
   const [error, setError] = useState<string | null>(null);
@@ -28,6 +30,7 @@ export default function OverviewPage() {
       .then(([statsRes, listRes, settingsRes]) => {
         if (cancelled) return;
         setStats(statsRes.stats);
+        setUsage(statsRes.usage);
         setRecent(listRes.calls);
         setInboundNumber(settingsRes.settings.inboundPhoneNumber);
       })
@@ -54,13 +57,21 @@ export default function OverviewPage() {
     );
   }
 
-  if (!stats || !recent) {
+  if (!stats || !recent || !usage) {
     return (
       <div className="flex h-64 items-center justify-center">
         <Spinner className="h-6 w-6 text-signal" />
       </div>
     );
   }
+
+  // Usage bar tone: green normally, amber past 80%, red once the cap is hit.
+  const usagePct = Math.round(usage.fractionUsed * 100);
+  const usageTone = usage.overLimit
+    ? { bar: 'bg-danger', text: 'text-danger' }
+    : usage.fractionUsed >= 0.8
+      ? { bar: 'bg-construction', text: 'text-[#9a6a1d]' }
+      : { bar: 'bg-clinic', text: 'text-[#0b8a74]' };
 
   return (
     <div className="flex animate-fade-up flex-col gap-8">
@@ -199,6 +210,27 @@ export default function OverviewPage() {
               </span>
             </div>
           </div>
+          <Card>
+            <CardHeader title="Usage this month" />
+            <div className="flex items-baseline justify-between">
+              <p className="font-display text-2xl font-semibold tracking-tight text-ink">
+                {usage.usedMinutes}
+                <span className="text-base font-normal text-ink-muted"> / {usage.limitMinutes} min</span>
+              </p>
+              <span className={`text-xs font-semibold ${usageTone.text}`}>{usagePct}%</span>
+            </div>
+            <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-paper ring-1 ring-inset ring-ink/5">
+              <div
+                className={`h-full rounded-full transition-all ${usageTone.bar}`}
+                style={{ width: `${Math.max(2, Math.min(100, usagePct))}%` }}
+              />
+            </div>
+            <p className="mt-2.5 text-xs leading-relaxed text-ink-muted">
+              {usage.overLimit
+                ? 'Monthly limit reached — calls are paused until the 1st. Contact us to raise your plan.'
+                : `${usage.remainingMinutes} minutes left · resets on the 1st`}
+            </p>
+          </Card>
           <Card>
             <CardHeader title="Fine-tune anytime" />
             <p className="text-sm leading-relaxed text-ink-muted">
