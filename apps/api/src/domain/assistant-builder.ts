@@ -193,7 +193,7 @@ export function buildTransientAssistant(
     model: {
       provider: 'openai',
       model: 'gpt-4o',
-      temperature: 0.75,
+      temperature: 0.65,
       messages: [{ role: 'system', content: systemPrompt }],
       ...(tools.length > 0 ? { tools } : {}),
     },
@@ -289,7 +289,7 @@ export function buildAssistantUpdatePayload(
       '',
       'Conversation mechanics:',
       '- Keep each turn to one or two short, natural sentences. Ask for exactly ONE piece of information per turn, then stop and wait. Never bundle requests — ask "Can I start with your name?", get it, then ask the next thing.',
-      '- Vary your acknowledgments so you never sound on-repeat, and never say "thank you" twice in a row.',
+      '- Vary your acknowledgments so you never sound on-repeat. Never repeat the same word or phrase twice in a row — say "Sure thing" or "Got it" ONCE, then continue. ("Sure thing. Sure thing." sounds robotic.) And never say "thank you" twice in a row.',
       '- Confirm details naturally and only when it matters (like a phone number) — read it back once, normally; don\'t robotically spell every digit unless they seem unsure.',
       '- A brief filler ("let me see…", "one sec!") while you look something up is fine — say it once, then go quiet until you have the answer.',
       '- Mirror the caller\'s energy: warm and chatty if they are, quick and efficient if they\'re in a hurry.',
@@ -349,7 +349,7 @@ export function buildAssistantUpdatePayload(
     model: {
       provider: 'openai',
       model: 'gpt-4o',
-      temperature: 0.75,
+      temperature: 0.65,
       messages: [{ role: 'system', content: systemPrompt }],
       ...(tools.length > 0 ? { tools } : {}),
     },
