@@ -784,7 +784,8 @@ adminRouter.delete(
 );
 
 const CreateNumberSchema = z.object({
-  country: z.string().trim().length(2).optional(),
+  // US area code (3 digits). Optional — Vapi picks any available number when omitted.
+  areaCode: z.string().trim().regex(/^\d{3}$/, 'Area code must be 3 digits.').optional(),
 });
 
 adminRouter.post(
@@ -794,13 +795,14 @@ adminRouter.post(
     const adminEmail = getAdminEmail(req);
     const body = CreateNumberSchema.parse(req.body);
 
-    // Create in Vapi with the webhook URL + secret auto-configured.
-    const created = await createPhoneNumberInVapi(body.country ?? 'US');
+    // Create in Vapi with the webhook URL + secret auto-configured. Free Vapi
+    // numbers are US-only, so the pool entry is always US.
+    const created = await createPhoneNumberInVapi({ areaCode: body.areaCode });
 
     // Auto-add to the pool with the Vapi phone ID for future reference.
     const pooled = await addNumber({
       number: created.number,
-      country: body.country ?? 'US',
+      country: 'US',
       vapiPhoneId: created.id,
     });
 

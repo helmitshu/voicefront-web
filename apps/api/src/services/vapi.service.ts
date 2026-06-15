@@ -118,16 +118,18 @@ export async function findAssistantPhoneNumber(assistantId: string): Promise<str
 interface VapiCreatePhoneResult {
   id: string;
   number: string;
-  serverUrl?: string;
-  serverSecret?: string;
 }
 
 /**
- * Creates a new phone number on the Vapi account and automatically configures
- * its Server URL + webhook secret so it routes calls to our inbound handler.
- * Throws HttpError on failure.
+ * Creates a free Vapi-managed phone number and configures its Server URL +
+ * secret so calls route to our inbound webhook. Throws HttpError on failure,
+ * surfacing Vapi's own validation message when present.
+ *
+ * IMPORTANT: free Vapi numbers are US-only. A US area code can be requested via
+ * `areaCode`; Vapi assigns any available number when omitted. For non-US
+ * numbers, import a Twilio/BYO number instead (the "add existing" path).
  */
-export async function createPhoneNumberInVapi(country: string): Promise<VapiCreatePhoneResult> {
+export async function createPhoneNumberInVapi(opts: { areaCode?: string }): Promise<VapiCreatePhoneResult> {
   const [publicApiUrl, webhookSecret] = await Promise.all([
     getSettingValue('PUBLIC_API_URL'),
     getSettingValue('VAPI_WEBHOOK_SECRET'),
@@ -140,29 +142,34 @@ export async function createPhoneNumberInVapi(country: string): Promise<VapiCrea
       'CONFIG_MISSING',
     );
   }
-  if (!webhookSecret) {
-    throw new HttpError(
-      503,
-      'VAPI_WEBHOOK_SECRET is not configured. Set it under Keys & config first.',
-      'CONFIG_MISSING',
-    );
-  }
 
-  const payload = {
-    country: (country ?? 'US').toUpperCase().slice(0, 2),
-    serverUrl: `${publicApiUrl}/api/vapi/inbound`,
-    serverSecret: webhookSecret,
-  };
+  // Vapi's phone-number create is a discriminated union keyed on `provider`;
+  // "vapi" gets one of Vapi's own free numbers. The webhook lives in `server`,
+  // whose `secret` Vapi echoes back as the X-Vapi-Secret header on each call.
+  const server: { url: string; secret?: string } = { url: `${publicApiUrl}/api/vapi/inbound` };
+  if (webhookSecret) server.secret = webhookSecret;
+
+  const payload: Record<string, unknown> = { provider: 'vapi', server };
+  if (opts.areaCode) payload.numberDesiredAreaCode = opts.areaCode;
 
   const res = await vapiFetch('/phone-number', { method: 'POST', body: payload });
   if (!res.ok) {
-    const { code, message } = explainStatus(res.status);
-    throw new HttpError(res.status >= 500 ? 502 : res.status, message, code);
+    // Surface Vapi's real complaint — its 400s carry a `message` worth showing.
+    const raw = await res.text().catch(() => '');
+    let message = `Vapi returned an error (${res.status}).`;
+    try {
+      const parsed = JSON.parse(raw) as { message?: unknown };
+      const m = Array.isArray(parsed.message) ? parsed.message.join('; ') : parsed.message;
+      if (typeof m === 'string' && m.length > 0) message = `Vapi: ${m}`;
+    } catch {
+      if (raw) message = `Vapi (${res.status}): ${raw.slice(0, 200)}`;
+    }
+    throw new HttpError(res.status >= 500 ? 502 : 400, message, 'VAPI_CREATE_FAILED');
   }
 
   const data = (await res.json()) as VapiCreatePhoneResult;
   if (!data.number) {
-    throw new HttpError(502, 'Vapi returned a number without an E.164 field. Try again in a moment.', 'VAPI_ERROR');
+    throw new HttpError(502, 'Vapi created the number but returned no E.164 value.', 'VAPI_ERROR');
   }
   return data;
 }
