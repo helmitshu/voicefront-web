@@ -8,7 +8,7 @@ import { hashPassword, verifyPassword } from '../lib/passwords';
 import { signAccessToken } from '../lib/jwt';
 import { randomSuffix, toSlug } from '../lib/slug';
 import { defaultBusinessHours } from '../domain/agent-config';
-import { industryDefaults } from '../domain/prompt-templates';
+import { industryDefaults, industryPersona } from '../domain/prompt-templates';
 import { getAuth, requireAuth } from '../middleware/auth';
 import { resolvePlatformRole } from '../services/platform-admin.service';
 import { getOnboarding, toOnboardingView } from '../services/onboarding.service';
@@ -99,9 +99,10 @@ authRouter.post(
     }
 
     const passwordHash = await hashPassword(body.password);
+    const persona = industryPersona(body.industry);
     const defaults = industryDefaults(body.industry, {
       companyName: body.companyName,
-      personaName: 'Maya',
+      personaName: persona.personaName,
     });
 
     // Tenant + owner + onboarding + settings are one atomic unit: a partial
@@ -129,6 +130,8 @@ authRouter.post(
           await tx.agentSettings.create({
             data: {
               tenantId: tenant.id,
+              displayName: persona.personaName,
+              voiceId: persona.voiceId,
               systemPrompt: defaults.systemPrompt,
               firstMessage: defaults.firstMessage,
               voicemailGreeting: defaults.voicemailGreeting,

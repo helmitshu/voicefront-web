@@ -7,6 +7,23 @@ export interface TemplateInput {
   personaName: string;
 }
 
+/**
+ * Default receptionist persona per industry — the name callers hear and the
+ * matching built-in (Vapi V2) voice. Clinics get Maya (Emma, warm female);
+ * construction gets Marcus (Elliot, friendly male). Same tuning either way;
+ * only the name and voice differ. Tenants can change both later in settings.
+ */
+export interface IndustryPersona {
+  personaName: string;
+  voiceId: string;
+}
+
+export function industryPersona(industry: Industry): IndustryPersona {
+  return industry === 'CONSTRUCTION'
+    ? { personaName: 'Marcus', voiceId: 'Elliot' }
+    : { personaName: 'Maya', voiceId: 'Emma' };
+}
+
 export interface IndustryDefaults {
   systemPrompt: string;
   firstMessage: string;

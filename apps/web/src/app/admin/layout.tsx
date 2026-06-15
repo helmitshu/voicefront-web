@@ -29,6 +29,20 @@ const NAV = [
     ),
   },
   {
+    href: '/admin/numbers',
+    label: 'Phone numbers',
+    exact: false,
+    fullAdminOnly: true,
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-[18px] w-[18px]">
+        <path
+          d="M5 3.5h2l1.2 3-1.4 1a8 8 0 0 0 3.7 3.7l1-1.4 3 1.2v2A1.5 1.5 0 0 1 14 17.5C8.5 17 3 11.5 2.5 6A1.5 1.5 0 0 1 4 4.5"
+          strokeLinejoin="round"
+        />
+      </svg>
+    ),
+  },
+  {
     href: '/admin/config',
     label: 'Keys & config',
     exact: false,

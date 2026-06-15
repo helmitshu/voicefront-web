@@ -191,6 +191,28 @@ model Document {
   @@map("documents")
 }
 
+/// A phone number the operator pre-provisions in Vapi (server URL pointed at
+/// our inbound webhook) and drops into a shared pool. When a customer goes
+/// live, onboarding claims the next available number and writes it onto their
+/// AgentSettings.inboundPhoneNumber — so signup is fully self-serve. Releasing
+/// a tenant (delete/cancel) returns its number to the pool.
+model PooledNumber {
+  id               String    @id @default(cuid())
+  /// E.164 number, unique across the pool.
+  number           String    @unique @map("number")
+  /// Vapi phone-number resource id, for future programmatic reconfiguration.
+  vapiPhoneId      String?   @map("vapi_phone_id")
+  /// ISO country, for at-a-glance filtering (e.g. "US", "CA").
+  country          String    @default("US")
+  /// The tenant currently holding this number; null = available. Unique so a
+  /// tenant can hold at most one pooled number.
+  assignedTenantId String?   @unique @map("assigned_tenant_id")
+  assignedAt       DateTime? @map("assigned_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  @@map("pooled_numbers")
+}
+
 /// Operator-editable runtime configuration (API keys, public URLs).
 /// Values are AES-256-GCM encrypted; env vars act as fallback defaults.
 model PlatformSetting {

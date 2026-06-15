@@ -1,6 +1,7 @@
 import type { OnboardingStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { HttpError } from '../lib/http';
+import { claimNumberForTenant } from './phone-pool.service';
 
 export const ONBOARDING_STEPS = ['PROFILE', 'PROMPT', 'VOICE_TEST'] as const;
 export type OnboardingStep = (typeof ONBOARDING_STEPS)[number];
@@ -102,6 +103,16 @@ export async function activate(tenantId: string): Promise<OnboardingStatus> {
     throw new HttpError(409, 'Complete all setup steps before going live.', 'STEP_OUT_OF_ORDER');
   }
   if (status.isActive) return status;
+
+  // Self-serve number provisioning: claim a pooled number on the way live.
+  // Best-effort — if the pool is empty the customer still activates, and the
+  // dashboard shows "number being provisioned" until the operator refills.
+  try {
+    await claimNumberForTenant(tenantId);
+  } catch (err) {
+    console.error(`[onboarding] number claim failed for tenant ${tenantId}:`, err);
+  }
+
   return prisma.onboardingStatus.update({
     where: { tenantId },
     data: { isActive: true, completedAt: new Date() },
