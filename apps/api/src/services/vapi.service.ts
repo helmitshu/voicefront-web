@@ -115,6 +115,58 @@ export async function findAssistantPhoneNumber(assistantId: string): Promise<str
   }
 }
 
+interface VapiCreatePhoneResult {
+  id: string;
+  number: string;
+  serverUrl?: string;
+  serverSecret?: string;
+}
+
+/**
+ * Creates a new phone number on the Vapi account and automatically configures
+ * its Server URL + webhook secret so it routes calls to our inbound handler.
+ * Throws HttpError on failure.
+ */
+export async function createPhoneNumberInVapi(country: string): Promise<VapiCreatePhoneResult> {
+  const [publicApiUrl, webhookSecret] = await Promise.all([
+    getSettingValue('PUBLIC_API_URL'),
+    getSettingValue('VAPI_WEBHOOK_SECRET'),
+  ]);
+
+  if (!publicApiUrl) {
+    throw new HttpError(
+      503,
+      'PUBLIC_API_URL is not configured. Set it under Keys & config first.',
+      'CONFIG_MISSING',
+    );
+  }
+  if (!webhookSecret) {
+    throw new HttpError(
+      503,
+      'VAPI_WEBHOOK_SECRET is not configured. Set it under Keys & config first.',
+      'CONFIG_MISSING',
+    );
+  }
+
+  const payload = {
+    country: (country ?? 'US').toUpperCase().slice(0, 2),
+    serverUrl: `${publicApiUrl}/api/vapi/inbound`,
+    serverSecret: webhookSecret,
+  };
+
+  const res = await vapiFetch('/phone-number', { method: 'POST', body: payload });
+  if (!res.ok) {
+    const { code, message } = explainStatus(res.status);
+    throw new HttpError(res.status >= 500 ? 502 : res.status, message, code);
+  }
+
+  const data = (await res.json()) as VapiCreatePhoneResult;
+  if (!data.number) {
+    throw new HttpError(502, 'Vapi returned a number without an E.164 field. Try again in a moment.', 'VAPI_ERROR');
+  }
+  return data;
+}
+
 /* ------------------------------ file uploads ------------------------------ */
 
 export interface VapiFile {

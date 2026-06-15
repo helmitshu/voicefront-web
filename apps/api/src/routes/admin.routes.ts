@@ -32,6 +32,7 @@ import {
   removeAdmin,
 } from '../services/platform-admin.service';
 import {
+  createPhoneNumberInVapi,
   findAssistantPhoneNumber,
   syncAssistantForTenant,
   validateAssistant,
@@ -779,5 +780,31 @@ adminRouter.delete(
     await removeNumber(req.params.id);
     await recordAdminAction(adminEmail, 'number.remove', req.params.id, {});
     res.json({ ok: true });
+  }),
+);
+
+const CreateNumberSchema = z.object({
+  country: z.string().trim().length(2).optional(),
+});
+
+adminRouter.post(
+  '/numbers/create',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const adminEmail = getAdminEmail(req);
+    const body = CreateNumberSchema.parse(req.body);
+
+    // Create in Vapi with the webhook URL + secret auto-configured.
+    const created = await createPhoneNumberInVapi(body.country ?? 'US');
+
+    // Auto-add to the pool with the Vapi phone ID for future reference.
+    const pooled = await addNumber({
+      number: created.number,
+      country: body.country ?? 'US',
+      vapiPhoneId: created.id,
+    });
+
+    await recordAdminAction(adminEmail, 'number.create', created.number, { vapiPhoneId: created.id });
+    res.status(201).json({ number: toPoolEntry(pooled) });
   }),
 );
