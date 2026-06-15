@@ -7,6 +7,7 @@ import { getSettingValue } from '../services/platform-config.service';
 import { normalizePhone } from '../lib/phone';
 import { buildTransientAssistant } from '../domain/assistant-builder';
 import { ingestEndOfCallReport } from '../services/calllog.service';
+import { isOverMonthlyLimit } from '../services/usage.service';
 import {
   bookAppointment,
   findFreeSlots,
@@ -273,6 +274,16 @@ inboundRouter.post(
       if (!settings.tenant.onboarding?.isActive) {
         res.status(200).json({
           error: 'This receptionist has not been activated yet. Please finish setup in your dashboard.',
+        });
+        return;
+      }
+      // Protect the shared provider account: once a tenant uses up its monthly
+      // minute allowance, stop answering until the cap resets or is raised. We
+      // check before handing back an assistant so the call never connects.
+      if (await isOverMonthlyLimit(settings.tenantId, settings.tenant.monthlyMinuteLimit)) {
+        console.warn(`[webhook] assistant-request refused — tenant ${settings.tenantId} over monthly minute limit`);
+        res.status(200).json({
+          error: 'This receptionist has reached its monthly call limit. Please try again later.',
         });
         return;
       }

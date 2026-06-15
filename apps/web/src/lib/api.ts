@@ -220,6 +220,18 @@ export interface CallStats {
   afterHoursShare: number;
 }
 
+/** Current-month minute usage against the tenant's monthly cap. */
+export interface MonthlyUsage {
+  periodStart: string;
+  usedSeconds: number;
+  usedMinutes: number;
+  limitMinutes: number;
+  remainingMinutes: number;
+  /** 0..1 share of the cap consumed. */
+  fractionUsed: number;
+  overLimit: boolean;
+}
+
 /** Server-built transient assistant config; opaque to the client. */
 export type WebAssistantConfig = Record<string, unknown>;
 
@@ -399,6 +411,8 @@ export interface AdminTenantDetail {
   industry: Industry;
   subscriptionStatus: string;
   markupBps: number;
+  monthlyMinuteLimit: number;
+  usage: MonthlyUsage;
   blocked: boolean;
   createdAt: string;
   receptionistActive: boolean;
@@ -466,6 +480,7 @@ export const AdminApi = {
       subscriptionStatus: string;
       receptionistActive: boolean;
       markupBps: number;
+      monthlyMinuteLimit: number;
       blocked: boolean;
     }>,
   ) => api<{ ok: true }>(`/api/admin/tenants/${id}`, { method: 'PATCH', body: patch }),
@@ -557,7 +572,7 @@ export const CallsApi = {
     const qs = query.toString();
     return api<ListCallsResult>(`/api/calls${qs ? `?${qs}` : ''}`, { signal });
   },
-  stats: () => api<{ stats: CallStats }>('/api/calls/stats'),
+  stats: () => api<{ stats: CallStats; usage: MonthlyUsage }>('/api/calls/stats'),
   detail: (id: string) => api<{ call: CallDetailDto; mediaToken: string | null }>(`/api/calls/${id}`),
 };
 
