@@ -18,7 +18,7 @@ export interface TransientAssistant {
     model: string;
     temperature: number;
     messages: Array<{ role: 'system'; content: string }>;
-    tools?: Array<TransferCallTool | FunctionTool>;
+    tools?: Array<TransferCallTool | FunctionTool | QueryTool>;
   };
   /**
    * Where the provider sends webhooks for this assistant (tool calls etc.).
@@ -74,6 +74,54 @@ interface TransferCallTool {
     description: string;
   }>;
 }
+
+/**
+ * Vapi "query" tool backed by uploaded knowledge-base files. The model calls
+ * it to look up business facts (services, pricing, promotions, location,
+ * parking, insurance) from the tenant's documents instead of guessing.
+ * `provider: 'google'` is what Vapi uses for files uploaded to its own store.
+ */
+interface QueryTool {
+  type: 'query';
+  function: { name: string };
+  knowledgeBases: Array<{
+    provider: 'google';
+    name: string;
+    description: string;
+    fileIds: string[];
+  }>;
+}
+
+/** Name the model sees for the knowledge-base lookup; referenced in the prompt. */
+const KNOWLEDGE_TOOL_NAME = 'lookupBusinessInfo';
+
+/**
+ * Builds the knowledge-base query tool from a tenant's uploaded file ids, or
+ * null when they have none (so we never attach an empty knowledge base).
+ */
+function buildKnowledgeTool(companyName: string, fileIds: string[]): QueryTool | null {
+  if (fileIds.length === 0) return null;
+  return {
+    type: 'query',
+    function: { name: KNOWLEDGE_TOOL_NAME },
+    knowledgeBases: [
+      {
+        provider: 'google',
+        name: 'business-info',
+        description: `Reference documents for ${companyName}: services, pricing, promotions, location, parking, insurance, and other business details.`,
+        fileIds,
+      },
+    ],
+  };
+}
+
+/** Prompt block telling the model when to reach for the knowledge base. */
+const KNOWLEDGE_PROMPT = [
+  'BUSINESS KNOWLEDGE (uploaded documents):',
+  `- You have a ${KNOWLEDGE_TOOL_NAME} tool that searches the business's own documents (services, pricing, promotions, location, parking, insurance, policies).`,
+  `- Whenever a caller asks about any of those and you're not 100% sure of the answer, call ${KNOWLEDGE_TOOL_NAME} first and answer from what it returns — don't guess or make up details.`,
+  '- If the documents don\'t cover it, say you\'re not certain and offer to take a message or have someone follow up.',
+].join('\n');
 
 interface FunctionTool {
   type: 'function';
@@ -149,7 +197,7 @@ export function buildTransientAssistant(
   settings: AgentSettings,
   channel: CallChannel,
   now: Date = new Date(),
-  options: { serverUrl?: string; serverSecret?: string } = {},
+  options: { serverUrl?: string; serverSecret?: string; knowledgeFileIds?: string[] } = {},
 ): TransientAssistant {
   const businessHours = parseBusinessHours(settings.businessHours);
   const forwardingNumbers = parseForwardingNumbers(settings.forwardingNumbers);
@@ -160,18 +208,24 @@ export function buildTransientAssistant(
     weekday: 'long',
   }).format(now);
 
-  const systemPrompt = composeSystemPrompt({
-    companyName: tenant.companyName,
-    basePrompt: settings.systemPrompt,
-    businessHours,
-    timezone: settings.timezone,
-    openNow,
-    voicemailGreeting: settings.voicemailGreeting,
-    forwardingNumbers,
-    localToday: { date: local.date, weekday },
-  });
+  const knowledgeTool = buildKnowledgeTool(tenant.companyName, options.knowledgeFileIds ?? []);
 
-  const tools: Array<TransferCallTool | FunctionTool> = [...buildBookingTools()];
+  const systemPrompt = [
+    composeSystemPrompt({
+      companyName: tenant.companyName,
+      basePrompt: settings.systemPrompt,
+      businessHours,
+      timezone: settings.timezone,
+      openNow,
+      voicemailGreeting: settings.voicemailGreeting,
+      forwardingNumbers,
+      localToday: { date: local.date, weekday },
+    }),
+    ...(knowledgeTool ? ['', KNOWLEDGE_PROMPT] : []),
+  ].join('\n');
+
+  const tools: Array<TransferCallTool | FunctionTool | QueryTool> = [...buildBookingTools()];
+  if (knowledgeTool) tools.push(knowledgeTool);
   if (forwardingNumbers.length > 0) {
     tools.push({
       type: 'transferCall',
@@ -255,10 +309,11 @@ export function buildTransientAssistant(
 export function buildAssistantUpdatePayload(
   tenant: Pick<Tenant, 'id' | 'companyName'>,
   settings: AgentSettings,
-  options: { serverUrl?: string; serverSecret?: string } = {},
+  options: { serverUrl?: string; serverSecret?: string; knowledgeFileIds?: string[] } = {},
 ): TransientAssistant {
   const businessHours = parseBusinessHours(settings.businessHours);
   const forwardingNumbers = parseForwardingNumbers(settings.forwardingNumbers);
+  const knowledgeTool = buildKnowledgeTool(tenant.companyName, options.knowledgeFileIds ?? []);
 
   const directory =
     forwardingNumbers.length > 0
@@ -332,9 +387,11 @@ export function buildAssistantUpdatePayload(
       '- When the caller signals they\'re done (they say "bye", "that\'s all", "thanks, that\'s it", or similar), give ONE short, warm goodbye and then immediately use the end-call function to hang up.',
       '- Do not keep talking, do not ask "anything else?" more than once, and never trade repeated goodbyes. One goodbye, then end the call.',
     ].join('\n'),
+    ...(knowledgeTool ? ['', KNOWLEDGE_PROMPT] : []),
   ].join('\n');
 
-  const tools: Array<TransferCallTool | FunctionTool> = [...buildBookingTools()];
+  const tools: Array<TransferCallTool | FunctionTool | QueryTool> = [...buildBookingTools()];
+  if (knowledgeTool) tools.push(knowledgeTool);
   if (forwardingNumbers.length > 0) {
     tools.push({
       type: 'transferCall',

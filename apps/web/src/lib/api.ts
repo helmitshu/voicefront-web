@@ -54,25 +54,9 @@ interface RequestOptions {
   signal?: AbortSignal;
 }
 
-export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const headers: Record<string, string> = {};
-  if (options.body !== undefined) headers['Content-Type'] = 'application/json';
-  const token = getToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
-
-  let res: Response;
-  try {
-    res = await fetch(`${API_URL}${path}`, {
-      method: options.method ?? 'GET',
-      headers,
-      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-      signal: options.signal,
-    });
-  } catch (err) {
-    if (err instanceof DOMException && err.name === 'AbortError') throw err;
-    throw new ApiError(0, 'Could not reach the server. Check your connection and try again.', 'NETWORK');
-  }
-
+/** Parse a fetch Response into T, or throw a typed ApiError. Shared by the
+ *  JSON `api` helper and the raw-binary document upload. */
+async function handleResponse<T>(res: Response): Promise<T> {
   let payload: unknown = null;
   const text = await res.text();
   if (text) {
@@ -96,6 +80,28 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
   }
 
   return payload as T;
+}
+
+export async function api<T>(path: string, options: RequestOptions = {}): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (options.body !== undefined) headers['Content-Type'] = 'application/json';
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, {
+      method: options.method ?? 'GET',
+      headers,
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      signal: options.signal,
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') throw err;
+    throw new ApiError(0, 'Could not reach the server. Check your connection and try again.', 'NETWORK');
+  }
+
+  return handleResponse<T>(res);
 }
 
 /* --------------------------------- types --------------------------------- */
@@ -254,6 +260,45 @@ export const AgentApi = {
       method: 'PATCH',
       body: patch,
     }),
+};
+
+/** A knowledge-base document the receptionist can answer questions from. */
+export interface DocumentDto {
+  id: string;
+  fileName: string;
+  mimeType: string;
+  sizeBytes: number;
+  /** Vapi processing state: "processing" | "done" | "failed". */
+  status: string;
+  createdAt: string;
+}
+
+export const DocumentsApi = {
+  list: (signal?: AbortSignal) => api<{ documents: DocumentDto[] }>('/api/documents', { signal }),
+  /**
+   * Uploads one file as a raw binary body. Filename + type ride in headers and
+   * the content type is forced to octet-stream so the API's JSON parser leaves
+   * the bytes alone (matters for .json knowledge files especially).
+   */
+  upload: async (file: File): Promise<{ document: DocumentDto; sync?: SyncStatus }> => {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/octet-stream',
+      'X-File-Name': encodeURIComponent(file.name),
+      'X-File-Type': file.type || 'application/octet-stream',
+    };
+    const token = getToken();
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    let res: Response;
+    try {
+      res = await fetch(`${API_URL}/api/documents`, { method: 'POST', headers, body: file });
+    } catch {
+      throw new ApiError(0, 'Could not reach the server. Check your connection and try again.', 'NETWORK');
+    }
+    return handleResponse<{ document: DocumentDto; sync?: SyncStatus }>(res);
+  },
+  remove: (id: string) =>
+    api<{ ok: true; sync?: SyncStatus }>(`/api/documents/${id}`, { method: 'DELETE' }),
 };
 
 export type AppointmentStatus = 'CONFIRMED' | 'CANCELLED' | 'COMPLETED' | 'NO_SHOW';

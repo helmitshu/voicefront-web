@@ -34,7 +34,7 @@ interface VapiAssistant {
 
 async function vapiFetch(
   path: string,
-  init: { method: 'GET' | 'PATCH' | 'POST'; body?: unknown },
+  init: { method: 'GET' | 'PATCH' | 'POST' | 'DELETE'; body?: unknown },
 ): Promise<Response> {
   const key = await privateKey();
   if (!key) {
@@ -115,6 +115,81 @@ export async function findAssistantPhoneNumber(assistantId: string): Promise<str
   }
 }
 
+/* ------------------------------ file uploads ------------------------------ */
+
+export interface VapiFile {
+  id: string;
+  /** "processing" | "done" | "failed" — until "done" it isn't queryable. */
+  status: string;
+}
+
+/**
+ * Uploads a document to Vapi's file store (multipart). The returned id is what
+ * we attach to an assistant as a knowledge-base file. Throws HttpError with a
+ * speakable message so the upload route can surface a clear failure.
+ *
+ * Note: we send the multipart body via the native FormData/Blob — fetch sets
+ * the multipart boundary itself, so (unlike vapiFetch) we must NOT set a
+ * Content-Type header here.
+ */
+export async function uploadFileToVapi(
+  buffer: Buffer,
+  fileName: string,
+  mimeType: string,
+): Promise<VapiFile> {
+  const key = await privateKey();
+  if (!key) {
+    throw new HttpError(
+      503,
+      'No Vapi private key is configured. Add it under Keys & config before uploading documents.',
+      'VAPI_PRIVATE_KEY_MISSING',
+    );
+  }
+
+  const form = new FormData();
+  form.append('file', new Blob([new Uint8Array(buffer)], { type: mimeType }), fileName);
+
+  const controller = new AbortController();
+  // Uploads + server-side parsing can take longer than a normal API call.
+  const timer = setTimeout(() => controller.abort(), 30_000);
+  let res: Response;
+  try {
+    res = await fetch(`${VAPI_BASE_URL}/file`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${key}` },
+      body: form,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw new HttpError(504, 'The upload to Vapi timed out. Try again in a moment.', 'VAPI_TIMEOUT');
+    }
+    throw new HttpError(502, 'Could not reach Vapi to upload the file.', 'VAPI_UNREACHABLE');
+  } finally {
+    clearTimeout(timer);
+  }
+
+  if (!res.ok) {
+    const { code, message } = explainStatus(res.status);
+    throw new HttpError(res.status === 401 || res.status === 403 ? 502 : 502, message, code);
+  }
+  const data = (await res.json()) as { id: string; status?: string };
+  return { id: data.id, status: data.status ?? 'processing' };
+}
+
+/**
+ * Removes a file from Vapi's store. Best-effort: never throws, so deleting a
+ * document from the portal always succeeds locally even if Vapi is unreachable
+ * (an orphaned Vapi file is harmless — it's no longer referenced by any assistant).
+ */
+export async function deleteFileFromVapi(fileId: string): Promise<void> {
+  try {
+    await vapiFetch(`/file/${encodeURIComponent(fileId)}`, { method: 'DELETE' });
+  } catch (err) {
+    console.warn(`[vapi] Failed to delete file ${fileId} (continuing):`, err);
+  }
+}
+
 export interface SyncResult {
   synced: boolean;
   /** Why a sync was skipped or failed — surfaced to the customer as a gentle note. */
@@ -138,13 +213,21 @@ export async function syncAssistantForTenant(tenantId: string): Promise<SyncResu
   }
 
   try {
-    const [publicApiUrl, webhookSecret] = await Promise.all([
+    const [publicApiUrl, webhookSecret, documents] = await Promise.all([
       getSettingValue('PUBLIC_API_URL'),
       getSettingValue('VAPI_WEBHOOK_SECRET'),
+      // Attach every file that isn't a known failure. Vapi keeps indexing a
+      // "processing" file after it's attached, so it becomes queryable by the
+      // time a call lands — and we never poll Vapi for status transitions.
+      prisma.document.findMany({
+        where: { tenantId, status: { not: 'failed' } },
+        select: { vapiFileId: true },
+      }),
     ]);
     const payload = buildAssistantUpdatePayload(tenant, settings, {
       serverUrl: publicApiUrl ? `${publicApiUrl}/api/vapi/inbound` : undefined,
       serverSecret: webhookSecret ?? undefined,
+      knowledgeFileIds: documents.map((d) => d.vapiFileId),
     });
     const res = await vapiFetch(`/assistant/${encodeURIComponent(settings.assistantId)}`, {
       method: 'PATCH',

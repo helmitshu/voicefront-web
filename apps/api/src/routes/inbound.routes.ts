@@ -277,13 +277,18 @@ inboundRouter.post(
         return;
       }
 
-      const [publicApiUrl, webhookSecret] = await Promise.all([
+      const [publicApiUrl, webhookSecret, documents] = await Promise.all([
         getSettingValue('PUBLIC_API_URL'),
         getSettingValue('VAPI_WEBHOOK_SECRET'),
+        prisma.document.findMany({
+          where: { tenantId: settings.tenantId, status: { not: 'failed' } },
+          select: { vapiFileId: true },
+        }),
       ]);
       const assistant = buildTransientAssistant(settings.tenant, settings, 'phone', new Date(), {
         serverUrl: publicApiUrl ? `${publicApiUrl}/api/vapi/inbound` : undefined,
         serverSecret: webhookSecret ?? undefined,
+        knowledgeFileIds: documents.map((d) => d.vapiFileId),
       });
       res.status(200).json({ assistant });
       return;
