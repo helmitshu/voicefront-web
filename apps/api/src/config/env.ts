@@ -25,6 +25,13 @@ const EnvSchema = z.object({
    * have no phone-number-level server config to fall back to.
    */
   PUBLIC_API_URL: z.string().url().optional(),
+  /**
+   * Injected automatically by Railway for any service with a public domain
+   * (e.g. "voicefrontapi-production.up.railway.app"). Used to derive
+   * PUBLIC_API_URL when it isn't set explicitly, so the Vapi webhook points at
+   * this cloud service with zero manual config — no ngrok/local tunnel needed.
+   */
+  RAILWAY_PUBLIC_DOMAIN: z.string().optional(),
   MEDIA_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(300),
   /**
    * Comma-separated emails granted the founder admin panel (/admin).
@@ -49,6 +56,14 @@ function loadEnv(): Env {
 }
 
 export const env = loadEnv();
+
+/**
+ * Public base URL of this API. An explicit PUBLIC_API_URL wins; otherwise we
+ * derive it from Railway's injected public domain, so the cloud deploy serves
+ * the Vapi webhook with no ngrok/local tunnel. Null only in pure local dev.
+ */
+export const publicApiUrl: string | null =
+  env.PUBLIC_API_URL ?? (env.RAILWAY_PUBLIC_DOMAIN ? `https://${env.RAILWAY_PUBLIC_DOMAIN}` : null);
 
 export const corsOrigins = env.CORS_ORIGIN.split(',')
   .map((o) => o.trim())

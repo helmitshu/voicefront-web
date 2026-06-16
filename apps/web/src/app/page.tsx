@@ -638,6 +638,16 @@ export default function LandingPage() {
   const primaryHref = authed ? '/dashboard' : '/register';
   const primaryLabel = authed ? 'Open dashboard' : 'Get started';
 
+  // Founder can hide the demo from the admin panel. Fail open (show it) so a
+  // status hiccup never blanks the marketing centerpiece.
+  const [demoOn, setDemoOn] = useState<boolean | null>(null);
+  useEffect(() => {
+    DemoApi.status()
+      .then((r) => setDemoOn(r.enabled))
+      .catch(() => setDemoOn(true));
+  }, []);
+  const showDemo = demoOn === true;
+
   return (
     <div className="bg-white text-ink">
       {/* ---------------------------------- nav --------------------------------- */}
@@ -647,7 +657,7 @@ export default function LandingPage() {
             <Logo />
           </Link>
           <div className="hidden items-center gap-7 text-sm font-medium text-ink-muted md:flex">
-            <a href="#demo" className="transition-colors hover:text-ink">Demo</a>
+            {showDemo && <a href="#demo" className="transition-colors hover:text-ink">Demo</a>}
             <a href="#how" className="transition-colors hover:text-ink">How it works</a>
             <a href="#industries" className="transition-colors hover:text-ink">Industries</a>
             <a href="#pricing" className="transition-colors hover:text-ink">Pricing</a>
@@ -756,6 +766,7 @@ export default function LandingPage() {
       </section>
 
       {/* ------------------------------- live demo ------------------------------- */}
+      {showDemo && (
       <section id="demo" className="relative overflow-hidden bg-ink px-6 py-24 md:py-32">
         <div
           aria-hidden
@@ -786,6 +797,7 @@ export default function LandingPage() {
           </Reveal>
         </div>
       </section>
+      )}
 
       {/* ------------------------------ how it works ----------------------------- */}
       <section id="how" className="px-6 py-24 md:py-32">

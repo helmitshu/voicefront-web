@@ -8,6 +8,7 @@ import {
   getDemoAppointments,
   blockDemoSlot,
   resetDemoSession,
+  isDemoEnabled,
 } from '../services/demo.service';
 
 /**
@@ -26,10 +27,21 @@ const BlockSchema = SessionSchema.extend({
 const DEMO_OPENER =
   "Hi there, you've reached Bayview Family Clinic — this is Maya. This is a live demo, so go ahead and book an appointment, or try to catch me out. What can I do for you?";
 
+/** Whether the landing-page demo is currently switched on (founder toggle). */
+demoRouter.get(
+  '/status',
+  asyncHandler(async (_req, res) => {
+    res.json({ enabled: await isDemoEnabled() });
+  }),
+);
+
 /** Start a session: returns the public key, a demo assistant, and the calendar. */
 demoRouter.post(
   '/session',
   asyncHandler(async (_req, res) => {
+    if (!(await isDemoEnabled())) {
+      throw new HttpError(403, 'The demo is currently turned off.', 'DEMO_DISABLED');
+    }
     const publicKey = await getSettingValue('VAPI_PUBLIC_KEY');
     if (!publicKey) {
       throw new HttpError(503, 'The live demo is not configured on this server yet.', 'VOICE_NOT_CONFIGURED');

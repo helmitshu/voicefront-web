@@ -533,6 +533,10 @@ export const AdminApi = {
     api<{ ok: true }>(`/api/admin/settings/${key}`, { method: 'PATCH', body: { value } }),
   unsetSetting: (key: string) =>
     api<{ ok: true }>(`/api/admin/settings/${key}`, { method: 'DELETE' }),
+  demoEnabled: (signal?: AbortSignal) =>
+    api<{ enabled: boolean }>('/api/admin/demo', { signal }),
+  setDemoEnabled: (enabled: boolean) =>
+    api<{ enabled: boolean }>('/api/admin/demo', { method: 'PATCH', body: { enabled } }),
   audit: (signal?: AbortSignal) =>
     api<{ entries: AdminAuditEntry[] }>('/api/admin/audit', { signal }),
   team: (signal?: AbortSignal) =>
@@ -628,6 +632,7 @@ export interface DemoSessionResponse {
 }
 
 export const DemoApi = {
+  status: () => api<{ enabled: boolean }>('/api/demo/status'),
   start: () => api<DemoSessionResponse>('/api/demo/session', { method: 'POST' }),
   appointments: (sessionId: string) =>
     api<{ appointments: DemoAppointment[] }>(`/api/demo/appointments?sessionId=${encodeURIComponent(sessionId)}`),

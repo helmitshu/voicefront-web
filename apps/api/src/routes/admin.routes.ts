@@ -31,7 +31,7 @@ import {
   listAdmins,
   removeAdmin,
 } from '../services/platform-admin.service';
-import { DEMO_TENANT_SLUG } from '../services/demo.service';
+import { DEMO_TENANT_SLUG, isDemoEnabled, setDemoEnabled } from '../services/demo.service';
 import {
   createAssistantForTenant,
   createPhoneNumberInVapi,
@@ -702,6 +702,28 @@ adminRouter.delete(
     await unsetSetting(key);
     await recordAdminAction(adminEmail, 'config.unset', key, {});
     res.json({ ok: true });
+  }),
+);
+
+/* ----------------------- landing-page demo on/off ------------------------- */
+
+adminRouter.get(
+  '/demo',
+  requireFullAdmin,
+  asyncHandler(async (_req, res) => {
+    res.json({ enabled: await isDemoEnabled() });
+  }),
+);
+
+adminRouter.patch(
+  '/demo',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const adminEmail = getAdminEmail(req);
+    const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body);
+    await setDemoEnabled(enabled, adminEmail);
+    await recordAdminAction(adminEmail, enabled ? 'demo.enable' : 'demo.disable', 'landing demo', {});
+    res.json({ enabled });
   }),
 );
 

@@ -16,6 +16,27 @@ import { utcToZonedParts, zonedToUtc } from './appointment.service';
  */
 
 export const DEMO_TENANT_SLUG = '__demo';
+
+/**
+ * Master on/off switch for the public landing-page demo. Stored as a plain
+ * 'true'/'false' in a reserved PlatformSetting row (NOT one of the encrypted
+ * typed config keys — it isn't a secret). Defaults ON when no row exists.
+ */
+const DEMO_ENABLED_KEY = 'DEMO_ENABLED';
+
+export async function isDemoEnabled(): Promise<boolean> {
+  const row = await prisma.platformSetting.findUnique({ where: { key: DEMO_ENABLED_KEY } });
+  return row ? row.valueEnc === 'true' : true;
+}
+
+export async function setDemoEnabled(enabled: boolean, adminEmail: string): Promise<void> {
+  const valueEnc = enabled ? 'true' : 'false';
+  await prisma.platformSetting.upsert({
+    where: { key: DEMO_ENABLED_KEY },
+    create: { key: DEMO_ENABLED_KEY, valueEnc, updatedBy: adminEmail },
+    update: { valueEnc, updatedBy: adminEmail },
+  });
+}
 const DEMO_COMPANY = 'Bayview Family Clinic';
 const DEMO_TZ = 'America/Vancouver';
 const SLOT_MINUTES = 30;

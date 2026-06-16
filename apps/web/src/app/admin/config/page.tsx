@@ -16,6 +16,8 @@ export default function AdminConfigPage() {
   const [error, setError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
+  const [demoEnabled, setDemoEnabled] = useState<boolean | null>(null);
+  const [demoBusy, setDemoBusy] = useState(false);
 
   const isFullAdmin = me?.user.adminRole === 'ADMIN';
 
@@ -25,7 +27,25 @@ export default function AdminConfigPage() {
       .catch((err: unknown) =>
         setError(err instanceof ApiError ? err.message : 'Could not load configuration.'),
       );
+    AdminApi.demoEnabled()
+      .then(({ enabled }) => setDemoEnabled(enabled))
+      .catch(() => setDemoEnabled(null));
   }, []);
+
+  async function toggleDemo() {
+    if (demoEnabled === null) return;
+    const next = !demoEnabled;
+    setDemoBusy(true);
+    try {
+      await AdminApi.setDemoEnabled(next);
+      setDemoEnabled(next);
+      toast(next ? 'Landing-page demo is now live.' : 'Landing-page demo is hidden.', 'success');
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not change the demo.', 'error');
+    } finally {
+      setDemoBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (isFullAdmin) load();
@@ -110,6 +130,33 @@ export default function AdminConfigPage() {
       </div>
 
       <div className="flex flex-col gap-5">
+        <Card>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="max-w-xl">
+              <div className="flex items-center gap-2.5">
+                <h3 className="font-display text-[15px] font-semibold tracking-tight text-ink">
+                  Landing-page demo
+                </h3>
+                {demoEnabled === true && <Badge tone="signal" dot>Live</Badge>}
+                {demoEnabled === false && <Badge tone="warning" dot>Hidden</Badge>}
+              </div>
+              <p className="mt-1.5 text-sm leading-relaxed text-ink-muted">
+                The interactive voice demo on your public landing page. Turn it off to hide it from
+                visitors entirely.
+              </p>
+            </div>
+            <Button
+              variant={demoEnabled ? 'secondary' : 'primary'}
+              size="sm"
+              loading={demoBusy}
+              disabled={demoEnabled === null}
+              onClick={toggleDemo}
+            >
+              {demoEnabled ? 'Turn off demo' : 'Turn on demo'}
+            </Button>
+          </div>
+        </Card>
+
         {settings.map((setting) => (
           <Card key={setting.key}>
             <div className="flex flex-wrap items-start justify-between gap-3">
