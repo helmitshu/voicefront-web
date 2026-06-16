@@ -31,6 +31,7 @@ import {
   listAdmins,
   removeAdmin,
 } from '../services/platform-admin.service';
+import { DEMO_TENANT_SLUG } from '../services/demo.service';
 import {
   createAssistantForTenant,
   createPhoneNumberInVapi,
@@ -56,8 +57,9 @@ import {
 export const adminRouter = Router();
 adminRouter.use(requireAuth, requirePlatformAdmin);
 
-/** The reserved staff tenant is never shown as a customer. */
-const NOT_PLATFORM_TENANT = { slug: { not: PLATFORM_TENANT_SLUG } } as const;
+/** Reserved internal tenants (staff workspace + landing-page demo) are never
+ * shown as customers. */
+const NOT_PLATFORM_TENANT = { slug: { notIn: [PLATFORM_TENANT_SLUG, DEMO_TENANT_SLUG] } };
 
 const THIRTY_DAYS_MS = 30 * 24 * 3600_000;
 

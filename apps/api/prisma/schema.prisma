@@ -161,10 +161,14 @@ model Appointment {
   /// Populated by calendar sync (phase 2); empty object until connected.
   externalEventIds Json           @default("{}") @map("external_event_ids")
   notes         String?           @db.Text
+  /// Set only for the public landing-page demo: isolates each visitor's
+  /// throwaway bookings under the shared demo tenant. Null for real bookings.
+  demoSessionId String?           @map("demo_session_id")
   createdAt     DateTime          @default(now()) @map("created_at")
   updatedAt     DateTime          @updatedAt @map("updated_at")
 
   @@index([tenantId, startsAt])
+  @@index([demoSessionId])
   @@map("appointments")
 }
 

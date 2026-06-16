@@ -603,6 +603,40 @@ export const CallsApi = {
   detail: (id: string) => api<{ call: CallDetailDto; mediaToken: string | null }>(`/api/calls/${id}`),
 };
 
+/* ---------------------------- public demo (no auth) ---------------------- */
+
+export interface DemoDay {
+  date: string;
+  dayLabel: string;
+  timezone: string;
+  open: string;
+  close: string;
+  slotMinutes: number;
+}
+export interface DemoAppointment {
+  id: string;
+  time: string; // "HH:MM" local
+  label: string;
+  kind: 'seed' | 'blocked' | 'voice';
+}
+export interface DemoSessionResponse {
+  publicKey: string;
+  assistant: WebAssistantConfig;
+  sessionId: string;
+  day: DemoDay;
+  appointments: DemoAppointment[];
+}
+
+export const DemoApi = {
+  start: () => api<DemoSessionResponse>('/api/demo/session', { method: 'POST' }),
+  appointments: (sessionId: string) =>
+    api<{ appointments: DemoAppointment[] }>(`/api/demo/appointments?sessionId=${encodeURIComponent(sessionId)}`),
+  block: (sessionId: string, date: string, time: string) =>
+    api<{ appointments: DemoAppointment[] }>('/api/demo/block', { method: 'POST', body: { sessionId, date, time } }),
+  reset: (sessionId: string) =>
+    api<{ day: DemoDay; appointments: DemoAppointment[] }>('/api/demo/reset', { method: 'POST', body: { sessionId } }),
+};
+
 export const VoiceApi = {
   webSession: (voiceId?: string) =>
     api<WebSession>('/api/voice/web-session', { method: 'POST', body: voiceId ? { voiceId } : {} }),
