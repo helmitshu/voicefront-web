@@ -523,6 +523,10 @@ export const AdminApi = {
     api<{ assistantId: string; created: boolean }>(`/api/admin/tenants/${tenantId}/assistant/create`, {
       method: 'POST',
     }),
+  syncAssistant: (tenantId: string) =>
+    api<{ synced: boolean; reason?: string }>(`/api/admin/tenants/${tenantId}/assistant/sync`, {
+      method: 'POST',
+    }),
   settings: (signal?: AbortSignal) =>
     api<{ settings: AdminSetting[] }>('/api/admin/settings', { signal }),
   setSetting: (key: string, value: string) =>

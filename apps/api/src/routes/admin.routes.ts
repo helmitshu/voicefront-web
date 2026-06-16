@@ -452,6 +452,28 @@ adminRouter.post(
   }),
 );
 
+/* Re-push the workspace's current settings to its persistent Vapi assistant —
+ * useful after a template change so existing customers pick it up.           */
+adminRouter.post(
+  '/tenants/:id/assistant/sync',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const adminEmail = getAdminEmail(req);
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, companyName: true, agentSettings: { select: { assistantId: true } } },
+    });
+    if (!tenant) throw new HttpError(404, 'Workspace not found.', 'NOT_FOUND');
+    if (!tenant.agentSettings?.assistantId) {
+      // Transient workspaces rebuild on every call — nothing to push.
+      return res.json({ synced: false, reason: 'This workspace has no dedicated assistant (transient flow).' });
+    }
+    const result = await syncAssistantForTenant(tenant.id);
+    await recordAdminAction(adminEmail, 'assistant.sync', tenant.companyName, { synced: result.synced });
+    return res.json(result);
+  }),
+);
+
 adminRouter.post(
   '/tenants/:id/users/:userId/reset-password',
   asyncHandler(async (req, res) => {
