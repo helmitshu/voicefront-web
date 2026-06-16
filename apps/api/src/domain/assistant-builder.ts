@@ -200,6 +200,55 @@ function buildBookingTools(): FunctionTool[] {
   ];
 }
 
+/**
+ * Tools that book a planning call onto the FOUNDER's calendar (not the demo
+ * clinic). The sales demo adds these so Ava can close by scheduling the founder
+ * — routed in the webhook to founder.service, which reuses the booking engine's
+ * overlap guard so she can never double-book the founder.
+ */
+export function buildFounderBookingTools(): FunctionTool[] {
+  return [
+    {
+      type: 'function',
+      async: false,
+      messages: CHECK_AVAILABILITY_FILLERS.map((content) => ({ type: 'request-start' as const, content })),
+      function: {
+        name: 'checkFounderAvailability',
+        description:
+          "Returns the founder's open times for one day, for scheduling a planning call. Always call this before offering or booking a planning-call time.",
+        parameters: {
+          type: 'object',
+          properties: {
+            date: { type: 'string', description: "The day to check, YYYY-MM-DD in the founder's timezone." },
+          },
+          required: ['date'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      async: false,
+      messages: BOOKING_FILLERS.map((content) => ({ type: 'request-start' as const, content })),
+      function: {
+        name: 'bookPlanningCall',
+        description:
+          "Books a planning call with the founder in one of their open slots. Only use a time checkFounderAvailability returned as free and the prospect agreed to.",
+        parameters: {
+          type: 'object',
+          properties: {
+            customerName: { type: 'string', description: "The prospect's full name." },
+            customerPhone: { type: 'string', description: "The prospect's phone with country code, e.g. +15551234567." },
+            reason: { type: 'string', description: 'One short line on what they want to discuss.' },
+            date: { type: 'string', description: "Planning-call day, YYYY-MM-DD in the founder's timezone." },
+            time: { type: 'string', description: "Start time as 24-hour HH:MM in the founder's timezone." },
+          },
+          required: ['customerName', 'date', 'time'],
+        },
+      },
+    },
+  ];
+}
+
 export function buildTransientAssistant(
   tenant: Pick<Tenant, 'id' | 'companyName'>,
   settings: AgentSettings,
@@ -219,6 +268,8 @@ export function buildTransientAssistant(
     assistantName?: string;
     /** Override ambient audio (e.g. 'office' to add life to the sales demo). */
     backgroundSound?: string;
+    /** Sales demo: also give the agent tools to book the founder's calendar. */
+    includeFounderBooking?: boolean;
   } = {},
 ): TransientAssistant {
   const businessHours = parseBusinessHours(settings.businessHours);
@@ -249,6 +300,7 @@ export function buildTransientAssistant(
     ].join('\n');
 
   const tools: Array<TransferCallTool | FunctionTool | QueryTool> = [...buildBookingTools()];
+  if (options.includeFounderBooking) tools.push(...buildFounderBookingTools());
   if (knowledgeTool) tools.push(knowledgeTool);
   if (forwardingNumbers.length > 0) {
     tools.push({

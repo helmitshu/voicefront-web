@@ -15,6 +15,7 @@ import {
   utcToZonedParts,
 } from '../services/appointment.service';
 import { getOrCreateDemoTenant, captureDemoCall } from '../services/demo.service';
+import { founderAvailability, bookFounderCall } from '../services/founder.service';
 
 /**
  * Provider webhook. Two jobs:
@@ -173,7 +174,38 @@ async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolC
     const args = parseToolArguments(call.arguments ?? call.function?.arguments);
     let result: string;
     try {
-      if (!settings || !tenantId) {
+      // Founder planning-call tools target the FOUNDER's own calendar (sales
+      // demo close), not the demo clinic — so they're handled independently of
+      // the demo/tenant settings resolved above.
+      if (name === 'checkFounderAvailability') {
+        const { date } = AvailabilityArgsSchema.parse(args);
+        const slots = await founderAvailability(date);
+        if (!slots.open) {
+          result = `The founder isn't available on ${slots.dayLabel}. Offer the next business day instead.`;
+        } else if (slots.freeSlots.length === 0) {
+          result = `The founder is fully booked on ${slots.dayLabel}. Offer another day.`;
+        } else {
+          const spoken = slots.freeSlots.map(to12h).join(', ');
+          result = `The founder's open times on ${slots.dayLabel}: ${spoken}. Offer two or three closest to what the prospect wants.`;
+        }
+      } else if (name === 'bookPlanningCall') {
+        const booking = BookingArgsSchema.parse(args);
+        const entry = await bookFounderCall({
+          customerName: booking.customerName,
+          customerPhone: booking.customerPhone ?? null,
+          reason: booking.reason ?? 'Planning call',
+          date: booking.date,
+          time: booking.time,
+          externalCallId: message.call?.id ?? null,
+        });
+        const dayLabel = new Intl.DateTimeFormat('en-US', {
+          timeZone: entry.timezone,
+          weekday: 'long',
+          month: 'long',
+          day: 'numeric',
+        }).format(new Date(entry.startsAt));
+        result = `Booked a planning call with the founder for ${entry.label} on ${dayLabel} at ${to12h(entry.local.time)}. Confirm this with the prospect.`;
+      } else if (!settings || !tenantId) {
         result = "I'm sorry, I can't reach the calendar right now. Let me take a message instead.";
       } else if (name === 'checkAvailability') {
         const { date } = AvailabilityArgsSchema.parse(args);

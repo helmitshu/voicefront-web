@@ -136,6 +136,7 @@ demoRouter.post(
       assistantName: `${sales.agentName} · VoiceFront sales`,
       voice: { provider: SALES_PERSONA.voiceProvider, voiceId: SALES_PERSONA.voiceId },
       backgroundSound: 'office',
+      includeFounderBooking: true,
     });
     // Tag the assistant so tool-calls land on THIS visitor's isolated calendar,
     // and give her a warm, demo-framing opener.
