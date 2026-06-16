@@ -1,11 +1,18 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { AdminApi, ApiError, type DemoCallRecord, type SalesConfig } from '@/lib/api';
+import {
+  AdminApi,
+  ApiError,
+  type DemoCallRecord,
+  type DemoNumbers,
+  type SalesConfig,
+  type VapiNumberOption,
+} from '@/lib/api';
 import { useToast } from '@/components/ui/Toast';
 import { Card, Badge, EmptyState } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Field';
+import { Input, Select } from '@/components/ui/Field';
 import { Spinner } from '@/components/ui/Spinner';
 
 function fmtDuration(s: number): string {
@@ -35,12 +42,23 @@ export default function AdminDemoPage() {
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
 
+  // Outbound demo caller-ID numbers.
+  const [available, setAvailable] = useState<VapiNumberOption[]>([]);
+  const [numbers, setNumbers] = useState<DemoNumbers | null>(null);
+  const [savingNumbers, setSavingNumbers] = useState(false);
+
   const load = useCallback(() => {
     AdminApi.salesConfig()
       .then((c) => {
         setConfig(c);
         setAgentName(c.agentName);
         setFounderName(c.founderName);
+      })
+      .catch(() => undefined);
+    AdminApi.demoNumbers()
+      .then(({ available, assigned }) => {
+        setAvailable(available);
+        setNumbers(assigned);
       })
       .catch(() => undefined);
     AdminApi.demoCalls()
@@ -72,6 +90,20 @@ export default function AdminDemoPage() {
       toast(next ? 'Prospects will see the live calendar.' : 'The calendar is now hidden from prospects.', 'success');
     } catch (err) {
       toast(err instanceof ApiError ? err.message : 'Could not change that.', 'error');
+    }
+  }
+
+  async function saveNumber(slot: 'us' | 'ca', id: string) {
+    const picked = available.find((n) => n.id === id) ?? null;
+    setSavingNumbers(true);
+    try {
+      const { assigned } = await AdminApi.setDemoNumbers({ [slot]: picked });
+      setNumbers(assigned);
+      toast(picked ? 'Demo number assigned.' : 'Demo number cleared.', 'success');
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not save that.', 'error');
+    } finally {
+      setSavingNumbers(false);
     }
   }
 
@@ -134,6 +166,44 @@ export default function AdminDemoPage() {
             {config?.showCalendar ? 'Hide calendar' : 'Show calendar'}
           </Button>
         </div>
+      </Card>
+
+      {/* --------------------------- demo phone numbers --------------------------- */}
+      <Card>
+        <h3 className="font-display text-[15px] font-semibold tracking-tight text-ink">Outbound demo numbers</h3>
+        <p className="mt-1.5 max-w-2xl text-sm text-ink-muted">
+          Pick which of your Vapi numbers calls prospects who click “Get a call.” US prospects are dialed from the
+          US number; Canadian prospects from the Canadian one. With only a US number set, everyone allowed a call
+          gets it from there.
+        </p>
+        {available.length === 0 ? (
+          <p className="mt-4 rounded-xl bg-construction-soft/50 px-3.5 py-2.5 text-[13px] text-[#9a6a1d]">
+            No numbers found on your Vapi account yet. Add one under{' '}
+            <span className="font-semibold">Phone numbers</span> first, then come back to assign it here.
+          </p>
+        ) : (
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            {(['us', 'ca'] as const).map((slot) => (
+              <label key={slot} className="flex flex-col gap-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                  {slot === 'us' ? '🇺🇸 US demo number' : '🇨🇦 Canada demo number'}
+                </span>
+                <Select
+                  value={numbers?.[slot]?.id ?? ''}
+                  disabled={savingNumbers}
+                  onChange={(e) => saveNumber(slot, e.target.value)}
+                >
+                  <option value="">{slot === 'ca' ? 'None yet (falls back to US)' : 'Not set'}</option>
+                  {available.map((n) => (
+                    <option key={n.id} value={n.id}>
+                      {n.number}
+                    </option>
+                  ))}
+                </Select>
+              </label>
+            ))}
+          </div>
+        )}
       </Card>
 
       {/* ------------------------------ demo calls ------------------------------ */}

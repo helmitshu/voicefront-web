@@ -548,6 +548,10 @@ export const AdminApi = {
     api<SalesConfig>('/api/admin/demo/sales-config', { method: 'PATCH', body: patch }),
   demoCalls: (signal?: AbortSignal) =>
     api<{ calls: DemoCallRecord[] }>('/api/admin/demo/calls', { signal }),
+  demoNumbers: (signal?: AbortSignal) =>
+    api<{ available: VapiNumberOption[]; assigned: DemoNumbers }>('/api/admin/demo/numbers', { signal }),
+  setDemoNumbers: (patch: { us?: VapiNumberOption | null; ca?: VapiNumberOption | null }) =>
+    api<{ assigned: DemoNumbers }>('/api/admin/demo/numbers', { method: 'PATCH', body: patch }),
   audit: (signal?: AbortSignal) =>
     api<{ entries: AdminAuditEntry[] }>('/api/admin/audit', { signal }),
   team: (signal?: AbortSignal) =>
@@ -696,6 +700,21 @@ export interface SalesConfig {
   founderName: string;
   showCalendar: boolean;
 }
+/** A phone number on the Vapi account, for the demo caller-ID picker. */
+export interface VapiNumberOption {
+  id: string;
+  number: string;
+}
+export interface DemoNumbers {
+  us: VapiNumberOption | null;
+  ca: VapiNumberOption | null;
+}
+export interface DemoCallResponse {
+  ok: boolean;
+  callId: string;
+  fromNumber: string;
+  country: string | null;
+}
 export interface DemoCallRecord {
   id: string;
   durationSeconds: number;
@@ -713,6 +732,8 @@ export const DemoApi = {
     api<DemoLeadResponse>('/api/demo/lead', { method: 'POST', body: input }),
   start: (input: DemoStartInput = {}) =>
     api<DemoSessionResponse>('/api/demo/session', { method: 'POST', body: input }),
+  call: (input: { sessionId: string; leadId?: string; name?: string; phone: string }) =>
+    api<DemoCallResponse>('/api/demo/call', { method: 'POST', body: input }),
   appointments: (sessionId: string) =>
     api<{ appointments: DemoAppointment[] }>(`/api/demo/appointments?sessionId=${encodeURIComponent(sessionId)}`),
   block: (sessionId: string, date: string, time: string) =>
