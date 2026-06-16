@@ -72,6 +72,23 @@ export default function AdminCustomerDetailPage() {
     }
   }
 
+  async function resyncAssistant() {
+    setAssistantBusy(true);
+    try {
+      const result = await AdminApi.syncAssistant(tenantId);
+      toast(
+        result.synced
+          ? 'Re-synced the latest settings to Vapi.'
+          : result.reason ?? 'Nothing to sync.',
+        result.synced ? 'success' : 'info',
+      );
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not re-sync.', 'error');
+    } finally {
+      setAssistantBusy(false);
+    }
+  }
+
   async function saveAssistant() {
     const value = assistantInput.trim();
     setAssistantBusy(true);
@@ -353,6 +370,17 @@ export default function AdminCustomerDetailPage() {
                     : 'Assign'}
               </Button>
             </div>
+            {tenant.settings?.assistantId && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="mt-2"
+                loading={assistantBusy}
+                onClick={resyncAssistant}
+              >
+                Re-sync latest settings to Vapi
+              </Button>
+            )}
             {!tenant.settings?.assistantId && (
               <div className="mt-4 rounded-xl border border-signal/25 bg-signal-soft/40 px-4 py-3">
                 <p className="text-sm font-medium text-ink">No Vapi assistant yet</p>
