@@ -151,6 +151,7 @@ demoRouter.post(
       sessionId: session.sessionId,
       day: session.day,
       appointments: session.appointments,
+      showCalendar: sales.showCalendar,
     });
   }),
 );

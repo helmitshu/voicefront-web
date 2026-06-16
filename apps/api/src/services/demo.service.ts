@@ -46,20 +46,25 @@ export async function setDemoEnabled(enabled: boolean, adminEmail: string): Prom
  */
 const SALES_AGENT_NAME_KEY = 'DEMO_SALES_AGENT_NAME';
 const SALES_FOUNDER_NAME_KEY = 'DEMO_FOUNDER_NAME';
+const SHOW_CALENDAR_KEY = 'DEMO_SHOW_CALENDAR';
 
 export interface SalesConfig {
   agentName: string;
   founderName: string;
+  /** Whether the prospect sees the live sample calendar during the demo. */
+  showCalendar: boolean;
 }
 
 export async function getSalesConfig(): Promise<SalesConfig> {
   const rows = await prisma.platformSetting.findMany({
-    where: { key: { in: [SALES_AGENT_NAME_KEY, SALES_FOUNDER_NAME_KEY] } },
+    where: { key: { in: [SALES_AGENT_NAME_KEY, SALES_FOUNDER_NAME_KEY, SHOW_CALENDAR_KEY] } },
   });
   const map = new Map(rows.map((r) => [r.key, r.valueEnc]));
   return {
     agentName: map.get(SALES_AGENT_NAME_KEY)?.trim() || SALES_PERSONA.name,
     founderName: map.get(SALES_FOUNDER_NAME_KEY)?.trim() || 'our founder',
+    // Defaults ON when no row exists.
+    showCalendar: map.has(SHOW_CALENDAR_KEY) ? map.get(SHOW_CALENDAR_KEY) === 'true' : true,
   };
 }
 
@@ -73,6 +78,8 @@ export async function setSalesConfig(input: Partial<SalesConfig>, adminEmail: st
     });
   if (typeof input.agentName === 'string') writes.push(upsert(SALES_AGENT_NAME_KEY, input.agentName.trim()));
   if (typeof input.founderName === 'string') writes.push(upsert(SALES_FOUNDER_NAME_KEY, input.founderName.trim()));
+  if (typeof input.showCalendar === 'boolean')
+    writes.push(upsert(SHOW_CALENDAR_KEY, input.showCalendar ? 'true' : 'false'));
   await Promise.all(writes);
 }
 const DEMO_COMPANY = 'Bayview Family Clinic';

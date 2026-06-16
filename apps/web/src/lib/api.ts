@@ -640,6 +640,8 @@ export interface DemoSessionResponse {
   sessionId: string;
   day: DemoDay;
   appointments: DemoAppointment[];
+  /** Founder toggle: whether to show the live sample calendar to the prospect. */
+  showCalendar: boolean;
 }
 export interface DemoLeadInput {
   name: string;
@@ -667,6 +669,7 @@ export interface DemoStartInput {
 export interface SalesConfig {
   agentName: string;
   founderName: string;
+  showCalendar: boolean;
 }
 export interface DemoCallRecord {
   id: string;
