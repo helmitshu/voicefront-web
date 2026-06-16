@@ -717,8 +717,14 @@ function InteractiveDemo() {
       <div className="flex flex-col overflow-hidden rounded-3xl border border-white/10 bg-white shadow-lift">
         <div className="flex items-center justify-between border-b border-line/60 bg-paper/70 px-5 py-3.5">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-muted">Demo calendar</p>
-            {day && <p className="mt-0.5 text-[13px] font-semibold text-ink">{day.dayLabel}</p>}
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-muted">
+              Sample calendar · Bayview Family Clinic
+            </p>
+            {day ? (
+              <p className="mt-0.5 text-[13px] font-semibold text-ink">{day.dayLabel}</p>
+            ) : (
+              <p className="mt-0.5 text-[12px] text-ink-muted">An example clinic, so you can watch Ava work</p>
+            )}
           </div>
           <div className="flex items-center gap-2">
             {aiBooked > 0 && (

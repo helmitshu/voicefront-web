@@ -312,3 +312,22 @@ model DemoLead {
   @@index([createdAt(sort: Desc)])
   @@map("demo_leads")
 }
+
+model DemoCall {
+  id              String    @id @default(cuid())
+  /// Links the call to the visitor's session (and thus their DemoLead).
+  demoSessionId   String    @map("demo_session_id")
+  externalCallId  String?   @unique @map("external_call_id")
+  durationSeconds Int       @default(0) @map("duration_seconds")
+  endedReason     String?   @map("ended_reason")
+  summary         String?   @db.Text
+  transcript      String?   @db.Text
+  recordingUrl    String?   @db.Text @map("recording_url")
+  startedAt       DateTime? @map("started_at")
+  endedAt         DateTime? @map("ended_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  @@index([demoSessionId])
+  @@index([createdAt(sort: Desc)])
+  @@map("demo_calls")
+}

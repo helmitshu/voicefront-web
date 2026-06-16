@@ -14,7 +14,7 @@ import {
   to12h,
   utcToZonedParts,
 } from '../services/appointment.service';
-import { getOrCreateDemoTenant } from '../services/demo.service';
+import { getOrCreateDemoTenant, captureDemoCall } from '../services/demo.service';
 
 /**
  * Provider webhook. Two jobs:
@@ -365,8 +365,25 @@ inboundRouter.post(
       }
       const report = parsed.data;
 
-      // Demo calls are ephemeral marketing sessions — never logged as real calls.
-      if (report.assistant?.metadata?.demoSessionId ?? report.call?.assistant?.metadata?.demoSessionId) {
+      // Demo calls are never billed as real CallLogs, but we DO capture the
+      // transcript/recording so the founder can review how the sales agent did.
+      const demoSessionId =
+        report.assistant?.metadata?.demoSessionId ?? report.call?.assistant?.metadata?.demoSessionId;
+      if (demoSessionId) {
+        try {
+          await captureDemoCall({
+            demoSessionId,
+            externalCallId: report.call?.id ?? null,
+            startedAt: parseDate(report.startedAt),
+            endedAt: parseDate(report.endedAt),
+            endedReason: report.endedReason ?? null,
+            summary: report.analysis?.summary ?? report.summary ?? null,
+            transcript: report.artifact?.transcript ?? report.transcript ?? null,
+            recordingUrl: report.artifact?.recordingUrl ?? report.recordingUrl ?? null,
+          });
+        } catch (err) {
+          console.error('[webhook] Failed to capture demo call:', err);
+        }
         res.status(200).json({});
         return;
       }

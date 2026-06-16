@@ -263,6 +263,82 @@ export async function setLeadMode(leadId: string, mode: string): Promise<void> {
   await prisma.demoLead.update({ where: { id: leadId }, data: { mode } }).catch(() => undefined);
 }
 
+export interface CaptureDemoCallInput {
+  demoSessionId: string;
+  externalCallId: string | null;
+  startedAt: Date | null;
+  endedAt: Date | null;
+  endedReason: string | null;
+  summary: string | null;
+  transcript: string | null;
+  recordingUrl: string | null;
+}
+
+/**
+ * Persists a finished demo call (transcript, summary, recording) so the founder
+ * can review exactly how the sales agent performed. Idempotent on the provider
+ * call id. Unlike real CallLogs these aren't billed — they're sales telemetry.
+ */
+export async function captureDemoCall(input: CaptureDemoCallInput): Promise<void> {
+  const durationSeconds =
+    input.startedAt && input.endedAt
+      ? Math.max(0, Math.round((input.endedAt.getTime() - input.startedAt.getTime()) / 1000))
+      : 0;
+  const data = {
+    demoSessionId: input.demoSessionId,
+    durationSeconds,
+    endedReason: input.endedReason,
+    summary: input.summary,
+    transcript: input.transcript,
+    recordingUrl: input.recordingUrl,
+    startedAt: input.startedAt,
+    endedAt: input.endedAt,
+  };
+  if (input.externalCallId) {
+    await prisma.demoCall.upsert({
+      where: { externalCallId: input.externalCallId },
+      create: { externalCallId: input.externalCallId, ...data },
+      update: data,
+    });
+  } else {
+    await prisma.demoCall.create({ data });
+  }
+}
+
+export interface DemoCallWithLead {
+  id: string;
+  durationSeconds: number;
+  endedReason: string | null;
+  summary: string | null;
+  transcript: string | null;
+  recordingUrl: string | null;
+  createdAt: Date;
+  lead: { name: string; email: string; phone: string; mode: string } | null;
+}
+
+/** Recent demo calls joined to their lead, newest first — for the founder view. */
+export async function listRecentDemoCalls(limit = 50): Promise<DemoCallWithLead[]> {
+  const calls = await prisma.demoCall.findMany({ orderBy: { createdAt: 'desc' }, take: limit });
+  const leads = await prisma.demoLead.findMany({
+    where: { demoSessionId: { in: calls.map((c) => c.demoSessionId) } },
+    orderBy: { createdAt: 'asc' },
+  });
+  const leadBySession = new Map(leads.map((l) => [l.demoSessionId, l]));
+  return calls.map((c) => {
+    const lead = leadBySession.get(c.demoSessionId);
+    return {
+      id: c.id,
+      durationSeconds: c.durationSeconds,
+      endedReason: c.endedReason,
+      summary: c.summary,
+      transcript: c.transcript,
+      recordingUrl: c.recordingUrl,
+      createdAt: c.createdAt,
+      lead: lead ? { name: lead.name, email: lead.email, phone: lead.phone, mode: lead.mode } : null,
+    };
+  });
+}
+
 export async function getDemoAppointments(sessionId: string): Promise<DemoAppointmentView[]> {
   const rows = await prisma.appointment.findMany({
     where: { demoSessionId: sessionId, status: 'CONFIRMED' },

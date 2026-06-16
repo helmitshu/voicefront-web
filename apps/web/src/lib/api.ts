@@ -542,6 +542,12 @@ export const AdminApi = {
       '/api/admin/migrate-webhooks',
       { method: 'POST' },
     ),
+  salesConfig: (signal?: AbortSignal) =>
+    api<SalesConfig>('/api/admin/demo/sales-config', { signal }),
+  setSalesConfig: (patch: Partial<SalesConfig>) =>
+    api<SalesConfig>('/api/admin/demo/sales-config', { method: 'PATCH', body: patch }),
+  demoCalls: (signal?: AbortSignal) =>
+    api<{ calls: DemoCallRecord[] }>('/api/admin/demo/calls', { signal }),
   audit: (signal?: AbortSignal) =>
     api<{ entries: AdminAuditEntry[] }>('/api/admin/audit', { signal }),
   team: (signal?: AbortSignal) =>
@@ -656,6 +662,21 @@ export interface DemoStartInput {
   sessionId?: string;
   leadId?: string;
   name?: string;
+}
+
+export interface SalesConfig {
+  agentName: string;
+  founderName: string;
+}
+export interface DemoCallRecord {
+  id: string;
+  durationSeconds: number;
+  endedReason: string | null;
+  summary: string | null;
+  transcript: string | null;
+  recordingUrl: string | null;
+  createdAt: string;
+  lead: { name: string; email: string; phone: string; mode: string } | null;
 }
 
 export const DemoApi = {

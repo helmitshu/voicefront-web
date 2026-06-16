@@ -31,7 +31,14 @@ import {
   listAdmins,
   removeAdmin,
 } from '../services/platform-admin.service';
-import { DEMO_TENANT_SLUG, isDemoEnabled, setDemoEnabled } from '../services/demo.service';
+import {
+  DEMO_TENANT_SLUG,
+  isDemoEnabled,
+  setDemoEnabled,
+  listRecentDemoCalls,
+  getSalesConfig,
+  setSalesConfig,
+} from '../services/demo.service';
 import {
   createAssistantForTenant,
   createPhoneNumberInVapi,
@@ -741,6 +748,38 @@ adminRouter.patch(
     await setDemoEnabled(enabled, adminEmail);
     await recordAdminAction(adminEmail, enabled ? 'demo.enable' : 'demo.disable', 'landing demo', {});
     res.json({ enabled });
+  }),
+);
+
+/* Sales-agent identity (Ava's name, founder's name) the demo agent uses. */
+adminRouter.get(
+  '/demo/sales-config',
+  requireFullAdmin,
+  asyncHandler(async (_req, res) => {
+    res.json(await getSalesConfig());
+  }),
+);
+
+adminRouter.patch(
+  '/demo/sales-config',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const adminEmail = getAdminEmail(req);
+    const body = z
+      .object({ agentName: z.string().trim().min(1).max(40).optional(), founderName: z.string().trim().min(1).max(60).optional() })
+      .parse(req.body ?? {});
+    await setSalesConfig(body, adminEmail);
+    await recordAdminAction(adminEmail, 'demo.salesConfig', 'sales agent', body);
+    res.json(await getSalesConfig());
+  }),
+);
+
+/* Recent demo calls (transcripts + recordings) for founder review. */
+adminRouter.get(
+  '/demo/calls',
+  requireFullAdmin,
+  asyncHandler(async (_req, res) => {
+    res.json({ calls: await listRecentDemoCalls(50) });
   }),
 );
 
