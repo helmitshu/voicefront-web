@@ -227,6 +227,22 @@ function gridTimes(day: DemoDay): string[] {
 
 type DemoView = 'form' | 'choose' | 'web' | 'call';
 
+/** The guided stages Ava walks the prospect through; the right panel follows. */
+type DemoStage = 'intro' | 'booking' | 'doublebook' | 'summary' | 'close';
+const STAGE_ORDER: DemoStage[] = ['intro', 'booking', 'doublebook', 'summary', 'close'];
+
+/** Detects the furthest stage Ava has reached from what she's said so far. */
+function detectStage(assistantText: string, hasVoiceBooking: boolean): DemoStage {
+  const t = assistantText.toLowerCase();
+  let rank = 0;
+  if (hasVoiceBooking || /\bbook|appointment|calendar|availab|what.*open|\bslot/.test(t)) rank = Math.max(rank, 1);
+  if (/block|double|catch me out|taken|can'?t book|already booked|trip me/.test(t)) rank = Math.max(rank, 2);
+  if (/summary|recap|after we hang up|notes to take|wrap[- ]?up|inbox/.test(t)) rank = Math.max(rank, 3);
+  if (/fifteen minutes|15 minutes|planning call|set this up|next step|grab you|book.*call with|day works/.test(t))
+    rank = Math.max(rank, 4);
+  return STAGE_ORDER[rank];
+}
+
 /* ----------------------------- demo: lead form ---------------------------- */
 
 function DemoLeadField({
@@ -444,6 +460,238 @@ function DemoCallPending({ lead, onBack }: { lead: DemoLeadResponse; onBack: () 
   );
 }
 
+/* ----------------------- demo: agent-driven screens ----------------------- */
+
+function DemoIntroStage() {
+  const items = [
+    { t: 'Books appointments', d: 'Ask her to book — watch it land on the calendar.' },
+    { t: 'Never double-books', d: 'Block a slot and try to trip her up.' },
+    { t: 'Sends a summary', d: 'A clean recap the second you hang up.' },
+  ];
+  return (
+    <div className="flex flex-col gap-3 px-5 py-6">
+      <p className="text-[13px] text-ink-muted">Ava’s about to walk you through three things, live:</p>
+      {items.map((it, i) => (
+        <div key={it.t} className="flex items-start gap-3 rounded-2xl bg-paper px-4 py-3 ring-1 ring-inset ring-ink/5">
+          <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-signal/15 text-[12px] font-bold text-signal-deep">
+            {i + 1}
+          </span>
+          <div>
+            <p className="text-[14px] font-semibold text-ink">{it.t}</p>
+            <p className="text-[12px] leading-snug text-ink-muted">{it.d}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function DemoCalendarHidden() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-14 text-center">
+      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-paper ring-1 ring-inset ring-ink/10">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-5 w-5 text-ink-muted">
+          <rect x="4" y="9" width="12" height="8" rx="2" />
+          <path d="M7 9V6.5a3 3 0 0 1 6 0V9" strokeLinecap="round" />
+        </svg>
+      </div>
+      <p className="max-w-xs text-sm text-ink-muted">
+        The live calendar is hidden for this demo — Ava will walk you through how booking works, by voice.
+      </p>
+    </div>
+  );
+}
+
+function DemoSummaryStage({
+  day,
+  voiceAppt,
+  lead,
+}: {
+  day: DemoDay | null;
+  voiceAppt: DemoAppointment | null;
+  lead: DemoLeadResponse | null;
+}) {
+  const caller = lead?.name ?? 'New caller';
+  return (
+    <div className="px-5 py-6">
+      <div className="rounded-2xl border border-line/70 bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-signal-deep">Call summary</p>
+          <span className="rounded-full bg-clinic-soft px-2 py-0.5 text-[10px] font-semibold text-[#0b8a74]">
+            Auto-generated
+          </span>
+        </div>
+        <dl className="mt-3 flex flex-col gap-2.5 text-[13px]">
+          <div className="flex justify-between gap-3">
+            <dt className="text-ink-muted">Caller</dt>
+            <dd className="font-medium text-ink">{caller}</dd>
+          </div>
+          <div className="flex justify-between gap-3">
+            <dt className="text-ink-muted">Outcome</dt>
+            <dd className="font-medium text-ink">{voiceAppt ? 'Appointment booked' : 'Spoke with the agent'}</dd>
+          </div>
+          {voiceAppt && (
+            <div className="flex justify-between gap-3">
+              <dt className="text-ink-muted">Booked</dt>
+              <dd className="text-right font-medium text-ink">
+                {voiceAppt.label}
+                {day ? ` · ${day.dayLabel}` : ''}
+              </dd>
+            </div>
+          )}
+        </dl>
+        <div className="mt-4 rounded-xl bg-paper px-3.5 py-2.5 text-[12px] leading-relaxed text-ink-muted ring-1 ring-inset ring-ink/5">
+          “Hi — {caller} called and I {voiceAppt ? 'booked them in' : 'took their details'}. Everything’s on your
+          calendar and nothing needs your attention right now.”
+        </div>
+      </div>
+      <p className="mt-3 text-center text-[12px] text-ink-muted">This lands in your inbox the moment a call ends.</p>
+    </div>
+  );
+}
+
+function DemoCloseStage() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-12 text-center">
+      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-signal/15">
+        <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-5 w-5 text-signal-deep">
+          <rect x="3.5" y="4.5" width="13" height="12" rx="2" />
+          <path d="M3.5 8h13M7 3v3M13 3v3M8 12l1.5 1.5L13 10.5" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </div>
+      <p className="font-display text-[16px] font-semibold text-ink">Like what you see?</p>
+      <p className="max-w-xs text-[13px] leading-snug text-ink-muted">
+        Ava can book you a quick setup call right now — just tell her a day that works, and watch it land.
+      </p>
+    </div>
+  );
+}
+
+function DemoStagePanel({
+  stage,
+  showCalendar,
+  day,
+  appointments,
+  blocking,
+  onBlock,
+  onReset,
+  resetting,
+  sessionId,
+  lead,
+}: {
+  stage: DemoStage;
+  showCalendar: boolean;
+  day: DemoDay | null;
+  appointments: DemoAppointment[];
+  blocking: string | null;
+  onBlock: (time: string) => void;
+  onReset: () => void;
+  resetting: boolean;
+  sessionId: string | null;
+  lead: DemoLeadResponse | null;
+}) {
+  const byTime = new Map(appointments.map((a) => [a.time, a]));
+  const aiBooked = appointments.filter((a) => a.kind === 'voice').length;
+  const voiceAppt = appointments.find((a) => a.kind === 'voice') ?? null;
+  const onCalendar = stage === 'booking' || stage === 'doublebook';
+
+  const header = {
+    intro: { eyebrow: 'Live demo', title: 'What Ava will show you' },
+    booking: { eyebrow: 'Sample · Bayview Family Clinic', title: day?.dayLabel ?? 'Loading…' },
+    doublebook: { eyebrow: 'Try to catch her out', title: 'She won’t double-book' },
+    summary: { eyebrow: 'After the call', title: 'The summary you’d get' },
+    close: { eyebrow: 'Your next step', title: 'Book your setup call' },
+  }[stage];
+
+  return (
+    <div className="flex flex-col overflow-hidden rounded-3xl border border-white/10 bg-white shadow-lift">
+      <div className="flex items-center justify-between border-b border-line/60 bg-paper/70 px-5 py-3.5">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-muted">{header.eyebrow}</p>
+          <p className="mt-0.5 text-[13px] font-semibold text-ink">{header.title}</p>
+        </div>
+        {onCalendar && showCalendar && (
+          <div className="flex items-center gap-2">
+            {aiBooked > 0 && (
+              <span className="animate-pop-in rounded-full bg-clinic-soft px-2.5 py-1 text-[11px] font-semibold text-[#0b8a74]">
+                +{aiBooked} booked by AI
+              </span>
+            )}
+            {sessionId && (
+              <button
+                type="button"
+                onClick={onReset}
+                disabled={resetting}
+                className="rounded-full border border-line px-2.5 py-1 text-[11px] font-semibold text-ink-muted transition-colors hover:text-ink disabled:opacity-50"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div className="flex min-h-[280px] flex-1 flex-col">
+        {onCalendar ? (
+          !showCalendar ? (
+            <DemoCalendarHidden />
+          ) : !day ? (
+            <div className="flex flex-1 items-center justify-center px-5 py-14 text-center text-sm text-ink-muted">
+              Loading the calendar…
+            </div>
+          ) : (
+            <ul className="max-h-[360px] flex-1 divide-y divide-line/50 overflow-y-auto px-5 py-1.5">
+              {gridTimes(day).map((time) => {
+                const appt = byTime.get(time);
+                return (
+                  <li key={time} className="flex items-center gap-3 py-2">
+                    <span className="w-16 shrink-0 font-mono text-xs text-ink-muted">{to12(time)}</span>
+                    {!appt ? (
+                      <button
+                        type="button"
+                        onClick={() => onBlock(time)}
+                        disabled={blocking === time}
+                        className="group flex flex-1 items-center justify-between rounded-xl border border-dashed border-line px-3.5 py-2 text-[13px] text-ink-muted/60 transition-colors hover:border-ink-muted/40 hover:text-ink-muted"
+                      >
+                        <span>Open</span>
+                        <span className="text-[11px] font-semibold opacity-0 transition-opacity group-hover:opacity-100">
+                          {blocking === time ? 'Blocking…' : 'Block this slot'}
+                        </span>
+                      </button>
+                    ) : appt.kind === 'voice' ? (
+                      <span className="flex flex-1 animate-pop-in items-center justify-between rounded-xl bg-gradient-to-r from-signal to-signal-deep px-3.5 py-2 text-[13px] font-semibold text-white shadow-pop">
+                        {appt.label}
+                        <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+                          Voice agent
+                        </span>
+                      </span>
+                    ) : appt.kind === 'blocked' ? (
+                      <span className="flex flex-1 items-center justify-between rounded-xl bg-construction-soft px-3.5 py-2 text-[13px] font-medium text-[#9a6a1d] ring-1 ring-inset ring-construction/20">
+                        {appt.label}
+                        <span className="text-[10px] font-semibold uppercase tracking-wide">Blocked</span>
+                      </span>
+                    ) : (
+                      <span className="flex-1 rounded-xl bg-paper px-3.5 py-2 text-[13px] text-ink-muted ring-1 ring-inset ring-ink/5">
+                        {appt.label}
+                      </span>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )
+        ) : stage === 'summary' ? (
+          <DemoSummaryStage day={day} voiceAppt={voiceAppt} lead={lead} />
+        ) : stage === 'close' ? (
+          <DemoCloseStage />
+        ) : (
+          <DemoIntroStage />
+        )}
+      </div>
+    </div>
+  );
+}
+
 function InteractiveDemo() {
   const [view, setView] = useState<DemoView>('form');
   const [lead, setLead] = useState<DemoLeadResponse | null>(null);
@@ -460,6 +708,8 @@ function InteractiveDemo() {
   const [unavailable, setUnavailable] = useState(false);
   const [blocking, setBlocking] = useState<string | null>(null);
   const [resetting, setResetting] = useState(false);
+  const [showCalendar, setShowCalendar] = useState(true);
+  const [stage, setStage] = useState<DemoStage>('intro');
 
   const sessionRef = useRef<VoiceSession | null>(null);
   const aliveRef = useRef(true);
@@ -493,6 +743,18 @@ function InteractiveDemo() {
     const box = transcriptBoxRef.current;
     if (box) box.scrollTop = box.scrollHeight;
   }, [transcript]);
+
+  // Agent-driven screens: advance the right panel through the guided stages as
+  // Ava talks. Forward-only ratchet so the story never jumps backwards.
+  useEffect(() => {
+    const said = transcript
+      .filter((t) => t.role === 'assistant')
+      .map((t) => t.text)
+      .join(' ');
+    const hasVoiceBooking = appointments.some((a) => a.kind === 'voice');
+    const detected = detectStage(said, hasVoiceBooking);
+    setStage((prev) => (STAGE_ORDER.indexOf(detected) > STAGE_ORDER.indexOf(prev) ? detected : prev));
+  }, [transcript, appointments]);
 
   const live = phase === 'connecting' || phase === 'listening' || phase === 'assistant-speaking';
 
@@ -536,6 +798,7 @@ function InteractiveDemo() {
     if (live || phase === 'requesting') return;
     setError(null);
     setTranscript([]);
+    setStage('intro');
     setPhase('requesting');
     let data;
     try {
@@ -555,6 +818,7 @@ function InteractiveDemo() {
     setSessionId(data.sessionId);
     setDay(data.day);
     setAppointments(data.appointments);
+    setShowCalendar(data.showCalendar);
 
     const session = new VoiceSession();
     sessionRef.current = session;
@@ -600,9 +864,6 @@ function InteractiveDemo() {
       if (aliveRef.current) setResetting(false);
     }
   }
-
-  const byTime = new Map(appointments.map((a) => [a.time, a]));
-  const aiBooked = appointments.filter((a) => a.kind === 'voice').length;
 
   // ----------------------------- gate: lead form ----------------------------
   if (view === 'form') {
@@ -713,94 +974,42 @@ function InteractiveDemo() {
         </div>
       </div>
 
-      {/* -------------------------------- calendar -------------------------------- */}
-      <div className="flex flex-col overflow-hidden rounded-3xl border border-white/10 bg-white shadow-lift">
-        <div className="flex items-center justify-between border-b border-line/60 bg-paper/70 px-5 py-3.5">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-muted">
-              Sample calendar · Bayview Family Clinic
-            </p>
-            {day ? (
-              <p className="mt-0.5 text-[13px] font-semibold text-ink">{day.dayLabel}</p>
-            ) : (
-              <p className="mt-0.5 text-[12px] text-ink-muted">An example clinic, so you can watch Ava work</p>
-            )}
-          </div>
-          <div className="flex items-center gap-2">
-            {aiBooked > 0 && (
-              <span className="animate-pop-in rounded-full bg-clinic-soft px-2.5 py-1 text-[11px] font-semibold text-[#0b8a74]">
-                +{aiBooked} booked by AI
-              </span>
-            )}
-            {sessionId && (
-              <button
-                type="button"
-                onClick={resetCalendar}
-                disabled={resetting}
-                className="rounded-full border border-line px-2.5 py-1 text-[11px] font-semibold text-ink-muted transition-colors hover:text-ink disabled:opacity-50"
-              >
-                Reset
-              </button>
-            )}
-          </div>
-        </div>
-
-        {!day ? (
-          <div className="flex flex-1 items-center justify-center px-5 py-14 text-center text-sm text-ink-muted">
-            Start the demo to load a live calendar you can book into.
-          </div>
-        ) : (
-          <ul className="max-h-[360px] flex-1 divide-y divide-line/50 overflow-y-auto px-5 py-1.5">
-            {gridTimes(day).map((time) => {
-              const appt = byTime.get(time);
-              return (
-                <li key={time} className="flex items-center gap-3 py-2">
-                  <span className="w-16 shrink-0 font-mono text-xs text-ink-muted">{to12(time)}</span>
-                  {!appt ? (
-                    <button
-                      type="button"
-                      onClick={() => blockSlot(time)}
-                      disabled={blocking === time}
-                      className="group flex flex-1 items-center justify-between rounded-xl border border-dashed border-line px-3.5 py-2 text-[13px] text-ink-muted/60 transition-colors hover:border-ink-muted/40 hover:text-ink-muted"
-                    >
-                      <span>Open</span>
-                      <span className="text-[11px] font-semibold opacity-0 transition-opacity group-hover:opacity-100">
-                        {blocking === time ? 'Blocking…' : 'Block this slot'}
-                      </span>
-                    </button>
-                  ) : appt.kind === 'voice' ? (
-                    <span className="flex flex-1 animate-pop-in items-center justify-between rounded-xl bg-gradient-to-r from-signal to-signal-deep px-3.5 py-2 text-[13px] font-semibold text-white shadow-pop">
-                      {appt.label}
-                      <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
-                        Voice agent
-                      </span>
-                    </span>
-                  ) : appt.kind === 'blocked' ? (
-                    <span className="flex flex-1 items-center justify-between rounded-xl bg-construction-soft px-3.5 py-2 text-[13px] font-medium text-[#9a6a1d] ring-1 ring-inset ring-construction/20">
-                      {appt.label}
-                      <span className="text-[10px] font-semibold uppercase tracking-wide">Blocked</span>
-                    </span>
-                  ) : (
-                    <span className="flex-1 rounded-xl bg-paper px-3.5 py-2 text-[13px] text-ink-muted ring-1 ring-inset ring-ink/5">
-                      {appt.label}
-                    </span>
-                  )}
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </div>
+      {/* ---------------------- agent-driven stage panel ---------------------- */}
+      <DemoStagePanel
+        stage={stage}
+        showCalendar={showCalendar}
+        day={day}
+        appointments={appointments}
+        blocking={blocking}
+        onBlock={blockSlot}
+        onReset={resetCalendar}
+        resetting={resetting}
+        sessionId={sessionId}
+        lead={lead}
+      />
 
       {/* ----------------------------- guided scenarios ---------------------------- */}
       <div className="lg:col-span-2">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {DEMO_SCENARIOS.map((s) => (
-            <div key={s.tag} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 backdrop-blur">
-              <p className="text-[11px] font-semibold uppercase tracking-wide text-signal-soft/80">{s.tag}</p>
-              <p className="mt-1.5 text-[13px] leading-snug text-white/70">{s.text}</p>
-            </div>
-          ))}
+          {DEMO_SCENARIOS.map((s, i) => {
+            // Scenarios map 1:1 to the first four stages; the last card ("recap")
+            // stays lit through both summary and close.
+            const stageIdx = STAGE_ORDER.indexOf(stage);
+            const active = stageIdx === i || (i === 3 && stageIdx === 4);
+            return (
+              <div
+                key={s.tag}
+                className={`rounded-2xl border p-4 backdrop-blur transition-all duration-300 ${
+                  active ? 'border-signal/50 bg-signal/10 ring-1 ring-inset ring-signal/30' : 'border-white/10 bg-white/[0.04]'
+                }`}
+              >
+                <p className={`text-[11px] font-semibold uppercase tracking-wide ${active ? 'text-signal-soft' : 'text-signal-soft/80'}`}>
+                  {s.tag}
+                </p>
+                <p className={`mt-1.5 text-[13px] leading-snug ${active ? 'text-white/90' : 'text-white/70'}`}>{s.text}</p>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

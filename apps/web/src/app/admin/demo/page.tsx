@@ -63,6 +63,18 @@ export default function AdminDemoPage() {
     }
   }
 
+  async function toggleCalendar() {
+    if (!config) return;
+    const next = !config.showCalendar;
+    try {
+      const c = await AdminApi.setSalesConfig({ showCalendar: next });
+      setConfig(c);
+      toast(next ? 'Prospects will see the live calendar.' : 'The calendar is now hidden from prospects.', 'success');
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not change that.', 'error');
+    }
+  }
+
   const dirty = config && (agentName.trim() !== config.agentName || founderName.trim() !== config.founderName);
 
   return (
@@ -96,6 +108,30 @@ export default function AdminDemoPage() {
           </label>
           <Button size="sm" loading={savingConfig} disabled={!dirty} onClick={saveConfig}>
             Save
+          </Button>
+        </div>
+      </Card>
+
+      {/* ------------------------- calendar visibility ------------------------- */}
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="max-w-xl">
+            <div className="flex items-center gap-2.5">
+              <h3 className="font-display text-[15px] font-semibold tracking-tight text-ink">Live calendar on the demo</h3>
+              {config && (config.showCalendar ? <Badge tone="signal" dot>Visible</Badge> : <Badge tone="warning" dot>Hidden</Badge>)}
+            </div>
+            <p className="mt-1.5 text-sm leading-relaxed text-ink-muted">
+              When on, prospects watch the sample calendar fill in as the agent books — proof it works. Turn it
+              off to run a voice-only demo with no calendar on screen.
+            </p>
+          </div>
+          <Button
+            variant={config?.showCalendar ? 'secondary' : 'primary'}
+            size="sm"
+            disabled={!config}
+            onClick={toggleCalendar}
+          >
+            {config?.showCalendar ? 'Hide calendar' : 'Show calendar'}
           </Button>
         </div>
       </Card>
