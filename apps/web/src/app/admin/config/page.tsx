@@ -18,6 +18,7 @@ export default function AdminConfigPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [demoEnabled, setDemoEnabled] = useState<boolean | null>(null);
   const [demoBusy, setDemoBusy] = useState(false);
+  const [repointBusy, setRepointBusy] = useState(false);
 
   const isFullAdmin = me?.user.adminRole === 'ADMIN';
 
@@ -31,6 +32,24 @@ export default function AdminConfigPage() {
       .then(({ enabled }) => setDemoEnabled(enabled))
       .catch(() => setDemoEnabled(null));
   }, []);
+
+  async function repointWebhooks() {
+    if (!window.confirm('Re-point every Vapi phone number at this production server?\n\nSafe and idempotent — it just sets each number’s Server URL to PUBLIC_API_URL.')) {
+      return;
+    }
+    setRepointBusy(true);
+    try {
+      const r = await AdminApi.migrateWebhooks();
+      toast(
+        `${r.updated}/${r.total} numbers now point at production${r.failed ? ` (${r.failed} failed)` : ''}.`,
+        r.failed ? 'error' : 'success',
+      );
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not re-point numbers.', 'error');
+    } finally {
+      setRepointBusy(false);
+    }
+  }
 
   async function toggleDemo() {
     if (demoEnabled === null) return;
@@ -153,6 +172,23 @@ export default function AdminConfigPage() {
               onClick={toggleDemo}
             >
               {demoEnabled ? 'Turn off demo' : 'Turn on demo'}
+            </Button>
+          </div>
+        </Card>
+
+        <Card>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="max-w-xl">
+              <h3 className="font-display text-[15px] font-semibold tracking-tight text-ink">
+                Production webhooks
+              </h3>
+              <p className="mt-1.5 text-sm leading-relaxed text-ink-muted">
+                Point every Vapi phone number at this cloud server so calls never depend on a local
+                tunnel. Safe to run anytime — it just sets each number’s Server URL to the value above.
+              </p>
+            </div>
+            <Button variant="secondary" size="sm" loading={repointBusy} onClick={repointWebhooks}>
+              Re-point all numbers
             </Button>
           </div>
         </Card>

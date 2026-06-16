@@ -537,6 +537,11 @@ export const AdminApi = {
     api<{ enabled: boolean }>('/api/admin/demo', { signal }),
   setDemoEnabled: (enabled: boolean) =>
     api<{ enabled: boolean }>('/api/admin/demo', { method: 'PATCH', body: { enabled } }),
+  migrateWebhooks: () =>
+    api<{ serverUrl: string; total: number; updated: number; failed: number; details: Array<{ number: string; ok: boolean }> }>(
+      '/api/admin/migrate-webhooks',
+      { method: 'POST' },
+    ),
   audit: (signal?: AbortSignal) =>
     api<{ entries: AdminAuditEntry[] }>('/api/admin/audit', { signal }),
   team: (signal?: AbortSignal) =>
