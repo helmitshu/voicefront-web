@@ -519,6 +519,10 @@ export const AdminApi = {
       phoneNumber?: string | null;
       phoneNote?: string | null;
     }>(`/api/admin/tenants/${tenantId}/assistant`, { method: 'PATCH', body: { assistantId } }),
+  createAssistant: (tenantId: string) =>
+    api<{ assistantId: string; created: boolean }>(`/api/admin/tenants/${tenantId}/assistant/create`, {
+      method: 'POST',
+    }),
   settings: (signal?: AbortSignal) =>
     api<{ settings: AdminSetting[] }>('/api/admin/settings', { signal }),
   setSetting: (key: string, value: string) =>

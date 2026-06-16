@@ -302,3 +302,61 @@ export async function syncAssistantForTenant(tenantId: string): Promise<SyncResu
     return { synced: false, reason: `Saved here, but the Vapi update didn’t go through: ${reason}` };
   }
 }
+
+/**
+ * Creates a dedicated persistent Vapi assistant for a tenant from their current
+ * settings (Maya's shared tuning + the tenant's industry script, voice, and
+ * name), stores the new assistantId, and returns it. Idempotent: if the tenant
+ * already has an assistant, returns that id without creating a duplicate.
+ *
+ * Calls route to this assistant via the assistant-request webhook returning
+ * `{ assistantId }` — so the per-call quota/block gate still runs, but Vapi uses
+ * a warm, pre-built assistant instead of one rebuilt on every call. Throws
+ * HttpError on failure so callers can surface a clear message.
+ */
+export async function createAssistantForTenant(tenantId: string): Promise<string> {
+  const [tenant, settings] = await Promise.all([
+    prisma.tenant.findUnique({ where: { id: tenantId }, select: { id: true, companyName: true } }),
+    prisma.agentSettings.findUnique({ where: { tenantId } }),
+  ]);
+  if (!tenant || !settings) {
+    throw new HttpError(404, 'Workspace settings were not found.', 'SETTINGS_MISSING');
+  }
+  if (settings.assistantId) return settings.assistantId; // already provisioned
+
+  const [publicApiUrl, webhookSecret, documents] = await Promise.all([
+    getSettingValue('PUBLIC_API_URL'),
+    getSettingValue('VAPI_WEBHOOK_SECRET'),
+    prisma.document.findMany({
+      where: { tenantId, status: { not: 'failed' } },
+      select: { vapiFileId: true },
+    }),
+  ]);
+
+  const payload = buildAssistantUpdatePayload(tenant, settings, {
+    serverUrl: publicApiUrl ? `${publicApiUrl}/api/vapi/inbound` : undefined,
+    serverSecret: webhookSecret ?? undefined,
+    knowledgeFileIds: documents.map((d) => d.vapiFileId),
+  });
+
+  const res = await vapiFetch('/assistant', { method: 'POST', body: payload });
+  if (!res.ok) {
+    const raw = await res.text().catch(() => '');
+    let message = `Vapi could not create the assistant (${res.status}).`;
+    try {
+      const parsed = JSON.parse(raw) as { message?: unknown };
+      const m = Array.isArray(parsed.message) ? parsed.message.join('; ') : parsed.message;
+      if (typeof m === 'string' && m.length > 0) message = `Vapi: ${m}`;
+    } catch {
+      /* keep generic message */
+    }
+    throw new HttpError(res.status >= 500 ? 502 : 400, message, 'VAPI_CREATE_ASSISTANT_FAILED');
+  }
+
+  const data = (await res.json()) as { id?: string };
+  if (!data.id) {
+    throw new HttpError(502, 'Vapi created the assistant but returned no id.', 'VAPI_ERROR');
+  }
+  await prisma.agentSettings.update({ where: { tenantId }, data: { assistantId: data.id } });
+  return data.id;
+}

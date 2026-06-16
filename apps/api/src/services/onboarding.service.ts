@@ -2,6 +2,7 @@ import type { OnboardingStatus } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { HttpError } from '../lib/http';
 import { claimNumberForTenant } from './phone-pool.service';
+import { createAssistantForTenant } from './vapi.service';
 
 export const ONBOARDING_STEPS = ['PROFILE', 'PROMPT', 'VOICE_TEST'] as const;
 export type OnboardingStep = (typeof ONBOARDING_STEPS)[number];
@@ -111,6 +112,16 @@ export async function activate(tenantId: string): Promise<OnboardingStatus> {
     await claimNumberForTenant(tenantId);
   } catch (err) {
     console.error(`[onboarding] number claim failed for tenant ${tenantId}:`, err);
+  }
+
+  // Provision a dedicated persistent Vapi assistant so calls use a warm,
+  // pre-built agent (faster, more natural) rather than one rebuilt per call.
+  // Best-effort — if it fails, the assistant-request webhook still falls back
+  // to building a transient assistant, so the receptionist keeps working.
+  try {
+    await createAssistantForTenant(tenantId);
+  } catch (err) {
+    console.error(`[onboarding] assistant creation failed for tenant ${tenantId}:`, err);
   }
 
   return prisma.onboardingStatus.update({
