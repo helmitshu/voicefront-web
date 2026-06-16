@@ -12,8 +12,11 @@ import {
   isDemoEnabled,
   createDemoLead,
   setLeadMode,
+  getSalesConfig,
 } from '../services/demo.service';
 import { evaluateGate, clientIp } from '../services/geo.service';
+import { composeSalesPrompt, salesOpener, SALES_PERSONA, type SalesContext } from '../domain/sales-agent';
+import { utcToZonedParts } from '../services/appointment.service';
 
 /**
  * PUBLIC (no auth) endpoints behind the interactive landing-page demo. They
@@ -27,9 +30,6 @@ const BlockSchema = SessionSchema.extend({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
 });
-
-const DEMO_OPENER =
-  "Hi there, you've reached Bayview Family Clinic — this is Maya. This is a live demo, so go ahead and book an appointment, or try to catch me out. What can I do for you?";
 
 /** First name only, for a natural greeting ("Hi Sarah, ..."). */
 function firstName(name?: string): string | null {
@@ -110,15 +110,37 @@ demoRouter.post(
     const session = body.sessionId ? await resumeDemoSession(body.sessionId) : await startDemoSession();
     const publicApiUrl = await getSettingValue('PUBLIC_API_URL');
 
-    const assistant = buildTransientAssistant(session.bundle.tenant, session.bundle.settings, 'web', new Date(), {
+    // Build the SALES agent: her own human persona + playbook + voice, but all
+    // the call wiring (booking tools, timing, webhook routing) from the builder.
+    const tz = session.bundle.settings.timezone;
+    const now = new Date();
+    const localToday = {
+      date: utcToZonedParts(now, tz).date,
+      weekday: new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'long' }).format(now),
+    };
+    const sales = await getSalesConfig();
+    const salesCtx: SalesContext = {
+      agentName: sales.agentName,
+      founderName: sales.founderName,
+      companyName: 'VoiceFront',
+      prospectFirstName: firstName(body.name),
+      timezone: tz,
+      localToday,
+      displayDay: { date: session.day.date, label: session.day.dayLabel },
+    };
+
+    const assistant = buildTransientAssistant(session.bundle.tenant, session.bundle.settings, 'web', now, {
       // Booking tool-calls must reach our webhook to hit the demo calendar.
       serverUrl: publicApiUrl ? `${publicApiUrl}/api/vapi/inbound` : undefined,
+      systemPromptOverride: composeSalesPrompt(salesCtx),
+      assistantName: `${sales.agentName} · VoiceFront sales`,
+      voice: { provider: SALES_PERSONA.voiceProvider, voiceId: SALES_PERSONA.voiceId },
+      backgroundSound: 'office',
     });
     // Tag the assistant so tool-calls land on THIS visitor's isolated calendar,
-    // and give it a guiding opener that invites the prospect to test it.
+    // and give her a warm, demo-framing opener.
     assistant.metadata = { ...assistant.metadata, demoSessionId: session.sessionId };
-    const who = firstName(body.name);
-    assistant.firstMessage = who ? `Hi ${who}! ${DEMO_OPENER}` : DEMO_OPENER;
+    assistant.firstMessage = salesOpener(salesCtx);
 
     // Record that this prospect went with the in-browser test.
     if (body.leadId) await setLeadMode(body.leadId, 'web');
