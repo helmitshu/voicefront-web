@@ -635,10 +635,35 @@ export interface DemoSessionResponse {
   day: DemoDay;
   appointments: DemoAppointment[];
 }
+export interface DemoLeadInput {
+  name: string;
+  email: string;
+  phone: string;
+}
+export interface DemoLeadResponse {
+  leadId: string;
+  sessionId: string;
+  name: string;
+  phone: string;
+  /** True when the visitor may receive an outbound demo call (US/CA or +1). */
+  callAllowed: boolean;
+  ipCountry: string | null;
+  phoneCountry: string | null;
+  day: DemoDay;
+  appointments: DemoAppointment[];
+}
+export interface DemoStartInput {
+  sessionId?: string;
+  leadId?: string;
+  name?: string;
+}
 
 export const DemoApi = {
   status: () => api<{ enabled: boolean }>('/api/demo/status'),
-  start: () => api<DemoSessionResponse>('/api/demo/session', { method: 'POST' }),
+  lead: (input: DemoLeadInput) =>
+    api<DemoLeadResponse>('/api/demo/lead', { method: 'POST', body: input }),
+  start: (input: DemoStartInput = {}) =>
+    api<DemoSessionResponse>('/api/demo/session', { method: 'POST', body: input }),
   appointments: (sessionId: string) =>
     api<{ appointments: DemoAppointment[] }>(`/api/demo/appointments?sessionId=${encodeURIComponent(sessionId)}`),
   block: (sessionId: string, date: string, time: string) =>

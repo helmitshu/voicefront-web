@@ -186,6 +186,45 @@ export async function startDemoSession(): Promise<DemoSession> {
   return { sessionId, bundle, day, appointments: await getDemoAppointments(sessionId) };
 }
 
+/** Re-hydrates an existing visitor session (after lead capture) without
+ *  re-seeding — returns the same deterministic day plus the live calendar. */
+export async function resumeDemoSession(sessionId: string): Promise<DemoSession> {
+  const bundle = await getOrCreateDemoTenant();
+  const hours = parseBusinessHours(bundle.settings.businessHours);
+  const day = nextBusinessDay(hours, bundle.settings.timezone);
+  return { sessionId, bundle, day, appointments: await getDemoAppointments(sessionId) };
+}
+
+export interface CreateLeadInput {
+  sessionId: string;
+  name: string;
+  email: string;
+  phone: string;
+  ipCountry: string | null;
+  phoneCountry: string | null;
+  mode?: string;
+}
+
+/** Records a prospect who entered the demo (one row per form submission). */
+export async function createDemoLead(input: CreateLeadInput) {
+  return prisma.demoLead.create({
+    data: {
+      demoSessionId: input.sessionId,
+      name: input.name,
+      email: input.email,
+      phone: input.phone,
+      ipCountry: input.ipCountry,
+      phoneCountry: input.phoneCountry,
+      mode: input.mode ?? 'pending',
+    },
+  });
+}
+
+/** Marks which mode a prospect ultimately chose (web | call). Best-effort. */
+export async function setLeadMode(leadId: string, mode: string): Promise<void> {
+  await prisma.demoLead.update({ where: { id: leadId }, data: { mode } }).catch(() => undefined);
+}
+
 export async function getDemoAppointments(sessionId: string): Promise<DemoAppointmentView[]> {
   const rows = await prisma.appointment.findMany({
     where: { demoSessionId: sessionId, status: 'CONFIRMED' },
