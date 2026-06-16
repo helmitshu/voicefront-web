@@ -3,6 +3,7 @@ import type { AgentSettings, Appointment, Tenant } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { HttpError } from '../lib/http';
 import { industryDefaults } from '../domain/prompt-templates';
+import { SALES_PERSONA } from '../domain/sales-agent';
 import { defaultBusinessHours, parseBusinessHours, type BusinessHours } from '../domain/agent-config';
 import { utcToZonedParts, zonedToUtc } from './appointment.service';
 
@@ -36,6 +37,43 @@ export async function setDemoEnabled(enabled: boolean, adminEmail: string): Prom
     create: { key: DEMO_ENABLED_KEY, valueEnc, updatedBy: adminEmail },
     update: { valueEnc, updatedBy: adminEmail },
   });
+}
+
+/**
+ * Founder-editable sales-agent identity for the demo (plain text in reserved
+ * PlatformSetting rows, same non-secret pattern as DEMO_ENABLED). The admin UI
+ * (founder portal) writes these; defaults keep the demo working out of the box.
+ */
+const SALES_AGENT_NAME_KEY = 'DEMO_SALES_AGENT_NAME';
+const SALES_FOUNDER_NAME_KEY = 'DEMO_FOUNDER_NAME';
+
+export interface SalesConfig {
+  agentName: string;
+  founderName: string;
+}
+
+export async function getSalesConfig(): Promise<SalesConfig> {
+  const rows = await prisma.platformSetting.findMany({
+    where: { key: { in: [SALES_AGENT_NAME_KEY, SALES_FOUNDER_NAME_KEY] } },
+  });
+  const map = new Map(rows.map((r) => [r.key, r.valueEnc]));
+  return {
+    agentName: map.get(SALES_AGENT_NAME_KEY)?.trim() || SALES_PERSONA.name,
+    founderName: map.get(SALES_FOUNDER_NAME_KEY)?.trim() || 'our founder',
+  };
+}
+
+export async function setSalesConfig(input: Partial<SalesConfig>, adminEmail: string): Promise<void> {
+  const writes: Array<Promise<unknown>> = [];
+  const upsert = (key: string, valueEnc: string) =>
+    prisma.platformSetting.upsert({
+      where: { key },
+      create: { key, valueEnc, updatedBy: adminEmail },
+      update: { valueEnc, updatedBy: adminEmail },
+    });
+  if (typeof input.agentName === 'string') writes.push(upsert(SALES_AGENT_NAME_KEY, input.agentName.trim()));
+  if (typeof input.founderName === 'string') writes.push(upsert(SALES_FOUNDER_NAME_KEY, input.founderName.trim()));
+  await Promise.all(writes);
 }
 const DEMO_COMPANY = 'Bayview Family Clinic';
 const DEMO_TZ = 'America/Vancouver';

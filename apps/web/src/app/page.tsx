@@ -198,10 +198,10 @@ function CallCard() {
 type DemoPhase = 'idle' | 'requesting' | SimulatorPhase;
 
 const DEMO_SCENARIOS = [
-  { tag: 'Book it', text: '“I’d like to book an appointment for a cleaning.”' },
-  { tag: 'Try to double-book', text: 'Block an open slot below, then ask for that exact time — watch it refuse.' },
-  { tag: 'After hours', text: '“Can I come in at 9 PM?” — it knows you’re closed.' },
-  { tag: 'Check availability', text: '“What do you have open that day?”' },
+  { tag: 'Just talk', text: 'Tell Ava about your business — she leads from there.' },
+  { tag: 'Book it live', text: 'Ask her to book an appointment — watch the calendar fill in real time.' },
+  { tag: 'Try to double-book', text: 'Block an open slot below, then ask for that exact time — watch her refuse.' },
+  { tag: 'Get the recap', text: 'Hang up and see the clean summary she leaves behind.' },
 ];
 
 function minutesOf(t: string): number {
@@ -656,7 +656,7 @@ function InteractiveDemo() {
           {transcript.length === 0 && !live && phase !== 'requesting' ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
               <p className="max-w-xs text-sm text-white/50">
-                Press the button and actually talk to the receptionist. Ask it to book — then try to trip it up.
+                Press the button and say hi to Ava. She’ll walk you through what VoiceFront does — live. Ask her to book, then try to trip her up.
               </p>
             </div>
           ) : (
@@ -675,7 +675,7 @@ function InteractiveDemo() {
           )}
           {phase === 'requesting' && (
             <div className="flex flex-1 items-center justify-center">
-              <p className="text-sm text-white/40">Waking up the receptionist…</p>
+              <p className="text-sm text-white/40">Getting Ava on the line…</p>
             </div>
           )}
         </div>

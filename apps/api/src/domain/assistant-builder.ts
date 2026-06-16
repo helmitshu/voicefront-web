@@ -212,6 +212,13 @@ export function buildTransientAssistant(
     /** Override the tenant's saved voice — used by the in-browser test so the
      * founder can A/B voices live before committing one. */
     voice?: { provider: string; voiceId: string };
+    /** Replace the composed receptionist system prompt entirely — used by the
+     * landing-page SALES demo, which has its own persona and playbook. */
+    systemPromptOverride?: string;
+    /** Override the assistant display name (e.g. the sales-demo agent). */
+    assistantName?: string;
+    /** Override ambient audio (e.g. 'office' to add life to the sales demo). */
+    backgroundSound?: string;
   } = {},
 ): TransientAssistant {
   const businessHours = parseBusinessHours(settings.businessHours);
@@ -225,19 +232,21 @@ export function buildTransientAssistant(
 
   const knowledgeTool = buildKnowledgeTool(tenant.companyName, options.knowledgeFileIds ?? []);
 
-  const systemPrompt = [
-    composeSystemPrompt({
-      companyName: tenant.companyName,
-      basePrompt: settings.systemPrompt,
-      businessHours,
-      timezone: settings.timezone,
-      openNow,
-      voicemailGreeting: settings.voicemailGreeting,
-      forwardingNumbers,
-      localToday: { date: local.date, weekday },
-    }),
-    ...(knowledgeTool ? ['', KNOWLEDGE_PROMPT] : []),
-  ].join('\n');
+  const systemPrompt =
+    options.systemPromptOverride ??
+    [
+      composeSystemPrompt({
+        companyName: tenant.companyName,
+        basePrompt: settings.systemPrompt,
+        businessHours,
+        timezone: settings.timezone,
+        openNow,
+        voicemailGreeting: settings.voicemailGreeting,
+        forwardingNumbers,
+        localToday: { date: local.date, weekday },
+      }),
+      ...(knowledgeTool ? ['', KNOWLEDGE_PROMPT] : []),
+    ].join('\n');
 
   const tools: Array<TransferCallTool | FunctionTool | QueryTool> = [...buildBookingTools()];
   if (knowledgeTool) tools.push(knowledgeTool);
@@ -271,7 +280,7 @@ export function buildTransientAssistant(
   const voiceId = options.voice?.voiceId ?? settings.voiceId;
 
   return {
-    name: `${tenant.companyName} Receptionist`,
+    name: options.assistantName ?? `${tenant.companyName} Receptionist`,
     firstMessage,
     firstMessageMode: 'assistant-speaks-first',
     model: {
@@ -287,7 +296,7 @@ export function buildTransientAssistant(
       voiceProvider === 'vapi'
         ? { provider: 'vapi', voiceId, version: 2 }
         : { provider: voiceProvider, voiceId },
-    backgroundSound: settings.backgroundSound,
+    backgroundSound: options.backgroundSound ?? settings.backgroundSound,
     // Explicit server URL (when configured) routes tool calls here even for
     // browser test calls, which have no phone-number-level server fallback.
     ...(options.serverUrl
