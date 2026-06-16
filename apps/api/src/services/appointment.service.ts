@@ -109,6 +109,8 @@ export interface SlotQuery {
   date: string; // YYYY-MM-DD in tenant timezone
   slotMinutes?: number;
   now?: Date;
+  /** Landing-page demo only: scope availability to one visitor's session. */
+  demoSessionId?: string | null;
 }
 
 export interface SlotResult {
@@ -149,6 +151,7 @@ export async function findFreeSlots(query: SlotQuery): Promise<SlotResult> {
   const booked = await prisma.appointment.findMany({
     where: {
       tenantId,
+      demoSessionId: query.demoSessionId ?? null,
       status: 'CONFIRMED',
       startsAt: { lt: windowEnd },
       endsAt: { gt: windowStart },
@@ -180,6 +183,8 @@ export interface BookingInput {
   source: 'VOICE_AGENT' | 'MANUAL';
   externalCallId?: string | null;
   now?: Date;
+  /** Landing-page demo only: tags the booking to one visitor's session. */
+  demoSessionId?: string | null;
 }
 
 /**
@@ -221,13 +226,17 @@ export async function bookAppointment(input: BookingInput): Promise<Appointment>
     );
   }
 
-  // Serialize per-tenant bookings so two concurrent calls can't double-book:
-  // the advisory lock holds for the transaction, then we re-check overlap.
+  const demoSessionId = input.demoSessionId ?? null;
+  // Serialize bookings so two concurrent calls can't double-book: the advisory
+  // lock holds for the transaction, then we re-check overlap. Demo sessions
+  // lock on tenant+session so unrelated visitors never block each other.
+  const lockKey = demoSessionId ? `${tenantId}:${demoSessionId}` : tenantId;
   return prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${tenantId}))`;
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
     const clash = await tx.appointment.findFirst({
       where: {
         tenantId,
+        demoSessionId,
         status: 'CONFIRMED',
         startsAt: { lt: endsAt },
         endsAt: { gt: startsAt },
@@ -248,6 +257,7 @@ export async function bookAppointment(input: BookingInput): Promise<Appointment>
         timezone,
         source: input.source,
         externalCallId: input.externalCallId ?? null,
+        demoSessionId,
       },
     });
   });

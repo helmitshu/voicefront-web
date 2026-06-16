@@ -14,6 +14,7 @@ import {
   to12h,
   utcToZonedParts,
 } from '../services/appointment.service';
+import { getOrCreateDemoTenant } from '../services/demo.service';
 
 /**
  * Provider webhook. Two jobs:
@@ -43,6 +44,8 @@ const MetadataSchema = z
   .object({
     tenantId: z.string().optional(),
     channel: z.enum(['phone', 'web']).optional(),
+    /** Set on landing-page demo assistants to isolate the visitor's calendar. */
+    demoSessionId: z.string().optional(),
   })
   .passthrough();
 
@@ -148,8 +151,14 @@ function parseToolArguments(raw: unknown): unknown {
  */
 async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolCallId: string; result: string }>> {
   const metadata = message.assistant?.metadata ?? message.call?.assistant?.metadata;
+  const demoSessionId = metadata?.demoSessionId ?? null;
   let tenantId = metadata?.tenantId ?? null;
-  if (!tenantId) {
+  // Demo calls are clamped to the demo tenant regardless of any tenantId in the
+  // (unauthenticated) payload, so a forged demo call can only touch the
+  // isolated, auto-expiring demo calendar — never a real customer's.
+  if (demoSessionId) {
+    tenantId = (await getOrCreateDemoTenant()).tenant.id;
+  } else if (!tenantId) {
     const settings = await findTenantByNumber(message.phoneNumber?.number);
     tenantId = settings?.tenantId ?? null;
   }
@@ -173,6 +182,7 @@ async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolC
           timezone: settings.timezone,
           businessHours: settings.businessHours,
           date,
+          demoSessionId,
         });
         if (!slots.open) {
           result = `The office is closed on ${slots.dayLabel}. Offer the next business day instead.`;
@@ -197,6 +207,7 @@ async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolC
           time: booking.time,
           source: 'VOICE_AGENT',
           externalCallId: message.call?.id ?? null,
+          demoSessionId,
         });
         const local = utcToZonedParts(appointment.startsAt, appointment.timezone);
         const dayLabel = new Intl.DateTimeFormat('en-US', {
@@ -240,10 +251,26 @@ async function findTenantByNumber(rawNumber: string | undefined) {
   return settings;
 }
 
+/** Pull a demo session id out of the raw webhook body, if present. Public
+ * landing-page demo calls carry one and have no webhook secret (we never ship
+ * the secret to a browser); they're allowed through but sandboxed to the demo
+ * tenant in the handlers below, so a forged demo call can't touch real data. */
+function peekDemoSessionId(body: unknown): string | null {
+  const msg = (body as { message?: Record<string, unknown> })?.message;
+  if (!msg) return null;
+  const fromAssistant = (msg.assistant as { metadata?: { demoSessionId?: unknown } })?.metadata?.demoSessionId;
+  const fromCall = (msg.call as { assistant?: { metadata?: { demoSessionId?: unknown } } })?.assistant?.metadata
+    ?.demoSessionId;
+  const id = fromAssistant ?? fromCall;
+  return typeof id === 'string' && id.startsWith('demo_') ? id : null;
+}
+
 inboundRouter.post(
   '/',
   asyncHandler(async (req, res) => {
-    if (!(await secretsMatch(req))) {
+    const isDemo = peekDemoSessionId(req.body) !== null;
+    // Real calls must carry the shared secret; demo calls are sandboxed instead.
+    if (!isDemo && !(await secretsMatch(req))) {
       res.status(401).json({ error: { message: 'Invalid webhook secret', code: 'UNAUTHENTICATED' } });
       return;
     }
@@ -337,6 +364,12 @@ inboundRouter.post(
         return;
       }
       const report = parsed.data;
+
+      // Demo calls are ephemeral marketing sessions — never logged as real calls.
+      if (report.assistant?.metadata?.demoSessionId ?? report.call?.assistant?.metadata?.demoSessionId) {
+        res.status(200).json({});
+        return;
+      }
 
       // Attribution order: assistant metadata (set by us at call start, works
       // for browser tests too) → call.assistant metadata → inbound number.

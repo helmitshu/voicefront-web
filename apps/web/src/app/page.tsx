@@ -4,6 +4,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { Logo } from '@/components/ui/Logo';
+import { DemoApi, ApiError, type DemoAppointment, type DemoDay } from '@/lib/api';
+import { VoiceSession, type SimulatorPhase, type TranscriptEntry } from '@/lib/voice-client';
 
 /* ------------------------------ scroll reveal ----------------------------- */
 
@@ -193,97 +195,316 @@ function CallCard() {
 
 /* ------------------------- live demo (dark section) ------------------------ */
 
-const DEMO_SCRIPT: ScriptLine[] = [
-  { role: 'agent', text: 'Northside Family Clinic, this is the receptionist — how can I help?' },
-  { role: 'caller', text: 'Do you have anything tomorrow morning? It’s for a follow-up.' },
-  { role: 'agent', text: 'Let me check the calendar… I have 9:30 and 11:00 open.' },
-  { role: 'caller', text: '11:00 please. James Cole, 555-0119.' },
-  { role: 'agent', text: 'Booked — James Cole, tomorrow at 11:00 AM. Anything else?' },
+type DemoPhase = 'idle' | 'requesting' | SimulatorPhase;
+
+const DEMO_SCENARIOS = [
+  { tag: 'Book it', text: '“I’d like to book an appointment for a cleaning.”' },
+  { tag: 'Try to double-book', text: 'Block an open slot below, then ask for that exact time — watch it refuse.' },
+  { tag: 'After hours', text: '“Can I come in at 9 PM?” — it knows you’re closed.' },
+  { tag: 'Check availability', text: '“What do you have open that day?”' },
 ];
 
-const DEMO_SLOTS = [
-  { time: '9:00', label: 'Team huddle', taken: true },
-  { time: '9:30', label: '', taken: false },
-  { time: '10:00', label: 'M. Alvarez — cleaning', taken: true },
-  { time: '11:00', label: '', taken: false, target: true },
-  { time: '11:30', label: '', taken: false },
-  { time: '12:00', label: 'Lunch block', taken: true },
-];
+function minutesOf(t: string): number {
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+}
+function hhmm(mins: number): string {
+  return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`;
+}
+function to12(t: string): string {
+  const [h, m] = t.split(':').map(Number);
+  const suffix = h >= 12 ? 'PM' : 'AM';
+  const display = h % 12 === 0 ? 12 : h % 12;
+  return `${display}:${String(m).padStart(2, '0')} ${suffix}`;
+}
+function gridTimes(day: DemoDay): string[] {
+  const out: string[] = [];
+  for (let t = minutesOf(day.open); t + day.slotMinutes <= minutesOf(day.close); t += day.slotMinutes) {
+    out.push(hhmm(t));
+  }
+  return out;
+}
 
-function LiveDemo() {
-  const { ringing, visibleLines, booked } = useCallLoop(DEMO_SCRIPT.length);
+function InteractiveDemo() {
+  const [phase, setPhase] = useState<DemoPhase>('idle');
+  const [sessionId, setSessionId] = useState<string | null>(null);
+  const [day, setDay] = useState<DemoDay | null>(null);
+  const [appointments, setAppointments] = useState<DemoAppointment[]>([]);
+  const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [unavailable, setUnavailable] = useState(false);
+  const [blocking, setBlocking] = useState<string | null>(null);
+  const [resetting, setResetting] = useState(false);
+
+  const sessionRef = useRef<VoiceSession | null>(null);
+  const aliveRef = useRef(true);
+  const transcriptBoxRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+      sessionRef.current?.stop();
+      sessionRef.current = null;
+    };
+  }, []);
+
+  // Poll the live calendar while a session is open, so the agent's bookings
+  // (and the "after they hang up" final one) appear on screen.
+  useEffect(() => {
+    if (!sessionId) return;
+    const id = window.setInterval(async () => {
+      try {
+        const { appointments: next } = await DemoApi.appointments(sessionId);
+        if (aliveRef.current) setAppointments(next);
+      } catch {
+        /* transient — next tick retries */
+      }
+    }, 1500);
+    return () => window.clearInterval(id);
+  }, [sessionId]);
+
+  useEffect(() => {
+    const box = transcriptBoxRef.current;
+    if (box) box.scrollTop = box.scrollHeight;
+  }, [transcript]);
+
+  const live = phase === 'connecting' || phase === 'listening' || phase === 'assistant-speaking';
+
+  async function startCall() {
+    if (live || phase === 'requesting') return;
+    setError(null);
+    setTranscript([]);
+    setPhase('requesting');
+    let data;
+    try {
+      data = await DemoApi.start();
+    } catch (err) {
+      if (!aliveRef.current) return;
+      if (err instanceof ApiError && err.code === 'VOICE_NOT_CONFIGURED') {
+        setUnavailable(true);
+        setPhase('idle');
+        return;
+      }
+      setPhase('error');
+      setError(err instanceof ApiError ? err.message : 'Could not start the demo.');
+      return;
+    }
+    if (!aliveRef.current) return;
+    setSessionId(data.sessionId);
+    setDay(data.day);
+    setAppointments(data.appointments);
+
+    const session = new VoiceSession();
+    sessionRef.current = session;
+    await session.start(data.publicKey, data.assistant, {
+      onPhase: (next) => aliveRef.current && setPhase(next),
+      onVolume: () => {},
+      onTranscript: (entry) => aliveRef.current && setTranscript((cur) => [...cur, entry]),
+      onError: (message) => aliveRef.current && setError(message),
+    });
+  }
+
+  function endCall() {
+    sessionRef.current?.stop();
+    sessionRef.current = null;
+    setPhase('ended');
+  }
+
+  async function blockSlot(time: string) {
+    if (!sessionId || !day) return;
+    setBlocking(time);
+    try {
+      const { appointments: next } = await DemoApi.block(sessionId, day.date, time);
+      if (aliveRef.current) setAppointments(next);
+    } catch {
+      /* ignore */
+    } finally {
+      if (aliveRef.current) setBlocking(null);
+    }
+  }
+
+  async function resetCalendar() {
+    if (!sessionId) return;
+    setResetting(true);
+    try {
+      const res = await DemoApi.reset(sessionId);
+      if (aliveRef.current) {
+        setDay(res.day);
+        setAppointments(res.appointments);
+      }
+    } catch {
+      /* ignore */
+    } finally {
+      if (aliveRef.current) setResetting(false);
+    }
+  }
+
+  const byTime = new Map(appointments.map((a) => [a.time, a]));
+  const aiBooked = appointments.filter((a) => a.kind === 'voice').length;
+
   return (
     <div className="grid items-stretch gap-5 lg:grid-cols-2">
-      {/* transcript console */}
+      {/* ------------------------------ call console ------------------------------ */}
       <div className="flex flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04] backdrop-blur">
         <div className="flex items-center justify-between border-b border-white/10 px-5 py-3.5">
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-white/50">Live call</p>
-          {ringing ? (
-            <span className="text-xs font-medium text-white/40">Ringing…</span>
-          ) : (
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-white/50">Live demo call</p>
+          {live ? (
             <span className="flex items-center gap-2 text-xs font-semibold text-emerald-300">
               <Waveform bars={4} light />
               On the line
             </span>
+          ) : (
+            <span className="text-xs font-medium text-white/40">
+              {phase === 'requesting' ? 'Connecting…' : phase === 'ended' ? 'Call ended' : 'Not connected'}
+            </span>
           )}
         </div>
-        <div className="flex min-h-[300px] flex-1 flex-col gap-2.5 px-5 py-5">
-          {DEMO_SCRIPT.slice(0, visibleLines).map((line, i) => (
-            <div
-              key={i}
-              className={`max-w-[88%] animate-pop-in rounded-2xl px-3.5 py-2 text-[13px] leading-snug ${
-                line.role === 'agent'
-                  ? 'self-start rounded-bl-md bg-signal/25 text-white ring-1 ring-inset ring-signal/40'
-                  : 'self-end rounded-br-md bg-white/10 text-white/90 ring-1 ring-inset ring-white/10'
-              }`}
-            >
-              {line.text}
+
+        <div ref={transcriptBoxRef} className="flex min-h-[280px] flex-1 flex-col gap-2.5 overflow-y-auto px-5 py-5">
+          {transcript.length === 0 && !live && phase !== 'requesting' ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
+              <p className="max-w-xs text-sm text-white/50">
+                Press the button and actually talk to the receptionist. Ask it to book — then try to trip it up.
+              </p>
             </div>
-          ))}
-          {ringing && (
+          ) : (
+            transcript.map((entry, i) => (
+              <div
+                key={i}
+                className={`max-w-[88%] animate-pop-in rounded-2xl px-3.5 py-2 text-[13px] leading-snug ${
+                  entry.role === 'assistant'
+                    ? 'self-start rounded-bl-md bg-signal/25 text-white ring-1 ring-inset ring-signal/40'
+                    : 'self-end rounded-br-md bg-white/10 text-white/90 ring-1 ring-inset ring-white/10'
+                }`}
+              >
+                {entry.text}
+              </div>
+            ))
+          )}
+          {phase === 'requesting' && (
             <div className="flex flex-1 items-center justify-center">
-              <p className="text-sm text-white/40">A customer is calling…</p>
+              <p className="text-sm text-white/40">Waking up the receptionist…</p>
+            </div>
+          )}
+        </div>
+
+        <div className="border-t border-white/10 px-5 py-4">
+          {unavailable ? (
+            <p className="text-center text-sm text-white/50">
+              The live demo isn’t configured on this server yet. You can still create a workspace and run a
+              free in-browser test call.
+            </p>
+          ) : (
+            <div className="flex flex-col items-center gap-2">
+              {live ? (
+                <button
+                  type="button"
+                  onClick={endCall}
+                  className="rounded-2xl bg-[#ff5d6c] px-7 py-3 text-[15px] font-semibold text-white shadow-pop transition-transform hover:-translate-y-0.5"
+                >
+                  End call
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={startCall}
+                  disabled={phase === 'requesting'}
+                  className="rounded-2xl bg-white px-7 py-3 text-[15px] font-semibold text-ink shadow-lift transition-transform hover:-translate-y-0.5 disabled:opacity-60"
+                >
+                  {phase === 'ended' ? 'Call again' : 'Start the demo call'}
+                </button>
+              )}
+              <p className="text-[11px] text-white/35">Free · runs in your browser · needs mic access</p>
+              {error && <p className="text-center text-xs text-[#ffb4ba]">{error}</p>}
             </div>
           )}
         </div>
       </div>
 
-      {/* calendar panel */}
-      <div className="overflow-hidden rounded-3xl border border-white/10 bg-white shadow-lift">
+      {/* -------------------------------- calendar -------------------------------- */}
+      <div className="flex flex-col overflow-hidden rounded-3xl border border-white/10 bg-white shadow-lift">
         <div className="flex items-center justify-between border-b border-line/60 bg-paper/70 px-5 py-3.5">
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-muted">Your calendar — tomorrow</p>
-          {booked && (
-            <span className="animate-pop-in rounded-full bg-clinic-soft px-2.5 py-1 text-[11px] font-semibold text-[#0b8a74]">
-              +1 booked by AI
-            </span>
-          )}
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-muted">Demo calendar</p>
+            {day && <p className="mt-0.5 text-[13px] font-semibold text-ink">{day.dayLabel}</p>}
+          </div>
+          <div className="flex items-center gap-2">
+            {aiBooked > 0 && (
+              <span className="animate-pop-in rounded-full bg-clinic-soft px-2.5 py-1 text-[11px] font-semibold text-[#0b8a74]">
+                +{aiBooked} booked by AI
+              </span>
+            )}
+            {sessionId && (
+              <button
+                type="button"
+                onClick={resetCalendar}
+                disabled={resetting}
+                className="rounded-full border border-line px-2.5 py-1 text-[11px] font-semibold text-ink-muted transition-colors hover:text-ink disabled:opacity-50"
+              >
+                Reset
+              </button>
+            )}
+          </div>
         </div>
-        <ul className="divide-y divide-line/50 px-5 py-2">
-          {DEMO_SLOTS.map((slot) => {
-            const justBooked = slot.target && booked;
-            return (
-              <li key={slot.time} className="flex items-center gap-4 py-2.5">
-                <span className="w-12 font-mono text-xs text-ink-muted">{slot.time}</span>
-                {justBooked ? (
-                  <span className="flex flex-1 animate-pop-in items-center justify-between rounded-xl bg-gradient-to-r from-signal to-signal-deep px-3.5 py-2 text-[13px] font-semibold text-white shadow-pop">
-                    James Cole — follow-up
-                    <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
-                      Voice agent
+
+        {!day ? (
+          <div className="flex flex-1 items-center justify-center px-5 py-14 text-center text-sm text-ink-muted">
+            Start the demo to load a live calendar you can book into.
+          </div>
+        ) : (
+          <ul className="max-h-[360px] flex-1 divide-y divide-line/50 overflow-y-auto px-5 py-1.5">
+            {gridTimes(day).map((time) => {
+              const appt = byTime.get(time);
+              return (
+                <li key={time} className="flex items-center gap-3 py-2">
+                  <span className="w-16 shrink-0 font-mono text-xs text-ink-muted">{to12(time)}</span>
+                  {!appt ? (
+                    <button
+                      type="button"
+                      onClick={() => blockSlot(time)}
+                      disabled={blocking === time}
+                      className="group flex flex-1 items-center justify-between rounded-xl border border-dashed border-line px-3.5 py-2 text-[13px] text-ink-muted/60 transition-colors hover:border-ink-muted/40 hover:text-ink-muted"
+                    >
+                      <span>Open</span>
+                      <span className="text-[11px] font-semibold opacity-0 transition-opacity group-hover:opacity-100">
+                        {blocking === time ? 'Blocking…' : 'Block this slot'}
+                      </span>
+                    </button>
+                  ) : appt.kind === 'voice' ? (
+                    <span className="flex flex-1 animate-pop-in items-center justify-between rounded-xl bg-gradient-to-r from-signal to-signal-deep px-3.5 py-2 text-[13px] font-semibold text-white shadow-pop">
+                      {appt.label}
+                      <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+                        Voice agent
+                      </span>
                     </span>
-                  </span>
-                ) : slot.taken ? (
-                  <span className="flex-1 rounded-xl bg-paper px-3.5 py-2 text-[13px] text-ink-muted ring-1 ring-inset ring-ink/5">
-                    {slot.label}
-                  </span>
-                ) : (
-                  <span className="flex-1 rounded-xl border border-dashed border-line px-3.5 py-2 text-[13px] text-ink-muted/50">
-                    Open
-                  </span>
-                )}
-              </li>
-            );
-          })}
-        </ul>
+                  ) : appt.kind === 'blocked' ? (
+                    <span className="flex flex-1 items-center justify-between rounded-xl bg-construction-soft px-3.5 py-2 text-[13px] font-medium text-[#9a6a1d] ring-1 ring-inset ring-construction/20">
+                      {appt.label}
+                      <span className="text-[10px] font-semibold uppercase tracking-wide">Blocked</span>
+                    </span>
+                  ) : (
+                    <span className="flex-1 rounded-xl bg-paper px-3.5 py-2 text-[13px] text-ink-muted ring-1 ring-inset ring-ink/5">
+                      {appt.label}
+                    </span>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+
+      {/* ----------------------------- guided scenarios ---------------------------- */}
+      <div className="lg:col-span-2">
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          {DEMO_SCENARIOS.map((s) => (
+            <div key={s.tag} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 backdrop-blur">
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-signal-soft/80">{s.tag}</p>
+              <p className="mt-1.5 text-[13px] leading-snug text-white/70">{s.text}</p>
+            </div>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -552,7 +773,7 @@ export default function LandingPage() {
             </p>
           </Reveal>
           <Reveal delay={150} className="mt-14">
-            <LiveDemo />
+            <InteractiveDemo />
           </Reveal>
           <Reveal delay={250} className="mt-12 text-center">
             <Link

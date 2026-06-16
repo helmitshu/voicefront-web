@@ -53,7 +53,7 @@ export interface TransientAssistant {
   endCallFunctionEnabled?: boolean;
   /** Spoken-phrase fallbacks that also trigger a hang-up. */
   endCallPhrases?: string[];
-  metadata: { tenantId: string; channel: CallChannel };
+  metadata: { tenantId: string; channel: CallChannel; demoSessionId?: string };
 }
 
 /**
