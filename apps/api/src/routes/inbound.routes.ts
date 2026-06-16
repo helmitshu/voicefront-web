@@ -288,6 +288,18 @@ inboundRouter.post(
         return;
       }
 
+      // Prefer the tenant's dedicated persistent assistant when one is
+      // provisioned: Vapi loads a warm, pre-built agent (snappier first
+      // response, kept in sync on every settings save) instead of one rebuilt
+      // from scratch on every call. The quota/block/active gates above still
+      // run because the call still routes through this webhook first.
+      if (settings.assistantId) {
+        res.status(200).json({ assistantId: settings.assistantId });
+        return;
+      }
+
+      // Fallback: no dedicated assistant yet — build a transient one inline so
+      // the receptionist still answers (e.g. before provisioning completes).
       const [publicApiUrl, webhookSecret, documents] = await Promise.all([
         getSettingValue('PUBLIC_API_URL'),
         getSettingValue('VAPI_WEBHOOK_SECRET'),

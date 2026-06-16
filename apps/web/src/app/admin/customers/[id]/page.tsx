@@ -54,6 +54,24 @@ export default function AdminCustomerDetailPage() {
       );
   }, [tenantId]);
 
+  async function createAssistant() {
+    setAssistantBusy(true);
+    try {
+      const result = await AdminApi.createAssistant(tenantId);
+      toast(
+        result.created
+          ? 'Dedicated assistant created and linked.'
+          : 'This workspace already has an assistant.',
+        'success',
+      );
+      load();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not create the assistant.', 'error');
+    } finally {
+      setAssistantBusy(false);
+    }
+  }
+
   async function saveAssistant() {
     const value = assistantInput.trim();
     setAssistantBusy(true);
@@ -335,6 +353,19 @@ export default function AdminCustomerDetailPage() {
                     : 'Assign'}
               </Button>
             </div>
+            {!tenant.settings?.assistantId && (
+              <div className="mt-4 rounded-xl border border-signal/25 bg-signal-soft/40 px-4 py-3">
+                <p className="text-sm font-medium text-ink">No Vapi assistant yet</p>
+                <p className="mt-0.5 text-xs leading-relaxed text-ink-muted">
+                  Create a dedicated assistant from this workspace&apos;s current voice, prompt, and hours — no
+                  manual Vapi setup. Calls then use a warm, pre-built agent (faster, more natural) while quota
+                  limits still apply.
+                </p>
+                <Button variant="secondary" size="sm" className="mt-3" loading={assistantBusy} onClick={createAssistant}>
+                  Create dedicated assistant
+                </Button>
+              </div>
+            )}
             <p className="mt-3 text-xs leading-relaxed text-ink-muted">
               When the customer saves their Receptionist settings, the app pushes voice, greeting, prompt,
               and hours to this assistant. Needs the Vapi private key under{' '}

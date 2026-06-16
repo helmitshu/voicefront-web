@@ -32,6 +32,7 @@ import {
   removeAdmin,
 } from '../services/platform-admin.service';
 import {
+  createAssistantForTenant,
   createPhoneNumberInVapi,
   findAssistantPhoneNumber,
   syncAssistantForTenant,
@@ -426,6 +427,28 @@ adminRouter.patch(
       phoneNumber,
       phoneNote,
     });
+  }),
+);
+
+/* Auto-provision a fresh dedicated Vapi assistant from the workspace's current
+ * settings (no manual cloning). No-op if one is already assigned.             */
+adminRouter.post(
+  '/tenants/:id/assistant/create',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const adminEmail = getAdminEmail(req);
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, companyName: true, agentSettings: { select: { assistantId: true } } },
+    });
+    if (!tenant) throw new HttpError(404, 'Workspace not found.', 'NOT_FOUND');
+    if (tenant.agentSettings?.assistantId) {
+      return res.json({ assistantId: tenant.agentSettings.assistantId, created: false });
+    }
+
+    const assistantId = await createAssistantForTenant(tenant.id);
+    await recordAdminAction(adminEmail, 'assistant.create', tenant.companyName, { assistantId });
+    return res.json({ assistantId, created: true });
   }),
 );
 
