@@ -1,7 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
 import { prisma } from '../lib/prisma';
-import { env } from '../config/env';
+import { env, publicApiUrl } from '../config/env';
 import { HttpError } from '../lib/http';
 
 /**
@@ -98,7 +98,7 @@ function envFallback(key: SettingKey): string | null {
     case 'VAPI_WEBHOOK_SECRET':
       return env.VAPI_WEBHOOK_SECRET;
     case 'PUBLIC_API_URL':
-      return env.PUBLIC_API_URL ?? null;
+      return publicApiUrl;
   }
 }
 
