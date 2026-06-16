@@ -97,6 +97,55 @@ interface VapiPhoneNumber {
   assistantId?: string | null;
 }
 
+export interface RepointResult {
+  serverUrl: string;
+  total: number;
+  updated: number;
+  failed: number;
+  details: Array<{ number: string; ok: boolean }>;
+}
+
+/**
+ * Re-points every Vapi phone number's Server URL at THIS server's webhook
+ * (PUBLIC_API_URL), with the webhook secret attached. Used to migrate numbers
+ * created against an old tunnel onto the stable cloud URL — fully idempotent,
+ * since it just sets the URL to whatever PUBLIC_API_URL currently resolves to.
+ */
+export async function repointAllPhoneNumbers(): Promise<RepointResult> {
+  const [publicApiUrl, webhookSecret] = await Promise.all([
+    getSettingValue('PUBLIC_API_URL'),
+    getSettingValue('VAPI_WEBHOOK_SECRET'),
+  ]);
+  if (!publicApiUrl) {
+    throw new HttpError(503, 'PUBLIC_API_URL is not configured, so there is nothing to point numbers at.', 'CONFIG_MISSING');
+  }
+
+  const listRes = await vapiFetch('/phone-number', { method: 'GET' });
+  if (!listRes.ok) {
+    const { code, message } = explainStatus(listRes.status);
+    throw new HttpError(502, message, code);
+  }
+  const numbers = (await listRes.json()) as VapiPhoneNumber[];
+  if (!Array.isArray(numbers)) {
+    throw new HttpError(502, 'Vapi returned an unexpected response listing numbers.', 'VAPI_ERROR');
+  }
+
+  const server: { url: string; secret?: string } = { url: `${publicApiUrl}/api/vapi/inbound` };
+  if (webhookSecret) server.secret = webhookSecret;
+
+  const details: Array<{ number: string; ok: boolean }> = [];
+  let updated = 0;
+  let failed = 0;
+  for (const n of numbers) {
+    const res = await vapiFetch(`/phone-number/${encodeURIComponent(n.id)}`, { method: 'PATCH', body: { server } });
+    const ok = res.ok;
+    if (ok) updated += 1;
+    else failed += 1;
+    details.push({ number: n.number ?? n.id, ok });
+  }
+  return { serverUrl: server.url, total: numbers.length, updated, failed, details };
+}
+
 /**
  * Finds the phone number attached to an assistant in Vapi, if any. One list
  * call, matched client-side on assistantId. Best-effort: returns null on any

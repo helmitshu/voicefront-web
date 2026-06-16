@@ -36,6 +36,7 @@ import {
   createAssistantForTenant,
   createPhoneNumberInVapi,
   findAssistantPhoneNumber,
+  repointAllPhoneNumbers,
   syncAssistantForTenant,
   validateAssistant,
 } from '../services/vapi.service';
@@ -702,6 +703,22 @@ adminRouter.delete(
     await unsetSetting(key);
     await recordAdminAction(adminEmail, 'config.unset', key, {});
     res.json({ ok: true });
+  }),
+);
+
+/* Re-point every Vapi number's Server URL at this server (PUBLIC_API_URL) —
+ * one click to migrate numbers off an old tunnel onto the cloud webhook.      */
+adminRouter.post(
+  '/migrate-webhooks',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const adminEmail = getAdminEmail(req);
+    const result = await repointAllPhoneNumbers();
+    await recordAdminAction(adminEmail, 'webhooks.repoint', result.serverUrl, {
+      updated: result.updated,
+      failed: result.failed,
+    });
+    res.json(result);
   }),
 );
 
