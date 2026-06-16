@@ -292,3 +292,23 @@ model CallLog {
   @@index([tenantId, startedAt(sort: Desc)])
   @@map("call_logs")
 }
+
+model DemoLead {
+  id            String   @id @default(cuid())
+  /// Visitor's demo session (links to their isolated calendar).
+  demoSessionId String   @map("demo_session_id")
+  name          String
+  email         String
+  phone         String
+  /// Visitor's country via IP geolocation ("US", "CA", "GB", etc.). Nullable if lookup fails.
+  ipCountry     String?  @map("ip_country")
+  /// Phone number's country code ("US", "CA", "GB", etc.). Parsed from the number.
+  phoneCountry  String?  @map("phone_country")
+  /// Which demo mode they're entering ("web" or "call").
+  mode          String   // "web" or "call"
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([demoSessionId])
+  @@index([createdAt(sort: Desc)])
+  @@map("demo_leads")
+}

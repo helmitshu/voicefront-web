@@ -5,11 +5,15 @@ import { getSettingValue } from '../services/platform-config.service';
 import { buildTransientAssistant } from '../domain/assistant-builder';
 import {
   startDemoSession,
+  resumeDemoSession,
   getDemoAppointments,
   blockDemoSlot,
   resetDemoSession,
   isDemoEnabled,
+  createDemoLead,
+  setLeadMode,
 } from '../services/demo.service';
+import { evaluateGate, clientIp } from '../services/geo.service';
 
 /**
  * PUBLIC (no auth) endpoints behind the interactive landing-page demo. They
@@ -27,6 +31,12 @@ const BlockSchema = SessionSchema.extend({
 const DEMO_OPENER =
   "Hi there, you've reached Bayview Family Clinic — this is Maya. This is a live demo, so go ahead and book an appointment, or try to catch me out. What can I do for you?";
 
+/** First name only, for a natural greeting ("Hi Sarah, ..."). */
+function firstName(name?: string): string | null {
+  const f = (name ?? '').trim().split(/\s+/)[0];
+  return f && /^[a-zA-Z][a-zA-Z'’-]*$/.test(f) ? f : null;
+}
+
 /** Whether the landing-page demo is currently switched on (founder toggle). */
 demoRouter.get(
   '/status',
@@ -35,10 +45,59 @@ demoRouter.get(
   }),
 );
 
+const LeadSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  email: z.string().trim().email().max(160),
+  phone: z.string().trim().min(7).max(32),
+});
+
+/**
+ * Lead capture + geo gating: the demo's entry gate. Records the prospect,
+ * spins up their isolated calendar, and returns which modes they may use —
+ * "Test on web" always, "Get a call" only for US/CA visitors or +1 numbers.
+ */
+demoRouter.post(
+  '/lead',
+  asyncHandler(async (req, res) => {
+    if (!(await isDemoEnabled())) {
+      throw new HttpError(403, 'The demo is currently turned off.', 'DEMO_DISABLED');
+    }
+    const { name, email, phone } = LeadSchema.parse(req.body ?? {});
+    const gate = await evaluateGate(clientIp(req), phone);
+    const session = await startDemoSession();
+    const lead = await createDemoLead({
+      sessionId: session.sessionId,
+      name,
+      email,
+      phone,
+      ipCountry: gate.ipCountry,
+      phoneCountry: gate.phone.country,
+    });
+    res.json({
+      leadId: lead.id,
+      sessionId: session.sessionId,
+      name,
+      phone,
+      callAllowed: gate.callAllowed,
+      ipCountry: gate.ipCountry,
+      phoneCountry: gate.phone.country,
+      day: session.day,
+      appointments: session.appointments,
+    });
+  }),
+);
+
+const StartSchema = z.object({
+  /** Reuse the session created at lead capture (preferred); else a fresh one. */
+  sessionId: z.string().min(3).max(80).startsWith('demo_').optional(),
+  leadId: z.string().min(1).max(40).optional(),
+  name: z.string().trim().max(80).optional(),
+});
+
 /** Start a session: returns the public key, a demo assistant, and the calendar. */
 demoRouter.post(
   '/session',
-  asyncHandler(async (_req, res) => {
+  asyncHandler(async (req, res) => {
     if (!(await isDemoEnabled())) {
       throw new HttpError(403, 'The demo is currently turned off.', 'DEMO_DISABLED');
     }
@@ -47,7 +106,8 @@ demoRouter.post(
       throw new HttpError(503, 'The live demo is not configured on this server yet.', 'VOICE_NOT_CONFIGURED');
     }
 
-    const session = await startDemoSession();
+    const body = StartSchema.parse(req.body ?? {});
+    const session = body.sessionId ? await resumeDemoSession(body.sessionId) : await startDemoSession();
     const publicApiUrl = await getSettingValue('PUBLIC_API_URL');
 
     const assistant = buildTransientAssistant(session.bundle.tenant, session.bundle.settings, 'web', new Date(), {
@@ -57,7 +117,11 @@ demoRouter.post(
     // Tag the assistant so tool-calls land on THIS visitor's isolated calendar,
     // and give it a guiding opener that invites the prospect to test it.
     assistant.metadata = { ...assistant.metadata, demoSessionId: session.sessionId };
-    assistant.firstMessage = DEMO_OPENER;
+    const who = firstName(body.name);
+    assistant.firstMessage = who ? `Hi ${who}! ${DEMO_OPENER}` : DEMO_OPENER;
+
+    // Record that this prospect went with the in-browser test.
+    if (body.leadId) await setLeadMode(body.leadId, 'web');
 
     res.json({
       publicKey,

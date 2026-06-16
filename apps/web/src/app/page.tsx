@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { Logo } from '@/components/ui/Logo';
-import { DemoApi, ApiError, type DemoAppointment, type DemoDay } from '@/lib/api';
+import { DemoApi, ApiError, type DemoAppointment, type DemoDay, type DemoLeadResponse } from '@/lib/api';
 import { VoiceSession, type SimulatorPhase, type TranscriptEntry } from '@/lib/voice-client';
 
 /* ------------------------------ scroll reveal ----------------------------- */
@@ -225,7 +225,232 @@ function gridTimes(day: DemoDay): string[] {
   return out;
 }
 
+type DemoView = 'form' | 'choose' | 'web' | 'call';
+
+/* ----------------------------- demo: lead form ---------------------------- */
+
+function DemoLeadField({
+  label,
+  type,
+  placeholder,
+  value,
+  onChange,
+  autoComplete,
+}: {
+  label: string;
+  type: string;
+  placeholder: string;
+  value: string;
+  onChange: (v: string) => void;
+  autoComplete: string;
+}) {
+  return (
+    <label className="flex flex-col gap-1.5 text-left">
+      <span className="text-xs font-semibold uppercase tracking-[0.12em] text-white/45">{label}</span>
+      <input
+        type={type}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        autoComplete={autoComplete}
+        className="rounded-xl border border-white/15 bg-white/[0.06] px-4 py-3 text-[15px] text-white placeholder:text-white/30 outline-none transition-colors focus:border-signal-soft/70 focus:bg-white/[0.09]"
+      />
+    </label>
+  );
+}
+
+function DemoLeadForm({
+  form,
+  setForm,
+  submitting,
+  error,
+  onSubmit,
+}: {
+  form: { name: string; email: string; phone: string };
+  setForm: React.Dispatch<React.SetStateAction<{ name: string; email: string; phone: string }>>;
+  submitting: boolean;
+  error: string | null;
+  onSubmit: (e: React.FormEvent) => void;
+}) {
+  return (
+    <div className="mx-auto max-w-xl">
+      <form
+        onSubmit={onSubmit}
+        className="flex flex-col gap-4 rounded-3xl border border-white/10 bg-white/[0.04] p-7 backdrop-blur sm:p-9"
+      >
+        <div className="text-center">
+          <h3 className="font-display text-[22px] font-semibold tracking-tight text-white">
+            Talk to our AI — live, right now
+          </h3>
+          <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-white/55">
+            Drop your details and she’ll walk you through exactly how VoiceFront answers, books, and
+            never double-books — in real time.
+          </p>
+        </div>
+
+        <div className="mt-1 flex flex-col gap-3.5">
+          <DemoLeadField
+            label="Your name"
+            type="text"
+            placeholder="Jordan Reyes"
+            autoComplete="name"
+            value={form.name}
+            onChange={(v) => setForm((f) => ({ ...f, name: v }))}
+          />
+          <DemoLeadField
+            label="Email"
+            type="email"
+            placeholder="you@company.com"
+            autoComplete="email"
+            value={form.email}
+            onChange={(v) => setForm((f) => ({ ...f, email: v }))}
+          />
+          <DemoLeadField
+            label="Phone"
+            type="tel"
+            placeholder="+1 (555) 123-4567"
+            autoComplete="tel"
+            value={form.phone}
+            onChange={(v) => setForm((f) => ({ ...f, phone: v }))}
+          />
+        </div>
+
+        <button
+          type="submit"
+          disabled={submitting}
+          className="mt-1 rounded-2xl bg-white px-7 py-3.5 text-[15px] font-semibold text-ink shadow-lift transition-transform hover:-translate-y-0.5 disabled:opacity-60"
+        >
+          {submitting ? 'Setting things up…' : 'Continue'}
+        </button>
+        {error && <p className="text-center text-xs text-[#ffb4ba]">{error}</p>}
+        <p className="text-center text-[11px] leading-relaxed text-white/30">
+          We’ll only use this to run your demo and follow up. No spam.
+        </p>
+      </form>
+    </div>
+  );
+}
+
+/* --------------------------- demo: choose a mode -------------------------- */
+
+function DemoModeChoice({
+  lead,
+  onWeb,
+  onCall,
+  onBack,
+}: {
+  lead: DemoLeadResponse;
+  onWeb: () => void;
+  onCall: () => void;
+  onBack: () => void;
+}) {
+  const firstName = lead.name.trim().split(/\s+/)[0];
+  return (
+    <div className="mx-auto max-w-2xl">
+      <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-7 backdrop-blur sm:p-9">
+        <div className="text-center">
+          <h3 className="font-display text-[22px] font-semibold tracking-tight text-white">
+            Nice to meet you, {firstName} 👋
+          </h3>
+          <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-white/55">
+            How would you like to experience the demo?
+          </p>
+        </div>
+
+        <div className="mt-6 grid gap-3.5 sm:grid-cols-2">
+          {/* Test on web — always available */}
+          <button
+            type="button"
+            onClick={onWeb}
+            className="group flex flex-col items-start gap-2 rounded-2xl border border-white/15 bg-white/[0.06] p-5 text-left transition-all hover:-translate-y-0.5 hover:border-signal-soft/60 hover:bg-white/[0.1]"
+          >
+            <span className="rounded-full bg-signal/25 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-signal-soft ring-1 ring-inset ring-signal/30">
+              Instant
+            </span>
+            <span className="text-[16px] font-semibold text-white">Test on the web</span>
+            <span className="text-[13px] leading-snug text-white/55">
+              Talk to the agent right here in your browser. Just needs mic access.
+            </span>
+          </button>
+
+          {/* Get a call — gated to US/CA */}
+          {lead.callAllowed ? (
+            <button
+              type="button"
+              onClick={onCall}
+              className="group flex flex-col items-start gap-2 rounded-2xl border border-white/15 bg-white/[0.06] p-5 text-left transition-all hover:-translate-y-0.5 hover:border-emerald-300/50 hover:bg-white/[0.1]"
+            >
+              <span className="rounded-full bg-emerald-400/20 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-emerald-200 ring-1 ring-inset ring-emerald-300/30">
+                Most realistic
+              </span>
+              <span className="text-[16px] font-semibold text-white">Get a call</span>
+              <span className="text-[13px] leading-snug text-white/55">
+                We’ll ring your phone in a few seconds so you hear it like a real customer would.
+              </span>
+            </button>
+          ) : (
+            <div className="flex flex-col items-start gap-2 rounded-2xl border border-dashed border-white/12 bg-white/[0.02] p-5 text-left opacity-70">
+              <span className="rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-white/40">
+                US & Canada
+              </span>
+              <span className="text-[16px] font-semibold text-white/70">Get a call</span>
+              <span className="text-[13px] leading-snug text-white/45">
+                Phone callbacks are available in the US & Canada right now. The web test works
+                everywhere — give it a try!
+              </span>
+            </div>
+          )}
+        </div>
+
+        <div className="mt-5 text-center">
+          <button
+            type="button"
+            onClick={onBack}
+            className="text-xs font-medium text-white/40 transition-colors hover:text-white/70"
+          >
+            ‹ Use different details
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* --------------------- demo: "get a call" placeholder --------------------- */
+
+function DemoCallPending({ lead, onBack }: { lead: DemoLeadResponse; onBack: () => void }) {
+  return (
+    <div className="mx-auto max-w-xl">
+      <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-9 text-center backdrop-blur">
+        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-400/15 ring-1 ring-inset ring-emerald-300/30">
+          <Waveform bars={4} light />
+        </div>
+        <h3 className="mt-5 font-display text-[20px] font-semibold tracking-tight text-white">
+          We’ll call you at {lead.phone}
+        </h3>
+        <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-white/55">
+          Outbound demo calls are being finalized — your number is saved and you’ll be one of the
+          first we ring. In the meantime, the in-browser test is live and ready.
+        </p>
+        <button
+          type="button"
+          onClick={onBack}
+          className="mt-6 rounded-2xl border border-white/15 bg-white/[0.06] px-6 py-3 text-[15px] font-semibold text-white transition-transform hover:-translate-y-0.5"
+        >
+          ‹ Back to options
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function InteractiveDemo() {
+  const [view, setView] = useState<DemoView>('form');
+  const [lead, setLead] = useState<DemoLeadResponse | null>(null);
+  const [form, setForm] = useState({ name: '', email: '', phone: '' });
+  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+
   const [phase, setPhase] = useState<DemoPhase>('idle');
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [day, setDay] = useState<DemoDay | null>(null);
@@ -271,6 +496,42 @@ function InteractiveDemo() {
 
   const live = phase === 'connecting' || phase === 'listening' || phase === 'assistant-speaking';
 
+  async function submitLead(e: React.FormEvent) {
+    e.preventDefault();
+    setFormError(null);
+    const name = form.name.trim();
+    const email = form.email.trim();
+    const phone = form.phone.trim();
+    if (!name || !email || !phone) {
+      setFormError('Please fill in your name, email, and phone.');
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const res = await DemoApi.lead({ name, email, phone });
+      setLead(res);
+      setSessionId(res.sessionId);
+      setDay(res.day);
+      setAppointments(res.appointments);
+      setView('choose');
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'DEMO_DISABLED') {
+        setFormError('The demo is currently turned off — please check back soon.');
+      } else if (err instanceof ApiError && err.code === 'VALIDATION_ERROR') {
+        setFormError('Please double-check your email and phone number.');
+      } else {
+        setFormError(err instanceof ApiError ? err.message : 'Could not start the demo. Try again.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function chooseWeb() {
+    setView('web');
+    void startCall();
+  }
+
   async function startCall() {
     if (live || phase === 'requesting') return;
     setError(null);
@@ -278,7 +539,7 @@ function InteractiveDemo() {
     setPhase('requesting');
     let data;
     try {
-      data = await DemoApi.start();
+      data = await DemoApi.start({ sessionId: lead?.sessionId, leadId: lead?.leadId, name: lead?.name });
     } catch (err) {
       if (!aliveRef.current) return;
       if (err instanceof ApiError && err.code === 'VOICE_NOT_CONFIGURED') {
@@ -342,6 +603,36 @@ function InteractiveDemo() {
 
   const byTime = new Map(appointments.map((a) => [a.time, a]));
   const aiBooked = appointments.filter((a) => a.kind === 'voice').length;
+
+  // ----------------------------- gate: lead form ----------------------------
+  if (view === 'form') {
+    return (
+      <DemoLeadForm
+        form={form}
+        setForm={setForm}
+        submitting={submitting}
+        error={formError}
+        onSubmit={submitLead}
+      />
+    );
+  }
+
+  // --------------------------- gate: choose a mode --------------------------
+  if (view === 'choose' && lead) {
+    return (
+      <DemoModeChoice
+        lead={lead}
+        onWeb={chooseWeb}
+        onCall={() => setView('call')}
+        onBack={() => setView('form')}
+      />
+    );
+  }
+
+  // ------------------------- "get a call" placeholder -----------------------
+  if (view === 'call' && lead) {
+    return <DemoCallPending lead={lead} onBack={() => setView('choose')} />;
+  }
 
   return (
     <div className="grid items-stretch gap-5 lg:grid-cols-2">
