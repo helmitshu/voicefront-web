@@ -67,6 +67,18 @@ const NAV = [
     ),
   },
   {
+    href: '/admin/calendar',
+    label: 'My calendar',
+    exact: false,
+    fullAdminOnly: true,
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-[18px] w-[18px]">
+        <rect x="3" y="4.5" width="14" height="12" rx="2" />
+        <path d="M3 8h14M7 3v3M13 3v3" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
     href: '/admin/team',
     label: 'Team',
     exact: false,
