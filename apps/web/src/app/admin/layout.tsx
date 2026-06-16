@@ -55,6 +55,18 @@ const NAV = [
     ),
   },
   {
+    href: '/admin/demo',
+    label: 'Sales demo',
+    exact: false,
+    fullAdminOnly: true,
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-[18px] w-[18px]">
+        <path d="M4 4.5h12v8H11l-3 3v-3H4z" strokeLinejoin="round" />
+        <path d="M7.5 8.5h5M7.5 6.5h5" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
     href: '/admin/team',
     label: 'Team',
     exact: false,
