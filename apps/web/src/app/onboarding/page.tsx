@@ -122,6 +122,7 @@ export default function OnboardingPage() {
             <StepVoiceTest
               tested={me.onboarding.hasTestedVoice}
               personaName={settings.displayName}
+              initialVoiceId={settings.voiceId}
               onTested={(view) => {
                 setOnboarding(view);
                 toast('Voice test recorded — you can activate whenever you’re ready.', 'success');

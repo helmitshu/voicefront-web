@@ -18,6 +18,9 @@ export type CallChannel = 'phone' | 'web';
 export interface TransientAssistant {
   name: string;
   firstMessage: string;
+  /** "assistant-speaks-first" makes the agent say firstMessage once, then wait
+   * for the caller — preventing it from rattling off several opening turns. */
+  firstMessageMode?: string;
   model: {
     provider: 'openai';
     model: string;
@@ -202,7 +205,14 @@ export function buildTransientAssistant(
   settings: AgentSettings,
   channel: CallChannel,
   now: Date = new Date(),
-  options: { serverUrl?: string; serverSecret?: string; knowledgeFileIds?: string[] } = {},
+  options: {
+    serverUrl?: string;
+    serverSecret?: string;
+    knowledgeFileIds?: string[];
+    /** Override the tenant's saved voice — used by the in-browser test so the
+     * founder can A/B voices live before committing one. */
+    voice?: { provider: string; voiceId: string };
+  } = {},
 ): TransientAssistant {
   const businessHours = parseBusinessHours(settings.businessHours);
   const forwardingNumbers = parseForwardingNumbers(settings.forwardingNumbers);
@@ -244,11 +254,26 @@ export function buildTransientAssistant(
     });
   }
 
+  // In-browser test: a short, warm opener (the founder is talking to it, not a
+  // real caller) — no "calls may be recorded" and no multi-sentence corporate
+  // greeting that fragments into several bubbles. Real phone calls keep the
+  // tenant's full greeting (plus the after-hours note when closed).
+  const personaName = settings.displayName;
+  const firstMessage =
+    channel === 'web'
+      ? `Hi! This is ${personaName} from ${tenant.companyName} — go ahead whenever you're ready.`
+      : openNow
+        ? settings.firstMessage
+        : `${settings.firstMessage} Just so you know, we're after hours at the moment, so I'll take a message and our team will follow up.`;
+
+  // Voice: an explicit override (live A/B test) wins; otherwise the saved voice.
+  const voiceProvider = options.voice?.provider ?? settings.voiceProvider;
+  const voiceId = options.voice?.voiceId ?? settings.voiceId;
+
   return {
     name: `${tenant.companyName} Receptionist`,
-    firstMessage: openNow
-      ? settings.firstMessage
-      : `${settings.firstMessage} Just so you know, we're after hours at the moment, so I'll take a message and our team will follow up.`,
+    firstMessage,
+    firstMessageMode: 'assistant-speaks-first',
     model: {
       provider: 'openai',
       model: 'gpt-4o',
@@ -259,9 +284,9 @@ export function buildTransientAssistant(
     // Vapi's native voices opt into the V2 TTS model (more realistic and
     // human); other providers (e.g. 11labs) take the voiceId as-is.
     voice:
-      settings.voiceProvider === 'vapi'
-        ? { provider: 'vapi', voiceId: settings.voiceId, version: 2 }
-        : { provider: settings.voiceProvider, voiceId: settings.voiceId },
+      voiceProvider === 'vapi'
+        ? { provider: 'vapi', voiceId, version: 2 }
+        : { provider: voiceProvider, voiceId },
     backgroundSound: settings.backgroundSound,
     // Explicit server URL (when configured) routes tool calls here even for
     // browser test calls, which have no phone-number-level server fallback.
@@ -380,6 +405,7 @@ export function buildAssistantUpdatePayload(
   return {
     name: `${tenant.companyName} Receptionist`,
     firstMessage: settings.firstMessage,
+    firstMessageMode: 'assistant-speaks-first',
     model: {
       provider: 'openai',
       model: 'gpt-4o',
