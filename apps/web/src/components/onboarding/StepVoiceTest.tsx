@@ -2,14 +2,17 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
+  AgentApi,
   ApiError,
   OnboardingApi,
   VoiceApi,
   type OnboardingView,
 } from '@/lib/api';
 import { VoiceSession, type SimulatorPhase, type TranscriptEntry } from '@/lib/voice-client';
+import { VAPI_VOICES, sampleUrlFor } from '@/domain/voice-catalog';
 import { Button } from '@/components/ui/Button';
 import { Waveform } from '@/components/ui/Waveform';
+import { VoicePreviewButton } from '@/components/agent/VoicePreviewButton';
 
 type UiPhase = 'idle' | 'requesting' | SimulatorPhase;
 
@@ -26,12 +29,14 @@ const PHASE_LABEL: Record<UiPhase, string> = {
 export function StepVoiceTest({
   tested,
   personaName,
+  initialVoiceId,
   onTested,
   onActivated,
   onError,
 }: {
   tested: boolean;
   personaName: string;
+  initialVoiceId: string;
   onTested: (view: OnboardingView) => void;
   onActivated: (view: OnboardingView) => void;
   onError: (message: string) => void;
@@ -43,6 +48,11 @@ export function StepVoiceTest({
   const [voiceUnavailable, setVoiceUnavailable] = useState(false);
   const [marking, setMarking] = useState(false);
   const [activating, setActivating] = useState(false);
+  // The voice being tried in the simulator. Defaults to the saved voice; the
+  // founder can switch it to A/B compare, and the last pick is saved on activate.
+  const [selectedVoiceId, setSelectedVoiceId] = useState(
+    VAPI_VOICES.some((v) => v.id === initialVoiceId) ? initialVoiceId : VAPI_VOICES[0].id,
+  );
 
   const sessionRef = useRef<VoiceSession | null>(null);
   const aliveRef = useRef(true);
@@ -91,7 +101,7 @@ export function StepVoiceTest({
 
     let sessionData;
     try {
-      sessionData = await VoiceApi.webSession();
+      sessionData = await VoiceApi.webSession(selectedVoiceId);
     } catch (err) {
       if (!aliveRef.current) return;
       if (err instanceof ApiError && err.code === 'VOICE_NOT_CONFIGURED') {
@@ -142,6 +152,11 @@ export function StepVoiceTest({
   async function activate() {
     setActivating(true);
     try {
+      // Persist the voice the founder landed on before going live, so the
+      // dedicated assistant is provisioned with the chosen voice.
+      if (selectedVoiceId !== initialVoiceId) {
+        await AgentApi.update({ voiceProvider: 'vapi', voiceId: selectedVoiceId });
+      }
       const { onboarding } = await OnboardingApi.activate();
       onActivated(onboarding);
     } catch (err) {
@@ -160,6 +175,38 @@ export function StepVoiceTest({
           Talk to {personaName} right here in your browser — exactly what your callers will experience. You&apos;ll
           need to allow microphone access.
         </p>
+      </div>
+
+      {/* Voice picker — compare voices live, then activate to keep the last one */}
+      <div className="rounded-2xl border border-line bg-white p-4">
+        <div className="flex items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-ink">Voice</p>
+            <p className="text-xs text-ink-muted">
+              Switch and call again to compare. Your last pick is saved when you activate.
+            </p>
+          </div>
+          <VoicePreviewButton
+            sampleUrl={sampleUrlFor('vapi', selectedVoiceId)}
+            voiceLabel={selectedVoiceId}
+          />
+        </div>
+        <select
+          value={selectedVoiceId}
+          onChange={(e) => setSelectedVoiceId(e.target.value)}
+          disabled={live}
+          aria-label="Receptionist voice"
+          className="mt-3 w-full rounded-xl border border-line bg-paper px-3 py-2.5 text-sm text-ink disabled:opacity-60"
+        >
+          {VAPI_VOICES.map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.label} — {v.description}
+            </option>
+          ))}
+        </select>
+        {live && (
+          <p className="mt-1.5 text-xs text-ink-muted">End the call to switch voices, then call again.</p>
+        )}
       </div>
 
       {/* Simulator stage */}

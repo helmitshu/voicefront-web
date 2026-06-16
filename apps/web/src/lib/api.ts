@@ -600,7 +600,8 @@ export const CallsApi = {
 };
 
 export const VoiceApi = {
-  webSession: () => api<WebSession>('/api/voice/web-session', { method: 'POST' }),
+  webSession: (voiceId?: string) =>
+    api<WebSession>('/api/voice/web-session', { method: 'POST', body: voiceId ? { voiceId } : {} }),
 };
 
 /** Masked, token-gated audio URL for <audio> elements. */
