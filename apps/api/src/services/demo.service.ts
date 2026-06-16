@@ -82,6 +82,73 @@ export async function setSalesConfig(input: Partial<SalesConfig>, adminEmail: st
     writes.push(upsert(SHOW_CALENDAR_KEY, input.showCalendar ? 'true' : 'false'));
   await Promise.all(writes);
 }
+/**
+ * Caller-ID numbers for outbound demo calls, chosen by the founder from their
+ * Vapi account. Stored as JSON {id, number} in reserved (non-secret)
+ * PlatformSetting rows. US prospects are called from the US number, Canadian
+ * prospects from the CA number; with only one configured, it's the fallback for
+ * everyone allowed a call.
+ */
+const DEMO_NUMBER_US_KEY = 'DEMO_NUMBER_US';
+const DEMO_NUMBER_CA_KEY = 'DEMO_NUMBER_CA';
+
+export interface DemoNumber {
+  id: string;
+  number: string;
+}
+export interface DemoNumbers {
+  us: DemoNumber | null;
+  ca: DemoNumber | null;
+}
+
+function parseNumber(raw: string | undefined): DemoNumber | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as Partial<DemoNumber>;
+    if (parsed && typeof parsed.id === 'string' && typeof parsed.number === 'string') {
+      return { id: parsed.id, number: parsed.number };
+    }
+  } catch {
+    /* ignore malformed */
+  }
+  return null;
+}
+
+export async function getDemoNumbers(): Promise<DemoNumbers> {
+  const rows = await prisma.platformSetting.findMany({
+    where: { key: { in: [DEMO_NUMBER_US_KEY, DEMO_NUMBER_CA_KEY] } },
+  });
+  const map = new Map(rows.map((r) => [r.key, r.valueEnc]));
+  return {
+    us: parseNumber(map.get(DEMO_NUMBER_US_KEY)),
+    ca: parseNumber(map.get(DEMO_NUMBER_CA_KEY)),
+  };
+}
+
+export async function setDemoNumbers(input: Partial<DemoNumbers>, adminEmail: string): Promise<DemoNumbers> {
+  const writes: Array<Promise<unknown>> = [];
+  const write = (key: string, value: DemoNumber | null) =>
+    prisma.platformSetting.upsert({
+      where: { key },
+      create: { key, valueEnc: value ? JSON.stringify(value) : '', updatedBy: adminEmail },
+      update: { valueEnc: value ? JSON.stringify(value) : '', updatedBy: adminEmail },
+    });
+  if (input.us !== undefined) writes.push(write(DEMO_NUMBER_US_KEY, input.us));
+  if (input.ca !== undefined) writes.push(write(DEMO_NUMBER_CA_KEY, input.ca));
+  await Promise.all(writes);
+  return getDemoNumbers();
+}
+
+/**
+ * Picks the caller-ID for an outbound demo call. Canadian prospects get the CA
+ * number when configured; everyone else (and Canadians without a CA number yet)
+ * fall back to the US number. Returns null when no number is configured at all.
+ */
+export function pickDemoCallerId(numbers: DemoNumbers, ipCountry: string | null): DemoNumber | null {
+  if (ipCountry === 'CA' && numbers.ca) return numbers.ca;
+  return numbers.us ?? numbers.ca ?? null;
+}
+
 const DEMO_COMPANY = 'Bayview Family Clinic';
 const DEMO_TZ = 'America/Vancouver';
 const SLOT_MINUTES = 30;

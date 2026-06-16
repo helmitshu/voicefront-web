@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { Logo } from '@/components/ui/Logo';
+import { Spinner } from '@/components/ui/Spinner';
 import { DemoApi, ApiError, type DemoAppointment, type DemoDay, type DemoLeadResponse } from '@/lib/api';
 import { VoiceSession, type SimulatorPhase, type TranscriptEntry } from '@/lib/voice-client';
 
@@ -432,29 +433,126 @@ function DemoModeChoice({
   );
 }
 
-/* --------------------- demo: "get a call" placeholder --------------------- */
+/* ----------------------- demo: outbound "get a call" ---------------------- */
 
-function DemoCallPending({ lead, onBack }: { lead: DemoLeadResponse; onBack: () => void }) {
+type CallState =
+  | { status: 'idle' }
+  | { status: 'dialing' }
+  | { status: 'ringing'; fromNumber: string }
+  | { status: 'unavailable' }
+  | { status: 'error'; message: string };
+
+function DemoCallView({
+  lead,
+  onBack,
+  onWeb,
+}: {
+  lead: DemoLeadResponse;
+  onBack: () => void;
+  onWeb: () => void;
+}) {
+  const [state, setState] = useState<CallState>({ status: 'idle' });
+
+  async function dial() {
+    setState({ status: 'dialing' });
+    try {
+      const res = await DemoApi.call({
+        sessionId: lead.sessionId,
+        leadId: lead.leadId,
+        name: lead.name,
+        phone: lead.phone,
+      });
+      setState({ status: 'ringing', fromNumber: res.fromNumber });
+    } catch (err) {
+      if (err instanceof ApiError && err.code === 'NO_DEMO_NUMBER') {
+        setState({ status: 'unavailable' });
+      } else {
+        setState({ status: 'error', message: err instanceof ApiError ? err.message : 'Could not place the call.' });
+      }
+    }
+  }
+
+  const ringing = state.status === 'ringing';
+
   return (
     <div className="mx-auto max-w-xl">
       <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-9 text-center backdrop-blur">
-        <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-400/15 ring-1 ring-inset ring-emerald-300/30">
-          <Waveform bars={4} light />
-        </div>
-        <h3 className="mt-5 font-display text-[20px] font-semibold tracking-tight text-white">
-          We’ll call you at {lead.phone}
-        </h3>
-        <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-white/55">
-          Outbound demo calls are being finalized — your number is saved and you’ll be one of the
-          first we ring. In the meantime, the in-browser test is live and ready.
-        </p>
-        <button
-          type="button"
-          onClick={onBack}
-          className="mt-6 rounded-2xl border border-white/15 bg-white/[0.06] px-6 py-3 text-[15px] font-semibold text-white transition-transform hover:-translate-y-0.5"
+        <div
+          className={`mx-auto flex h-14 w-14 items-center justify-center rounded-full ring-1 ring-inset ${
+            ringing ? 'bg-emerald-400/20 ring-emerald-300/40' : 'bg-signal/15 ring-signal-soft/30'
+          }`}
         >
-          ‹ Back to options
-        </button>
+          {state.status === 'dialing' ? (
+            <Spinner className="h-6 w-6 text-white" />
+          ) : (
+            <Waveform bars={4} light />
+          )}
+        </div>
+
+        {ringing ? (
+          <>
+            <h3 className="mt-5 font-display text-[20px] font-semibold tracking-tight text-white">
+              Your phone’s about to ring
+            </h3>
+            <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-white/60">
+              We’re calling <span className="font-semibold text-white">{lead.phone}</span> from{' '}
+              <span className="font-mono text-white/80">{state.fromNumber}</span>. Pick up and say hi to Ava — she’ll
+              take it from there.
+            </p>
+          </>
+        ) : state.status === 'unavailable' ? (
+          <>
+            <h3 className="mt-5 font-display text-[20px] font-semibold tracking-tight text-white">
+              Phone demo isn’t live yet
+            </h3>
+            <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-white/60">
+              We’re finishing the outbound calling setup. The in-browser test is fully live in the meantime — same
+              Ava, same demo.
+            </p>
+          </>
+        ) : (
+          <>
+            <h3 className="mt-5 font-display text-[20px] font-semibold tracking-tight text-white">
+              Get a call from Ava
+            </h3>
+            <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-white/60">
+              We’ll ring <span className="font-semibold text-white">{lead.phone}</span> right now. Pick up and run the
+              whole demo by voice — booking, double-booking, the works.
+            </p>
+            {state.status === 'error' && (
+              <p className="mx-auto mt-3 max-w-sm text-sm text-rose-300/90">{state.message}</p>
+            )}
+          </>
+        )}
+
+        <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+          {!ringing && state.status !== 'unavailable' && (
+            <button
+              type="button"
+              onClick={dial}
+              disabled={state.status === 'dialing'}
+              className="rounded-2xl bg-white px-6 py-3 text-[15px] font-semibold text-ink shadow-lift transition-transform hover:-translate-y-0.5 disabled:opacity-60"
+            >
+              {state.status === 'dialing' ? 'Calling…' : 'Call me now'}
+            </button>
+          )}
+          {(state.status === 'unavailable' || state.status === 'error') && (
+            <button
+              type="button"
+              onClick={onWeb}
+              className="rounded-2xl bg-white px-6 py-3 text-[15px] font-semibold text-ink shadow-lift transition-transform hover:-translate-y-0.5"
+            >
+              Try the in-browser demo
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onBack}
+            className="rounded-2xl border border-white/15 bg-white/[0.06] px-6 py-3 text-[15px] font-semibold text-white transition-transform hover:-translate-y-0.5"
+          >
+            ‹ Back to options
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -892,7 +990,7 @@ function InteractiveDemo() {
 
   // ------------------------- "get a call" placeholder -----------------------
   if (view === 'call' && lead) {
-    return <DemoCallPending lead={lead} onBack={() => setView('choose')} />;
+    return <DemoCallView lead={lead} onBack={() => setView('choose')} onWeb={chooseWeb} />;
   }
 
   return (

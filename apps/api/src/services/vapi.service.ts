@@ -164,6 +164,65 @@ export async function findAssistantPhoneNumber(assistantId: string): Promise<str
   }
 }
 
+export interface VapiNumberOption {
+  id: string;
+  number: string;
+}
+
+/**
+ * Lists the phone numbers on the connected Vapi account (id + E.164), for the
+ * founder to pick a caller-ID from. Best-effort: returns [] on any error so the
+ * admin UI degrades to an empty dropdown rather than failing.
+ */
+export async function listVapiPhoneNumbers(): Promise<VapiNumberOption[]> {
+  try {
+    const res = await vapiFetch('/phone-number', { method: 'GET' });
+    if (!res.ok) return [];
+    const numbers = (await res.json()) as VapiPhoneNumber[];
+    if (!Array.isArray(numbers)) return [];
+    return numbers
+      .filter((n): n is VapiPhoneNumber & { number: string } => typeof n.number === 'string')
+      .map((n) => ({ id: n.id, number: n.number }));
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Places an outbound call from `phoneNumberId` to `customerNumber`, using the
+ * given transient assistant. Used by the sales demo's "Get a call" button.
+ * Throws HttpError with a speakable message on failure.
+ */
+export async function placeOutboundCall(input: {
+  phoneNumberId: string;
+  customerNumber: string;
+  assistant: unknown;
+}): Promise<{ id: string }> {
+  const res = await vapiFetch('/call', {
+    method: 'POST',
+    body: {
+      phoneNumberId: input.phoneNumberId,
+      customer: { number: input.customerNumber },
+      assistant: input.assistant,
+    },
+  });
+  if (!res.ok) {
+    const raw = await res.text().catch(() => '');
+    let message = `Vapi could not place the call (${res.status}).`;
+    try {
+      const parsed = JSON.parse(raw) as { message?: unknown };
+      const m = Array.isArray(parsed.message) ? parsed.message.join('; ') : parsed.message;
+      if (typeof m === 'string' && m.length > 0) message = `Vapi: ${m}`;
+    } catch {
+      if (raw) message = `Vapi (${res.status}): ${raw.slice(0, 200)}`;
+    }
+    throw new HttpError(res.status >= 500 ? 502 : 400, message, 'VAPI_CALL_FAILED');
+  }
+  const data = (await res.json()) as { id?: string };
+  if (!data.id) throw new HttpError(502, 'Vapi accepted the call but returned no id.', 'VAPI_ERROR');
+  return { id: data.id };
+}
+
 interface VapiCreatePhoneResult {
   id: string;
   number: string;

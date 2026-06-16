@@ -38,6 +38,8 @@ import {
   listRecentDemoCalls,
   getSalesConfig,
   setSalesConfig,
+  getDemoNumbers,
+  setDemoNumbers,
 } from '../services/demo.service';
 import {
   listFounderEntries,
@@ -50,6 +52,7 @@ import {
   createAssistantForTenant,
   createPhoneNumberInVapi,
   findAssistantPhoneNumber,
+  listVapiPhoneNumbers,
   repointAllPhoneNumbers,
   syncAssistantForTenant,
   validateAssistant,
@@ -791,6 +794,31 @@ adminRouter.get(
   requireFullAdmin,
   asyncHandler(async (_req, res) => {
     res.json({ calls: await listRecentDemoCalls(50) });
+  }),
+);
+
+/* Outbound caller-ID numbers for the demo (US + CA), chosen from Vapi. */
+adminRouter.get(
+  '/demo/numbers',
+  requireFullAdmin,
+  asyncHandler(async (_req, res) => {
+    const [available, assigned] = await Promise.all([listVapiPhoneNumbers(), getDemoNumbers()]);
+    res.json({ available, assigned });
+  }),
+);
+
+const DemoNumberSchema = z.object({ id: z.string().min(1), number: z.string().min(3) }).nullable();
+adminRouter.patch(
+  '/demo/numbers',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const adminEmail = getAdminEmail(req);
+    const body = z
+      .object({ us: DemoNumberSchema.optional(), ca: DemoNumberSchema.optional() })
+      .parse(req.body ?? {});
+    const assigned = await setDemoNumbers(body, adminEmail);
+    await recordAdminAction(adminEmail, 'demo.numbers', 'demo caller-id', body);
+    res.json({ assigned });
   }),
 );
 
