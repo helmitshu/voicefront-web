@@ -563,7 +563,32 @@ export const AdminApi = {
   createNumber: (areaCode?: string) =>
     api<{ number: PooledNumberRow }>('/api/admin/numbers/create', { method: 'POST', body: { areaCode } }),
   removeNumber: (id: string) => api<{ ok: true }>(`/api/admin/numbers/${id}`, { method: 'DELETE' }),
+  // Founder's own planning-call calendar.
+  founderCalendar: (range: { from: string; to: string }, signal?: AbortSignal) => {
+    const query = new URLSearchParams({ from: range.from, to: range.to });
+    return api<{ entries: FounderEntry[]; timezone: string }>(`/api/admin/founder/calendar?${query}`, { signal });
+  },
+  founderAvailability: (date: string) =>
+    api<{ availability: AvailabilityResult }>(`/api/admin/founder/availability?date=${date}`),
+  blockFounderTime: (input: { date: string; time: string; durationMinutes?: number; label?: string }) =>
+    api<{ entry: FounderEntry }>('/api/admin/founder/block', { method: 'POST', body: input }),
+  removeFounderEntry: (id: string) =>
+    api<{ ok: true }>(`/api/admin/founder/calendar/${id}`, { method: 'DELETE' }),
 };
+
+/** An entry on the founder's planning-call calendar. */
+export interface FounderEntry {
+  id: string;
+  kind: 'block' | 'call';
+  label: string;
+  reason: string | null;
+  startsAt: string;
+  endsAt: string;
+  timezone: string;
+  local: { date: string; time: string };
+  durationMinutes: number;
+  status: string;
+}
 
 /** A number in the shared provisioning pool. */
 export interface PooledNumberRow {

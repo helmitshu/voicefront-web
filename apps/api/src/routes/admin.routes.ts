@@ -40,6 +40,13 @@ import {
   setSalesConfig,
 } from '../services/demo.service';
 import {
+  listFounderEntries,
+  founderAvailability,
+  blockFounderTime,
+  removeFounderEntry,
+  getFounderTimezone,
+} from '../services/founder.service';
+import {
   createAssistantForTenant,
   createPhoneNumberInVapi,
   findAssistantPhoneNumber,
@@ -766,7 +773,11 @@ adminRouter.patch(
   asyncHandler(async (req, res) => {
     const adminEmail = getAdminEmail(req);
     const body = z
-      .object({ agentName: z.string().trim().min(1).max(40).optional(), founderName: z.string().trim().min(1).max(60).optional() })
+      .object({
+        agentName: z.string().trim().min(1).max(40).optional(),
+        founderName: z.string().trim().min(1).max(60).optional(),
+        showCalendar: z.boolean().optional(),
+      })
       .parse(req.body ?? {});
     await setSalesConfig(body, adminEmail);
     await recordAdminAction(adminEmail, 'demo.salesConfig', 'sales agent', body);
@@ -780,6 +791,63 @@ adminRouter.get(
   requireFullAdmin,
   asyncHandler(async (_req, res) => {
     res.json({ calls: await listRecentDemoCalls(50) });
+  }),
+);
+
+/* ------------------------- founder planning calendar ------------------------ */
+/* The founder's own calendar: they block busy times so the sales agent never   */
+/* double-books them when she sets up a planning call.                          */
+
+adminRouter.get(
+  '/founder/calendar',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const { from, to } = z
+      .object({
+        from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      })
+      .parse(req.query);
+    res.json({ entries: await listFounderEntries(from, to), timezone: await getFounderTimezone() });
+  }),
+);
+
+adminRouter.get(
+  '/founder/availability',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const date = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).parse(req.query.date);
+    res.json({ availability: await founderAvailability(date) });
+  }),
+);
+
+adminRouter.post(
+  '/founder/block',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const adminEmail = getAdminEmail(req);
+    const body = z
+      .object({
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
+        durationMinutes: z.coerce.number().int().min(10).max(480).optional(),
+        label: z.string().trim().max(120).optional(),
+      })
+      .parse(req.body ?? {});
+    const entry = await blockFounderTime(body);
+    await recordAdminAction(adminEmail, 'founder.block', 'founder calendar', body);
+    res.status(201).json({ entry });
+  }),
+);
+
+adminRouter.delete(
+  '/founder/calendar/:id',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const adminEmail = getAdminEmail(req);
+    await removeFounderEntry(req.params.id);
+    await recordAdminAction(adminEmail, 'founder.unblock', req.params.id, {});
+    res.json({ ok: true });
   }),
 );
 
