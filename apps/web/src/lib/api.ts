@@ -652,6 +652,11 @@ export const CallsApi = {
 export type DemoIndustry = 'clinic' | 'contractor' | 'other';
 /** The on-screen panel Ava drives via her set_demo_screen tool. */
 export type DemoScreen = 'intro' | 'booking' | 'doublebook' | 'summary' | 'close';
+/** A live recap of the call Ava pushes to the summary panel via show_call_summary. */
+export interface DemoCallSummary {
+  headline: string;
+  recap: string;
+}
 export interface DemoDay {
   date: string;
   dayLabel: string;
@@ -746,7 +751,7 @@ export const DemoApi = {
   call: (input: { sessionId: string; leadId?: string; name?: string; phone: string }) =>
     api<DemoCallResponse>('/api/demo/call', { method: 'POST', body: input }),
   appointments: (sessionId: string) =>
-    api<{ appointments: DemoAppointment[]; screen: DemoScreen | null }>(
+    api<{ appointments: DemoAppointment[]; screen: DemoScreen | null; summary: DemoCallSummary | null }>(
       `/api/demo/appointments?sessionId=${encodeURIComponent(sessionId)}`,
     ),
   block: (sessionId: string, date: string, time: string) =>

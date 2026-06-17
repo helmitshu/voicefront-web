@@ -186,6 +186,36 @@ export function clearDemoScreen(sessionId: string): void {
   screenBySession.delete(sessionId);
 }
 
+/** A live, call-specific recap Ava pushes to the on-screen summary panel. */
+export interface DemoCallSummary {
+  headline: string;
+  recap: string;
+}
+const summaryBySession = new Map<string, { summary: DemoCallSummary; ts: number }>();
+
+/** Records the recap Ava wrote for this call (trimmed; ignores empties). */
+export function setDemoSummary(sessionId: string, headline: string, recap: string): boolean {
+  const h = headline.trim();
+  const r = recap.trim();
+  if (!h && !r) return false;
+  summaryBySession.set(sessionId, { summary: { headline: h, recap: r }, ts: Date.now() });
+  if (summaryBySession.size > 500) {
+    const cutoff = Date.now() - SESSION_TTL_MS;
+    for (const [id, v] of summaryBySession) if (v.ts < cutoff) summaryBySession.delete(id);
+  }
+  return true;
+}
+
+/** The recap for a session, or null if Ava hasn't pushed one yet. */
+export function getDemoSummary(sessionId: string): DemoCallSummary | null {
+  return summaryBySession.get(sessionId)?.summary ?? null;
+}
+
+/** Clears a session's on-screen recap (on (re)seed / new call). */
+export function clearDemoSummary(sessionId: string): void {
+  summaryBySession.delete(sessionId);
+}
+
 /**
  * The demo runs against a single shared tenant, but each visitor's sample
  * calendar is dressed to match THEIR industry — so a contractor sees a

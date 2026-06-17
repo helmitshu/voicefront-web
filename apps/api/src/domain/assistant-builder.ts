@@ -186,6 +186,39 @@ function buildScreenControlTool(): FunctionTool {
   };
 }
 
+/**
+ * Web-demo-only tool: lets Ava put a REAL recap of THIS call on the summary
+ * screen — what the prospect actually needed, in her words — instead of a
+ * generic mockup. Also flips the panel to the summary screen. `async` so it
+ * never pauses her speech.
+ */
+function buildCallSummaryTool(): FunctionTool {
+  return {
+    type: 'function',
+    async: true,
+    function: {
+      name: 'show_call_summary',
+      description:
+        "Put a real recap of THIS call on the prospect's summary screen, and switch them to it. Call it when you reach the summary part of the demo. Use what they actually told you — never generic filler.",
+      parameters: {
+        type: 'object',
+        properties: {
+          headline: {
+            type: 'string',
+            description: "One short phrase for what the caller wanted, e.g. \"Capture every lead and answer customer questions\".",
+          },
+          recap: {
+            type: 'string',
+            description:
+              'One or two natural sentences recapping what the caller needed and what you did for them on this call, as a post-call note their team would read.',
+          },
+        },
+        required: ['headline', 'recap'],
+      },
+    },
+  };
+}
+
 /** Booking tools handled by our webhook (`tool-calls` messages). */
 function buildBookingTools(): FunctionTool[] {
   return [
@@ -347,7 +380,7 @@ export function buildTransientAssistant(
 
   const tools: Array<TransferCallTool | FunctionTool | QueryTool> = [...buildBookingTools()];
   if (options.includeFounderBooking) tools.push(...buildFounderBookingTools());
-  if (options.includeScreenControl) tools.push(buildScreenControlTool());
+  if (options.includeScreenControl) tools.push(buildScreenControlTool(), buildCallSummaryTool());
   if (knowledgeTool) tools.push(knowledgeTool);
   if (forwardingNumbers.length > 0) {
     tools.push({
