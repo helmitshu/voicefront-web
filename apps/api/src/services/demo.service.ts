@@ -155,6 +155,37 @@ const SLOT_MINUTES = 30;
 /** Visitor calendars are garbage-collected after this idle window. */
 const SESSION_TTL_MS = 2 * 60 * 60 * 1000;
 
+/* --------------------------- agent-driven screen -------------------------- */
+// Ava drives the prospect's on-screen panel via the set_demo_screen tool. The
+// web client reacts to that tool-call event instantly, but we also stash the
+// latest screen here (keyed by session) so the calendar poll can reconcile it —
+// a belt-and-suspenders fallback if the client missed the live event. In-memory
+// is fine: demo sessions are short-lived and a restart just resets to 'intro'.
+const VALID_SCREENS = new Set(['intro', 'booking', 'doublebook', 'summary', 'close']);
+const screenBySession = new Map<string, { screen: string; ts: number }>();
+
+/** Records the screen Ava switched a session to (ignores unknown values). */
+export function setDemoScreen(sessionId: string, screen: string): boolean {
+  if (!VALID_SCREENS.has(screen)) return false;
+  screenBySession.set(sessionId, { screen, ts: Date.now() });
+  // Opportunistic GC so the map can't grow without bound.
+  if (screenBySession.size > 500) {
+    const cutoff = Date.now() - SESSION_TTL_MS;
+    for (const [id, v] of screenBySession) if (v.ts < cutoff) screenBySession.delete(id);
+  }
+  return true;
+}
+
+/** The screen a session is currently on, or null if Ava hasn't set one yet. */
+export function getDemoScreen(sessionId: string): string | null {
+  return screenBySession.get(sessionId)?.screen ?? null;
+}
+
+/** Clears a session's screen back to the start (on (re)seed). */
+export function clearDemoScreen(sessionId: string): void {
+  screenBySession.delete(sessionId);
+}
+
 /**
  * The demo runs against a single shared tenant, but each visitor's sample
  * calendar is dressed to match THEIR industry — so a contractor sees a
