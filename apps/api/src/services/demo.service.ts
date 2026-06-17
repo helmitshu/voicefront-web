@@ -155,12 +155,73 @@ const SLOT_MINUTES = 30;
 /** Visitor calendars are garbage-collected after this idle window. */
 const SESSION_TTL_MS = 2 * 60 * 60 * 1000;
 
-/** Pre-booked slots (tenant-local HH:MM) so the demo day looks real. */
-const SEED_SLOTS: Array<{ time: string; name: string }> = [
-  { time: '09:00', name: 'Team huddle' },
-  { time: '10:30', name: 'M. Alvarez — cleaning' },
-  { time: '13:30', name: 'D. Okafor — consult' },
-];
+/**
+ * The demo runs against a single shared tenant, but each visitor's sample
+ * calendar is dressed to match THEIR industry — so a contractor sees a
+ * builder's schedule with site estimates, not a dental clinic. This removed
+ * the #1 reason prospects bailed mid-demo ("why are you showing me a clinic?").
+ */
+export type DemoIndustry = 'clinic' | 'contractor' | 'other';
+
+export interface DemoSample {
+  /** Name shown atop the sample calendar (e.g. "Summit Build & Remodel"). */
+  company: string;
+  /** What the on-screen sample IS, in Ava's words ("a dental clinic"). */
+  sampleLabel: string;
+  /** How Ava refers to the PROSPECT's own business ("your clinic"). */
+  prospectLabel: string;
+  /** The booking noun Ava uses when she books on screen ("site estimate"). */
+  appointmentNoun: string;
+  /** Pre-booked slots (tenant-local HH:MM) so the demo day looks real. */
+  seeds: Array<{ time: string; name: string }>;
+}
+
+const DEMO_SAMPLES: Record<DemoIndustry, DemoSample> = {
+  clinic: {
+    company: 'Bayview Family Clinic',
+    sampleLabel: 'a dental clinic',
+    prospectLabel: 'clinic',
+    appointmentNoun: 'appointment',
+    seeds: [
+      { time: '09:00', name: 'Team huddle' },
+      { time: '10:30', name: 'M. Alvarez — cleaning' },
+      { time: '13:30', name: 'D. Okafor — consult' },
+    ],
+  },
+  contractor: {
+    company: 'Summit Build & Remodel',
+    sampleLabel: "a contractor's schedule",
+    prospectLabel: 'business',
+    appointmentNoun: 'site estimate',
+    seeds: [
+      { time: '09:00', name: 'Crew dispatch' },
+      { time: '10:30', name: 'R. Singh — site estimate' },
+      { time: '13:30', name: 'Oak St — kitchen walkthrough' },
+    ],
+  },
+  other: {
+    company: 'Riverside Studio',
+    sampleLabel: 'a local business',
+    prospectLabel: 'business',
+    appointmentNoun: 'appointment',
+    seeds: [
+      { time: '09:00', name: 'Morning prep' },
+      { time: '10:30', name: 'J. Carter — consult' },
+      { time: '13:30', name: 'L. Gomez — appointment' },
+    ],
+  },
+};
+
+/** Coerces any stored/submitted industry string to a known sample preset. */
+export function normalizeIndustry(raw?: string | null): DemoIndustry {
+  const v = (raw ?? '').trim().toLowerCase();
+  if (v === 'clinic' || v === 'contractor') return v;
+  return 'other';
+}
+
+export function demoSample(industry?: string | null): DemoSample {
+  return DEMO_SAMPLES[normalizeIndustry(industry)];
+}
 
 export interface DemoAppointmentView {
   id: string;
@@ -181,6 +242,10 @@ export interface DemoDay {
   open: string;
   close: string;
   slotMinutes: number;
+  /** Industry the sample calendar is dressed for ("clinic" | "contractor" | "other"). */
+  industry: DemoIndustry;
+  /** Name shown atop the sample calendar, matched to the prospect's industry. */
+  sampleCompany: string;
 }
 
 export interface DemoTenantBundle {
@@ -223,7 +288,15 @@ export async function getOrCreateDemoTenant(): Promise<DemoTenantBundle> {
 }
 
 /** The next open business day strictly after now, in the demo timezone. */
-function nextBusinessDay(hours: BusinessHours, timezone: string, now = new Date()): DemoDay {
+function nextBusinessDay(
+  hours: BusinessHours,
+  timezone: string,
+  industry: DemoIndustry,
+  businessName: string | null,
+  now = new Date(),
+): DemoDay {
+  // The prospect's own business name wins; otherwise a generic industry sample.
+  const sampleCompany = businessName?.trim() || DEMO_SAMPLES[industry].company;
   for (let i = 1; i <= 8; i++) {
     const instant = new Date(now.getTime() + i * 24 * 3600 * 1000);
     const parts = utcToZonedParts(instant, timezone);
@@ -242,11 +315,22 @@ function nextBusinessDay(hours: BusinessHours, timezone: string, now = new Date(
       open: dayHours.open,
       close: dayHours.close > dayHours.open ? dayHours.close : '17:00',
       slotMinutes: SLOT_MINUTES,
+      industry,
+      sampleCompany,
     };
   }
   // Defensive: a tenant with no open days — fall back to tomorrow 08:00–17:00.
   const fallback = utcToZonedParts(new Date(now.getTime() + 24 * 3600 * 1000), timezone);
-  return { date: fallback.date, dayLabel: fallback.date, timezone, open: '08:00', close: '17:00', slotMinutes: SLOT_MINUTES };
+  return {
+    date: fallback.date,
+    dayLabel: fallback.date,
+    timezone,
+    open: '08:00',
+    close: '17:00',
+    slotMinutes: SLOT_MINUTES,
+    industry,
+    sampleCompany,
+  };
 }
 
 function mapAppointment(a: Pick<Appointment, 'id' | 'startsAt' | 'timezone' | 'customerName' | 'reason' | 'source'>): DemoAppointmentView {
@@ -259,7 +343,7 @@ function mapAppointment(a: Pick<Appointment, 'id' | 'startsAt' | 'timezone' | 'c
 
 async function seedSession(tenantId: string, sessionId: string, day: DemoDay, timezone: string): Promise<void> {
   await prisma.appointment.createMany({
-    data: SEED_SLOTS.map((s) => {
+    data: DEMO_SAMPLES[day.industry].seeds.map((s) => {
       const startsAt = zonedToUtc(day.date, s.time, timezone);
       return {
         tenantId,
@@ -282,8 +366,21 @@ export interface DemoSession {
   appointments: DemoAppointmentView[];
 }
 
+/** Reads the industry + business name a session was started for, from its lead. */
+async function sessionMeta(sessionId: string): Promise<{ industry: DemoIndustry; businessName: string | null }> {
+  const lead = await prisma.demoLead.findFirst({
+    where: { demoSessionId: sessionId },
+    orderBy: { createdAt: 'desc' },
+    select: { industry: true, businessName: true },
+  });
+  return { industry: normalizeIndustry(lead?.industry), businessName: lead?.businessName ?? null };
+}
+
 /** Starts a fresh isolated visitor session: GCs stale data, seeds the day. */
-export async function startDemoSession(): Promise<DemoSession> {
+export async function startDemoSession(
+  industry: DemoIndustry = 'other',
+  businessName: string | null = null,
+): Promise<DemoSession> {
   const bundle = await getOrCreateDemoTenant();
   // Lazy GC: clear out calendars from sessions that have gone cold.
   await prisma.appointment.deleteMany({
@@ -292,18 +389,21 @@ export async function startDemoSession(): Promise<DemoSession> {
 
   const sessionId = `demo_${randomUUID()}`;
   const hours = parseBusinessHours(bundle.settings.businessHours);
-  const day = nextBusinessDay(hours, bundle.settings.timezone);
+  const day = nextBusinessDay(hours, bundle.settings.timezone, industry, businessName);
   await seedSession(bundle.tenant.id, sessionId, day, bundle.settings.timezone);
 
   return { sessionId, bundle, day, appointments: await getDemoAppointments(sessionId) };
 }
 
 /** Re-hydrates an existing visitor session (after lead capture) without
- *  re-seeding — returns the same deterministic day plus the live calendar. */
+ *  re-seeding — returns the same deterministic day plus the live calendar.
+ *  The industry + business name are recovered from the session's lead so the
+ *  sample stays consistent across the lead → choose → call steps. */
 export async function resumeDemoSession(sessionId: string): Promise<DemoSession> {
   const bundle = await getOrCreateDemoTenant();
   const hours = parseBusinessHours(bundle.settings.businessHours);
-  const day = nextBusinessDay(hours, bundle.settings.timezone);
+  const meta = await sessionMeta(sessionId);
+  const day = nextBusinessDay(hours, bundle.settings.timezone, meta.industry, meta.businessName);
   return { sessionId, bundle, day, appointments: await getDemoAppointments(sessionId) };
 }
 
@@ -314,6 +414,8 @@ export interface CreateLeadInput {
   phone: string;
   ipCountry: string | null;
   phoneCountry: string | null;
+  industry?: string;
+  businessName?: string | null;
   mode?: string;
 }
 
@@ -327,6 +429,8 @@ export async function createDemoLead(input: CreateLeadInput) {
       phone: input.phone,
       ipCountry: input.ipCountry,
       phoneCountry: input.phoneCountry,
+      industry: normalizeIndustry(input.industry),
+      businessName: input.businessName?.trim() || null,
       mode: input.mode ?? 'pending',
     },
   });
@@ -454,7 +558,8 @@ export async function resetDemoSession(sessionId: string): Promise<{ day: DemoDa
   const bundle = await getOrCreateDemoTenant();
   await prisma.appointment.deleteMany({ where: { demoSessionId: sessionId } });
   const hours = parseBusinessHours(bundle.settings.businessHours);
-  const day = nextBusinessDay(hours, bundle.settings.timezone);
+  const meta = await sessionMeta(sessionId);
+  const day = nextBusinessDay(hours, bundle.settings.timezone, meta.industry, meta.businessName);
   await seedSession(bundle.tenant.id, sessionId, day, bundle.settings.timezone);
   return { day, appointments: await getDemoAppointments(sessionId) };
 }

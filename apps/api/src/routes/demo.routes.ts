@@ -16,6 +16,7 @@ import {
   getSalesConfig,
   getDemoNumbers,
   pickDemoCallerId,
+  demoSample,
 } from '../services/demo.service';
 import { placeOutboundCall } from '../services/vapi.service';
 import { evaluateGate, clientIp } from '../services/geo.service';
@@ -72,6 +73,7 @@ async function buildSalesAssistant(
   };
   const publicApiUrl = await getSettingValue('PUBLIC_API_URL');
   const sales = await getSalesConfig();
+  const sample = demoSample(session.day.industry);
   const salesCtx: SalesContext = {
     agentName: sales.agentName,
     founderName: sales.founderName,
@@ -80,6 +82,15 @@ async function buildSalesAssistant(
     timezone: tz,
     localToday,
     displayDay: { date: session.day.date, label: session.day.dayLabel },
+    sample: {
+      // The prospect's own business name (if they typed one) wins over the
+      // generic industry placeholder — already resolved onto the demo day.
+      businessName: session.day.sampleCompany,
+      ownName: session.day.sampleCompany !== sample.company,
+      sampleLabel: sample.sampleLabel,
+      prospectLabel: sample.prospectLabel,
+      appointmentNoun: sample.appointmentNoun,
+    },
   };
 
   const assistant = buildTransientAssistant(session.bundle.tenant, session.bundle.settings, channel, now, {
@@ -107,6 +118,8 @@ const LeadSchema = z.object({
   name: z.string().trim().min(1).max(80),
   email: z.string().trim().email().max(160),
   phone: z.string().trim().min(7).max(32),
+  industry: z.enum(['clinic', 'contractor', 'other']).default('other'),
+  businessName: z.string().trim().max(60).optional(),
 });
 
 /**
@@ -120,9 +133,9 @@ demoRouter.post(
     if (!(await isDemoEnabled())) {
       throw new HttpError(403, 'The demo is currently turned off.', 'DEMO_DISABLED');
     }
-    const { name, email, phone } = LeadSchema.parse(req.body ?? {});
+    const { name, email, phone, industry, businessName } = LeadSchema.parse(req.body ?? {});
     const gate = await evaluateGate(clientIp(req), phone);
-    const session = await startDemoSession();
+    const session = await startDemoSession(industry, businessName ?? null);
     const lead = await createDemoLead({
       sessionId: session.sessionId,
       name,
@@ -130,12 +143,15 @@ demoRouter.post(
       phone,
       ipCountry: gate.ipCountry,
       phoneCountry: gate.phone.country,
+      industry,
+      businessName,
     });
     res.json({
       leadId: lead.id,
       sessionId: session.sessionId,
       name,
       phone,
+      industry,
       callAllowed: gate.callAllowed,
       ipCountry: gate.ipCountry,
       phoneCountry: gate.phone.country,
