@@ -74,6 +74,13 @@ const config: Config = {
           '0%, 100%': { boxShadow: '0 0 0 0 rgba(109, 91, 255, 0)' },
           '50%': { boxShadow: '0 0 0 4px rgba(109, 91, 255, 0.22)' },
         },
+        // Green confirmation flash when Ava books a slot — a ring that swells
+        // then settles, drawing the eye to the just-booked appointment.
+        'flash-green': {
+          '0%': { boxShadow: '0 0 0 0 rgba(15, 169, 142, 0)' },
+          '20%': { boxShadow: '0 0 0 5px rgba(15, 169, 142, 0.55)' },
+          '100%': { boxShadow: '0 0 0 0 rgba(15, 169, 142, 0)' },
+        },
       },
       animation: {
         'wave-bar': 'wave-bar 1.1s ease-in-out infinite',
@@ -86,6 +93,7 @@ const config: Config = {
         'pop-in': 'pop-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) backwards',
         nudge: 'nudge 1.1s ease-in-out infinite',
         highlight: 'highlight 1.6s ease-in-out infinite',
+        'flash-green': 'flash-green 2.6s ease-out',
       },
     },
   },

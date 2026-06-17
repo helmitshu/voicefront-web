@@ -14,7 +14,7 @@ import {
   to12h,
   utcToZonedParts,
 } from '../services/appointment.service';
-import { getOrCreateDemoTenant, captureDemoCall } from '../services/demo.service';
+import { getOrCreateDemoTenant, captureDemoCall, setDemoScreen } from '../services/demo.service';
 import { founderAvailability, bookFounderCall } from '../services/founder.service';
 
 /**
@@ -174,10 +174,20 @@ async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolC
     const args = parseToolArguments(call.arguments ?? call.function?.arguments);
     let result: string;
     try {
-      // Founder planning-call tools target the FOUNDER's own calendar (sales
-      // demo close), not the demo clinic — so they're handled independently of
-      // the demo/tenant settings resolved above.
-      if (name === 'checkFounderAvailability') {
+      // Screen control (web sales demo): Ava drives the prospect's on-screen
+      // panel. The browser reacts to the live tool-call event; we also record it
+      // here so the calendar poll can reconcile. Independent of tenant settings.
+      if (name === 'set_demo_screen') {
+        const rawScreen = (args as { screen?: unknown }).screen;
+        const screen = typeof rawScreen === 'string' ? rawScreen : '';
+        if (demoSessionId && setDemoScreen(demoSessionId, screen)) {
+          result = `Showing the ${screen} screen now.`;
+        } else {
+          result = 'Screen unchanged.';
+        }
+      } else if (name === 'checkFounderAvailability') {
+        // Founder planning-call tools target the FOUNDER's own calendar (sales
+        // demo close), not the demo clinic — handled independently of settings.
         const { date } = AvailabilityArgsSchema.parse(args);
         const slots = await founderAvailability(date);
         if (!slots.open) {

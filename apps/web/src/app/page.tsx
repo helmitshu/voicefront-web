@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { Logo } from '@/components/ui/Logo';
@@ -249,16 +249,9 @@ interface DemoFormState {
 type DemoStage = 'intro' | 'booking' | 'doublebook' | 'summary' | 'close';
 const STAGE_ORDER: DemoStage[] = ['intro', 'booking', 'doublebook', 'summary', 'close'];
 
-/** Detects the furthest stage Ava has reached from what she's said so far. */
-function detectStage(assistantText: string, hasVoiceBooking: boolean): DemoStage {
-  const t = assistantText.toLowerCase();
-  let rank = 0;
-  if (hasVoiceBooking || /\bbook|appointment|calendar|availab|what.*open|\bslot/.test(t)) rank = Math.max(rank, 1);
-  if (/block|double|catch me out|taken|can'?t book|already booked|trip me/.test(t)) rank = Math.max(rank, 2);
-  if (/summary|recap|after we hang up|notes to take|wrap[- ]?up|inbox/.test(t)) rank = Math.max(rank, 3);
-  if (/fifteen minutes|15 minutes|planning call|set this up|next step|grab you|book.*call with|day works/.test(t))
-    rank = Math.max(rank, 4);
-  return STAGE_ORDER[rank];
+/** Whether a string from Ava's set_demo_screen tool is a real stage. */
+function isStage(value: unknown): value is DemoStage {
+  return typeof value === 'string' && (STAGE_ORDER as string[]).includes(value);
 }
 
 /* ----------------------------- demo: lead form ---------------------------- */
@@ -779,6 +772,32 @@ function DemoStagePanel({
   const guideBook = stage === 'booking' && showCalendar && !!day && aiBooked === 0;
   const firstOpen = guideBlock && day ? gridTimes(day).find((t) => !byTime.get(t)) : undefined;
 
+  // When Ava books a slot it can land below the fold — so the moment a new
+  // voice booking appears, scroll the list to center it and flash it green so
+  // the prospect always sees the confirmation, no scrolling required.
+  const scrollBoxRef = useRef<HTMLUListElement | null>(null);
+  const slotRefs = useRef<Map<string, HTMLLIElement>>(new Map());
+  const seenVoiceRef = useRef<Set<string>>(new Set());
+  const [flashTime, setFlashTime] = useState<string | null>(null);
+  useEffect(() => {
+    const voice = appointments.filter((a) => a.kind === 'voice');
+    const fresh = voice.find((a) => !seenVoiceRef.current.has(a.id));
+    voice.forEach((a) => seenVoiceRef.current.add(a.id));
+    if (!fresh) return;
+    setFlashTime(fresh.time);
+    requestAnimationFrame(() => {
+      const li = slotRefs.current.get(fresh.time);
+      const box = scrollBoxRef.current;
+      // Scroll only the list (it's position:relative, so offsetTop is local) —
+      // never the whole page.
+      if (li && box) {
+        box.scrollTo({ top: li.offsetTop - box.clientHeight / 2 + li.clientHeight / 2, behavior: 'smooth' });
+      }
+    });
+    const t = window.setTimeout(() => setFlashTime(null), 2800);
+    return () => window.clearTimeout(t);
+  }, [appointments]);
+
   const sampleCompany = day?.sampleCompany ?? 'Sample business';
   const header = {
     intro: { eyebrow: 'Live demo', title: 'What Ava will show you' },
@@ -847,12 +866,21 @@ function DemoStagePanel({
                   </p>
                 </div>
               )}
-              <ul className="max-h-[360px] flex-1 divide-y divide-line/50 overflow-y-auto px-5 py-1.5">
+              <ul
+                ref={scrollBoxRef}
+                className="relative max-h-[360px] flex-1 divide-y divide-line/50 overflow-y-auto px-5 py-1.5"
+              >
               {gridTimes(day).map((time) => {
                 const appt = byTime.get(time);
                 const pointHere = firstOpen === time;
                 return (
-                  <li key={time} className="flex items-center gap-3 py-2">
+                  <li
+                    key={time}
+                    ref={(el) => {
+                      if (el) slotRefs.current.set(time, el);
+                    }}
+                    className="flex items-center gap-3 py-2"
+                  >
                     <span className="w-16 shrink-0 font-mono text-xs text-ink-muted">{to12(time)}</span>
                     {!appt ? (
                       <button
@@ -885,10 +913,14 @@ function DemoStagePanel({
                         )}
                       </button>
                     ) : appt.kind === 'voice' ? (
-                      <span className="flex flex-1 animate-pop-in items-center justify-between rounded-xl bg-gradient-to-r from-signal to-signal-deep px-3.5 py-2 text-[13px] font-semibold text-white shadow-pop">
+                      <span
+                        className={`flex flex-1 animate-pop-in items-center justify-between rounded-xl bg-gradient-to-r from-signal to-signal-deep px-3.5 py-2 text-[13px] font-semibold text-white shadow-pop ${
+                          flashTime === time ? 'animate-flash-green' : ''
+                        }`}
+                      >
                         {appt.label}
                         <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
-                          Voice agent
+                          {flashTime === time ? 'Just booked ✓' : 'Voice agent'}
                         </span>
                       </span>
                     ) : appt.kind === 'blocked' ? (
@@ -947,6 +979,17 @@ function InteractiveDemo() {
   const sessionRef = useRef<VoiceSession | null>(null);
   const aliveRef = useRef(true);
   const transcriptBoxRef = useRef<HTMLDivElement | null>(null);
+  // When Ava last drove the screen via a live tool-call event. The calendar
+  // poll only reconciles the screen once events have been quiet for a moment,
+  // so a slightly-stale poll can never flicker the panel backward mid-step.
+  const screenSetAtRef = useRef(0);
+
+  // Switch the on-screen panel to whatever Ava asked for — forward OR back.
+  const applyScreen = useCallback((screen: string) => {
+    if (!isStage(screen)) return;
+    screenSetAtRef.current = Date.now();
+    setStage(screen);
+  }, []);
 
   useEffect(() => {
     aliveRef.current = true;
@@ -958,13 +1001,18 @@ function InteractiveDemo() {
   }, []);
 
   // Poll the live calendar while a session is open, so the agent's bookings
-  // (and the "after they hang up" final one) appear on screen.
+  // (and the "after they hang up" final one) appear on screen. The response
+  // also carries the screen Ava last set server-side — a fallback in case the
+  // browser missed her live tool-call event. We only apply it once live events
+  // have been quiet for a few seconds, so it reconciles without fighting them.
   useEffect(() => {
     if (!sessionId) return;
     const id = window.setInterval(async () => {
       try {
-        const { appointments: next } = await DemoApi.appointments(sessionId);
-        if (aliveRef.current) setAppointments(next);
+        const { appointments: next, screen } = await DemoApi.appointments(sessionId);
+        if (!aliveRef.current) return;
+        setAppointments(next);
+        if (isStage(screen) && Date.now() - screenSetAtRef.current > 3000) setStage(screen);
       } catch {
         /* transient — next tick retries */
       }
@@ -976,18 +1024,6 @@ function InteractiveDemo() {
     const box = transcriptBoxRef.current;
     if (box) box.scrollTop = box.scrollHeight;
   }, [transcript]);
-
-  // Agent-driven screens: advance the right panel through the guided stages as
-  // Ava talks. Forward-only ratchet so the story never jumps backwards.
-  useEffect(() => {
-    const said = transcript
-      .filter((t) => t.role === 'assistant')
-      .map((t) => t.text)
-      .join(' ');
-    const hasVoiceBooking = appointments.some((a) => a.kind === 'voice');
-    const detected = detectStage(said, hasVoiceBooking);
-    setStage((prev) => (STAGE_ORDER.indexOf(detected) > STAGE_ORDER.indexOf(prev) ? detected : prev));
-  }, [transcript, appointments]);
 
   const live = phase === 'connecting' || phase === 'listening' || phase === 'assistant-speaking';
 
@@ -1043,6 +1079,7 @@ function InteractiveDemo() {
     setError(null);
     setTranscript([]);
     setStage('intro');
+    screenSetAtRef.current = 0;
     setPhase('requesting');
     let data;
     try {
@@ -1071,6 +1108,7 @@ function InteractiveDemo() {
       onVolume: () => {},
       onTranscript: (entry) => aliveRef.current && setTranscript((cur) => [...cur, entry]),
       onError: (message) => aliveRef.current && setError(message),
+      onScreen: (screen) => aliveRef.current && applyScreen(screen),
     });
   }
 

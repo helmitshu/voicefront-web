@@ -17,10 +17,18 @@ import {
   getDemoNumbers,
   pickDemoCallerId,
   demoSample,
+  getDemoScreen,
+  clearDemoScreen,
 } from '../services/demo.service';
 import { placeOutboundCall } from '../services/vapi.service';
 import { evaluateGate, clientIp } from '../services/geo.service';
-import { composeSalesPrompt, salesOpener, SALES_PERSONA, type SalesContext } from '../domain/sales-agent';
+import {
+  composeSalesPrompt,
+  salesOpener,
+  salesSummaryPrompt,
+  SALES_PERSONA,
+  type SalesContext,
+} from '../domain/sales-agent';
 import { utcToZonedParts } from '../services/appointment.service';
 
 /**
@@ -40,6 +48,21 @@ const BlockSchema = SessionSchema.extend({
 function firstName(name?: string): string | null {
   const f = (name ?? '').trim().split(/\s+/)[0];
   return f && /^[a-zA-Z][a-zA-Z'’-]*$/.test(f) ? f : null;
+}
+
+/**
+ * Deepgram `keywords` (word:intensity) to boost recognition of the prospect's
+ * name — their name is the one word most likely to be unusual and mis-heard,
+ * and getting it wrong sours the whole call. Intensity 2 nudges without
+ * over-biasing common words.
+ */
+function nameKeywords(name?: string): string[] {
+  return (name ?? '')
+    .trim()
+    .split(/\s+/)
+    .filter((tok) => /^[a-zA-Z][a-zA-Z'’-]{1,}$/.test(tok))
+    .slice(0, 3)
+    .map((tok) => `${tok}:2`);
 }
 
 /** Coerces a typed phone into strict E.164, assuming NANP (+1) when no code. */
@@ -82,6 +105,8 @@ async function buildSalesAssistant(
     timezone: tz,
     localToday,
     displayDay: { date: session.day.date, label: session.day.dayLabel },
+    // Only the in-browser demo has a screen for Ava to drive.
+    screenControl: channel === 'web',
     sample: {
       // The prospect's own business name (if they typed one) wins over the
       // generic industry placeholder — already resolved onto the demo day.
@@ -100,6 +125,12 @@ async function buildSalesAssistant(
     voice: { provider: SALES_PERSONA.voiceProvider, voiceId: SALES_PERSONA.voiceId },
     backgroundSound: 'office',
     includeFounderBooking: true,
+    // Web demo only: Ava drives the prospect's on-screen panel directly.
+    includeScreenControl: channel === 'web',
+    // Help the transcriber hear the prospect's (often unusual) name correctly,
+    // so Ava isn't working from a garbled spelling.
+    transcriberKeywords: nameKeywords(name),
+    summaryPrompt: salesSummaryPrompt(salesCtx),
   });
   assistant.metadata = { ...assistant.metadata, demoSessionId: session.sessionId };
   assistant.firstMessage = salesOpener(salesCtx);
@@ -182,6 +213,9 @@ demoRouter.post(
 
     const body = StartSchema.parse(req.body ?? {});
     const session = body.sessionId ? await resumeDemoSession(body.sessionId) : await startDemoSession();
+    // Fresh call: drop any screen Ava set on a prior call for this session, so
+    // the panel starts on 'intro' and the poll won't restore a stale 'close'.
+    clearDemoScreen(session.sessionId);
 
     const { assistant, sales } = await buildSalesAssistant(session, body.name, 'web');
 
@@ -250,12 +284,14 @@ demoRouter.post(
   }),
 );
 
-/** Poll the visitor's live calendar (drives the on-screen booking updates). */
+/** Poll the visitor's live calendar (drives the on-screen booking updates).
+ *  Also returns the screen Ava last switched to, so the panel can reconcile if
+ *  the browser missed her live set_demo_screen tool-call event. */
 demoRouter.get(
   '/appointments',
   asyncHandler(async (req, res) => {
     const { sessionId } = SessionSchema.parse({ sessionId: req.query.sessionId });
-    res.json({ appointments: await getDemoAppointments(sessionId) });
+    res.json({ appointments: await getDemoAppointments(sessionId), screen: getDemoScreen(sessionId) });
   }),
 );
 

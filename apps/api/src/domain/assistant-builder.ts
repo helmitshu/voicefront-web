@@ -38,12 +38,17 @@ export interface TransientAssistant {
   voice: { provider: string; voiceId: string; version?: number };
   /** "office" | "off" | URL — ambient audio mixed into the call. */
   backgroundSound: string;
-  transcriber: { provider: 'deepgram'; model: string; language: string };
+  /** `keywords` boost recognition of hard-to-hear words (e.g. the prospect's
+   *  name in the sales demo) — Deepgram nova-2 takes `word:intensity` strings. */
+  transcriber: { provider: 'deepgram'; model: string; language: string; keywords?: string[] };
   voicemailMessage: string;
   endCallMessage: string;
   maxDurationSeconds: number;
   serverMessages: string[];
-  analysisPlan: { summaryPlan: { enabled: boolean } };
+  /** `summaryPlan.messages`, when set, replaces the provider's default summary
+   *  prompt — the sales demo uses it to capture the full call arc, objections
+   *  and any friction, not just "an appointment was booked". */
+  analysisPlan: { summaryPlan: { enabled: boolean; messages?: Array<{ role: 'system' | 'user'; content: string }> } };
   artifactPlan: { recordingEnabled: boolean };
   /** How quickly the agent starts talking once the caller stops. */
   startSpeakingPlan?: { waitSeconds: number; smartEndpointingEnabled: boolean };
@@ -141,9 +146,43 @@ interface FunctionTool {
     description: string;
     parameters: {
       type: 'object';
-      properties: Record<string, { type: string; description: string }>;
+      properties: Record<string, { type: string; description: string; enum?: string[] }>;
       required: string[];
     };
+  };
+}
+
+/** The screens Ava can switch the prospect's browser to, in story order. */
+export const DEMO_SCREENS = ['intro', 'booking', 'doublebook', 'summary', 'close'] as const;
+export type DemoScreen = (typeof DEMO_SCREENS)[number];
+
+/**
+ * Web-demo-only tool: lets Ava drive the prospect's on-screen panel directly,
+ * so the visuals follow what she's actually doing instead of guessing from her
+ * words. `async` (fire-and-forget) so changing the screen never pauses her
+ * speech. She can move forward OR back (e.g. when the prospect asks to revisit
+ * the calendar), which keyword detection could never do.
+ */
+function buildScreenControlTool(): FunctionTool {
+  return {
+    type: 'function',
+    async: true,
+    function: {
+      name: 'set_demo_screen',
+      description:
+        "Switch the prospect's on-screen panel to match what you're doing right now. Call it the moment you move to a new part of the demo — and again to go back if they ask to revisit something. Screens: 'intro' (welcome), 'booking' (the live calendar — use while booking), 'doublebook' (the double-booking test — also shows the calendar), 'summary' (the after-call recap), 'close' (booking their setup call).",
+      parameters: {
+        type: 'object',
+        properties: {
+          screen: {
+            type: 'string',
+            description: 'Which screen to show the prospect now.',
+            enum: [...DEMO_SCREENS],
+          },
+        },
+        required: ['screen'],
+      },
+    },
   };
 }
 
@@ -270,6 +309,13 @@ export function buildTransientAssistant(
     backgroundSound?: string;
     /** Sales demo: also give the agent tools to book the founder's calendar. */
     includeFounderBooking?: boolean;
+    /** Web sales demo: give Ava the set_demo_screen tool so she drives the
+     *  prospect's on-screen panel directly. */
+    includeScreenControl?: boolean;
+    /** Boost the transcriber on hard-to-hear words (e.g. the prospect's name). */
+    transcriberKeywords?: string[];
+    /** Replace the default end-of-call summary prompt (sales-demo recap). */
+    summaryPrompt?: string;
   } = {},
 ): TransientAssistant {
   const businessHours = parseBusinessHours(settings.businessHours);
@@ -301,6 +347,7 @@ export function buildTransientAssistant(
 
   const tools: Array<TransferCallTool | FunctionTool | QueryTool> = [...buildBookingTools()];
   if (options.includeFounderBooking) tools.push(...buildFounderBookingTools());
+  if (options.includeScreenControl) tools.push(buildScreenControlTool());
   if (knowledgeTool) tools.push(knowledgeTool);
   if (forwardingNumbers.length > 0) {
     tools.push({
@@ -354,14 +401,26 @@ export function buildTransientAssistant(
     ...(options.serverUrl
       ? { server: { url: options.serverUrl, ...(options.serverSecret ? { secret: options.serverSecret } : {}) } }
       : {}),
-    transcriber: { provider: 'deepgram', model: 'nova-2', language: 'en' },
+    transcriber: {
+      provider: 'deepgram',
+      model: 'nova-2',
+      language: 'en',
+      ...(options.transcriberKeywords && options.transcriberKeywords.length > 0
+        ? { keywords: options.transcriberKeywords }
+        : {}),
+    },
     voicemailMessage: settings.voicemailGreeting,
     // Front-load the meaningful goodbye; Vapi tends to clip the tail on hangup,
     // so "take care now, bye!" is the disposable part that can be safely lost.
     endCallMessage: `Thanks so much for calling ${tenant.companyName} — take care now, bye!`,
     maxDurationSeconds: 900,
     serverMessages: ['end-of-call-report', 'status-update', 'tool-calls'],
-    analysisPlan: { summaryPlan: { enabled: true } },
+    analysisPlan: {
+      summaryPlan: {
+        enabled: true,
+        ...(options.summaryPrompt ? { messages: [{ role: 'system', content: options.summaryPrompt }] } : {}),
+      },
+    },
     artifactPlan: { recordingEnabled: true },
     // Snappy responses + barge-in so the agent feels like a real conversation,
     // not a walkie-talkie: start talking ~0.4s after the caller stops, and let

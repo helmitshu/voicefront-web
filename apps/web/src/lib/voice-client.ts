@@ -28,6 +28,9 @@ export interface VoiceSessionHandlers {
   onVolume: (level: number) => void;
   onTranscript: (entry: TranscriptEntry) => void;
   onError: (message: string) => void;
+  /** Ava called set_demo_screen — switch the on-screen panel to `screen`.
+   *  Fired live from the SDK's tool-call event for instant, in-step visuals. */
+  onScreen?: (screen: string) => void;
 }
 
 interface TranscriptMessage {
@@ -35,6 +38,38 @@ interface TranscriptMessage {
   transcriptType?: string;
   role?: string;
   transcript?: string;
+}
+
+/** A function/tool call surfaced by the SDK's `message` event. Vapi has used a
+ *  couple of shapes over versions, so we read all of them defensively. */
+interface ToolCallMessage {
+  type?: string;
+  toolCalls?: Array<{ function?: { name?: string; arguments?: unknown } }>;
+  toolCallList?: Array<{ function?: { name?: string; arguments?: unknown } }>;
+  functionCall?: { name?: string; parameters?: unknown };
+}
+
+/** Pulls the `screen` out of a set_demo_screen tool call, or null if this
+ *  message isn't one. Handles arguments as an object or a JSON string. */
+function readScreenFromToolCall(msg: ToolCallMessage): string | null {
+  const fromList = [...(msg.toolCalls ?? []), ...(msg.toolCallList ?? [])].find(
+    (c) => c.function?.name === 'set_demo_screen',
+  );
+  let raw: unknown;
+  if (fromList) raw = fromList.function?.arguments;
+  else if (msg.functionCall?.name === 'set_demo_screen') raw = msg.functionCall.parameters;
+  else return null;
+
+  let args: unknown = raw;
+  if (typeof raw === 'string') {
+    try {
+      args = JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+  const screen = (args as { screen?: unknown } | null)?.screen;
+  return typeof screen === 'string' ? screen : null;
 }
 
 export class VoiceSession {
@@ -80,7 +115,13 @@ export class VoiceSession {
       handlers.onError(message);
     });
     vapi.on('message', (raw: unknown) => {
-      const msg = raw as TranscriptMessage;
+      const msg = raw as TranscriptMessage & ToolCallMessage;
+      // Ava driving the prospect's screen — react instantly, no server round-trip.
+      if (msg?.type === 'tool-calls' || msg?.type === 'function-call') {
+        const screen = readScreenFromToolCall(msg);
+        if (screen && handlers.onScreen) handlers.onScreen(screen);
+        return;
+      }
       if (msg?.type !== 'transcript' || msg.transcriptType !== 'final') return;
       if (typeof msg.transcript !== 'string' || msg.transcript.trim().length === 0) return;
       handlers.onTranscript({
