@@ -14,7 +14,7 @@ import {
   to12h,
   utcToZonedParts,
 } from '../services/appointment.service';
-import { getOrCreateDemoTenant, captureDemoCall, setDemoScreen } from '../services/demo.service';
+import { getOrCreateDemoTenant, captureDemoCall, setDemoScreen, setDemoSummary } from '../services/demo.service';
 import { founderAvailability, bookFounderCall } from '../services/founder.service';
 
 /**
@@ -184,6 +184,17 @@ async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolC
           result = `Showing the ${screen} screen now.`;
         } else {
           result = 'Screen unchanged.';
+        }
+      } else if (name === 'show_call_summary') {
+        // Push Ava's real recap to the on-screen summary panel + show it.
+        const a = args as { headline?: unknown; recap?: unknown };
+        const headline = typeof a.headline === 'string' ? a.headline : '';
+        const recap = typeof a.recap === 'string' ? a.recap : '';
+        if (demoSessionId && setDemoSummary(demoSessionId, headline, recap)) {
+          setDemoScreen(demoSessionId, 'summary');
+          result = 'The summary is on their screen now.';
+        } else {
+          result = 'Summary unchanged.';
         }
       } else if (name === 'checkFounderAvailability') {
         // Founder planning-call tools target the FOUNDER's own calendar (sales

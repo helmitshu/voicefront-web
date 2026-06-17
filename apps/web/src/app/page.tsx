@@ -12,6 +12,7 @@ import {
   type DemoDay,
   type DemoLeadResponse,
   type DemoIndustry,
+  type DemoCallSummary,
 } from '@/lib/api';
 import { VoiceSession, type SimulatorPhase, type TranscriptEntry } from '@/lib/voice-client';
 
@@ -673,14 +674,21 @@ function DemoSummaryStage({
   day,
   voiceAppt,
   lead,
+  summary,
 }: {
   day: DemoDay | null;
   voiceAppt: DemoAppointment | null;
   lead: DemoLeadResponse | null;
+  summary: DemoCallSummary | null;
 }) {
   const caller = lead?.name ?? 'New caller';
+  // Ava's real, call-specific recap when she's pushed one; otherwise a sensible
+  // line from what we know (so the panel is never blank before she summarizes).
+  const recap =
+    summary?.recap?.trim() ||
+    `${caller} called and I ${voiceAppt ? 'booked them in' : 'took their details'}. Everything’s on your calendar and nothing needs your attention right now.`;
   return (
-    <div className="px-5 py-6">
+    <div className="animate-fade-up px-5 py-6">
       <div className="rounded-2xl border border-line/70 bg-white p-5 shadow-sm">
         <div className="flex items-center justify-between">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-signal-deep">Call summary</p>
@@ -693,6 +701,12 @@ function DemoSummaryStage({
             <dt className="text-ink-muted">Caller</dt>
             <dd className="font-medium text-ink">{caller}</dd>
           </div>
+          {summary?.headline?.trim() && (
+            <div className="flex justify-between gap-3">
+              <dt className="shrink-0 text-ink-muted">They needed</dt>
+              <dd className="text-right font-medium text-ink">{summary.headline.trim()}</dd>
+            </div>
+          )}
           <div className="flex justify-between gap-3">
             <dt className="text-ink-muted">Outcome</dt>
             <dd className="font-medium text-ink">{voiceAppt ? 'Appointment booked' : 'Spoke with the agent'}</dd>
@@ -708,8 +722,7 @@ function DemoSummaryStage({
           )}
         </dl>
         <div className="mt-4 rounded-xl bg-paper px-3.5 py-2.5 text-[12px] leading-relaxed text-ink-muted ring-1 ring-inset ring-ink/5">
-          “Hi — {caller} called and I {voiceAppt ? 'booked them in' : 'took their details'}. Everything’s on your
-          calendar and nothing needs your attention right now.”
+          “{recap}”
         </div>
       </div>
       <p className="mt-3 text-center text-[12px] text-ink-muted">This lands in your inbox the moment a call ends.</p>
@@ -745,6 +758,7 @@ function DemoStagePanel({
   resetting,
   sessionId,
   lead,
+  callSummary,
 }: {
   stage: DemoStage;
   showCalendar: boolean;
@@ -756,6 +770,7 @@ function DemoStagePanel({
   resetting: boolean;
   sessionId: string | null;
   lead: DemoLeadResponse | null;
+  callSummary: DemoCallSummary | null;
 }) {
   const byTime = new Map(appointments.map((a) => [a.time, a]));
   const aiBooked = appointments.filter((a) => a.kind === 'voice').length;
@@ -940,7 +955,7 @@ function DemoStagePanel({
             </div>
           )
         ) : stage === 'summary' ? (
-          <DemoSummaryStage day={day} voiceAppt={voiceAppt} lead={lead} />
+          <DemoSummaryStage day={day} voiceAppt={voiceAppt} lead={lead} summary={callSummary} />
         ) : stage === 'close' ? (
           <DemoCloseStage />
         ) : (
@@ -975,6 +990,8 @@ function InteractiveDemo() {
   const [resetting, setResetting] = useState(false);
   const [showCalendar, setShowCalendar] = useState(true);
   const [stage, setStage] = useState<DemoStage>('intro');
+  // Ava's real recap of the call, pushed to the summary panel via her tool.
+  const [callSummary, setCallSummary] = useState<DemoCallSummary | null>(null);
 
   const sessionRef = useRef<VoiceSession | null>(null);
   const aliveRef = useRef(true);
@@ -1009,14 +1026,18 @@ function InteractiveDemo() {
     if (!sessionId) return;
     const id = window.setInterval(async () => {
       try {
-        const { appointments: next, screen } = await DemoApi.appointments(sessionId);
+        const { appointments: next, screen, summary } = await DemoApi.appointments(sessionId);
         if (!aliveRef.current) return;
         setAppointments(next);
-        if (isStage(screen) && Date.now() - screenSetAtRef.current > 3000) setStage(screen);
+        // Fast reconcile so the panel tracks Ava closely even when the live
+        // tool-call event doesn't reach the browser. The short window only
+        // defers to a *very* recent live event, to avoid a one-tick flicker.
+        if (isStage(screen) && Date.now() - screenSetAtRef.current > 800) setStage(screen);
+        if (summary) setCallSummary(summary);
       } catch {
         /* transient — next tick retries */
       }
-    }, 1500);
+    }, 600);
     return () => window.clearInterval(id);
   }, [sessionId]);
 
@@ -1079,6 +1100,7 @@ function InteractiveDemo() {
     setError(null);
     setTranscript([]);
     setStage('intro');
+    setCallSummary(null);
     screenSetAtRef.current = 0;
     setPhase('requesting');
     let data;
@@ -1109,6 +1131,11 @@ function InteractiveDemo() {
       onTranscript: (entry) => aliveRef.current && setTranscript((cur) => [...cur, entry]),
       onError: (message) => aliveRef.current && setError(message),
       onScreen: (screen) => aliveRef.current && applyScreen(screen),
+      onSummary: (summary) => {
+        if (!aliveRef.current) return;
+        setCallSummary(summary);
+        applyScreen('summary'); // the recap tool also switches them to the summary
+      },
     });
   }
 
@@ -1284,6 +1311,7 @@ function InteractiveDemo() {
         resetting={resetting}
         sessionId={sessionId}
         lead={lead}
+        callSummary={callSummary}
       />
 
       {/* ----------------------------- guided scenarios ---------------------------- */}

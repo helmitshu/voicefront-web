@@ -19,6 +19,8 @@ import {
   demoSample,
   getDemoScreen,
   clearDemoScreen,
+  getDemoSummary,
+  clearDemoSummary,
 } from '../services/demo.service';
 import { placeOutboundCall } from '../services/vapi.service';
 import { evaluateGate, clientIp } from '../services/geo.service';
@@ -213,9 +215,11 @@ demoRouter.post(
 
     const body = StartSchema.parse(req.body ?? {});
     const session = body.sessionId ? await resumeDemoSession(body.sessionId) : await startDemoSession();
-    // Fresh call: drop any screen Ava set on a prior call for this session, so
-    // the panel starts on 'intro' and the poll won't restore a stale 'close'.
+    // Fresh call: drop any screen/recap Ava set on a prior call for this
+    // session, so the panel starts on 'intro' and the poll won't restore stale
+    // state.
     clearDemoScreen(session.sessionId);
+    clearDemoSummary(session.sessionId);
 
     const { assistant, sales } = await buildSalesAssistant(session, body.name, 'web');
 
@@ -291,7 +295,11 @@ demoRouter.get(
   '/appointments',
   asyncHandler(async (req, res) => {
     const { sessionId } = SessionSchema.parse({ sessionId: req.query.sessionId });
-    res.json({ appointments: await getDemoAppointments(sessionId), screen: getDemoScreen(sessionId) });
+    res.json({
+      appointments: await getDemoAppointments(sessionId),
+      screen: getDemoScreen(sessionId),
+      summary: getDemoSummary(sessionId),
+    });
   }),
 );
 
