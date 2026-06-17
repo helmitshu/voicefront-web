@@ -5,7 +5,14 @@ import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import { Logo } from '@/components/ui/Logo';
 import { Spinner } from '@/components/ui/Spinner';
-import { DemoApi, ApiError, type DemoAppointment, type DemoDay, type DemoLeadResponse } from '@/lib/api';
+import {
+  DemoApi,
+  ApiError,
+  type DemoAppointment,
+  type DemoDay,
+  type DemoLeadResponse,
+  type DemoIndustry,
+} from '@/lib/api';
 import { VoiceSession, type SimulatorPhase, type TranscriptEntry } from '@/lib/voice-client';
 
 /* ------------------------------ scroll reveal ----------------------------- */
@@ -228,6 +235,16 @@ function gridTimes(day: DemoDay): string[] {
 
 type DemoView = 'form' | 'choose' | 'web' | 'call';
 
+/** Lead-capture form state. `industry` starts unset so the user must pick one. */
+interface DemoFormState {
+  name: string;
+  email: string;
+  phone: string;
+  industry: DemoIndustry | null;
+  /** Optional — when given, shown on the demo calendar instead of a placeholder. */
+  businessName: string;
+}
+
 /** The guided stages Ava walks the prospect through; the right panel follows. */
 type DemoStage = 'intro' | 'booking' | 'doublebook' | 'summary' | 'close';
 const STAGE_ORDER: DemoStage[] = ['intro', 'booking', 'doublebook', 'summary', 'close'];
@@ -276,6 +293,13 @@ function DemoLeadField({
   );
 }
 
+/** The industries the demo can dress its sample calendar for. */
+const DEMO_INDUSTRIES: Array<{ key: DemoIndustry; label: string; hint: string }> = [
+  { key: 'clinic', label: 'Clinic / practice', hint: 'Dental, medical, vet' },
+  { key: 'contractor', label: 'Contractor / trades', hint: 'Builders, HVAC, plumbing' },
+  { key: 'other', label: 'Something else', hint: 'Salon, law, services' },
+];
+
 function DemoLeadForm({
   form,
   setForm,
@@ -283,8 +307,8 @@ function DemoLeadForm({
   error,
   onSubmit,
 }: {
-  form: { name: string; email: string; phone: string };
-  setForm: React.Dispatch<React.SetStateAction<{ name: string; email: string; phone: string }>>;
+  form: DemoFormState;
+  setForm: React.Dispatch<React.SetStateAction<DemoFormState>>;
   submitting: boolean;
   error: string | null;
   onSubmit: (e: React.FormEvent) => void;
@@ -301,7 +325,7 @@ function DemoLeadForm({
           </h3>
           <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-white/55">
             Drop your details and she’ll walk you through exactly how VoiceFront answers, books, and
-            never double-books — in real time.
+            never double-books — tuned to your line of work.
           </p>
         </div>
 
@@ -330,6 +354,58 @@ function DemoLeadForm({
             value={form.phone}
             onChange={(v) => setForm((f) => ({ ...f, phone: v }))}
           />
+
+          {/* Industry — dresses the demo calendar to match their world. */}
+          <div className="flex flex-col gap-1.5 text-left">
+            <span className="text-xs font-semibold uppercase tracking-[0.12em] text-white/45">
+              What kind of business?
+            </span>
+            <div className="grid grid-cols-3 gap-2">
+              {DEMO_INDUSTRIES.map((opt) => {
+                const selected = form.industry === opt.key;
+                return (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => setForm((f) => ({ ...f, industry: opt.key }))}
+                    aria-pressed={selected}
+                    className={`flex flex-col items-start gap-0.5 rounded-xl border px-3 py-2.5 text-left transition-all duration-200 ${
+                      selected
+                        ? 'border-signal-soft/70 bg-signal/20 ring-1 ring-inset ring-signal/40'
+                        : 'border-white/12 bg-white/[0.05] hover:border-white/25 hover:bg-white/[0.08]'
+                    }`}
+                  >
+                    <span className={`text-[13px] font-semibold ${selected ? 'text-white' : 'text-white/80'}`}>
+                      {opt.label}
+                    </span>
+                    <span className="text-[11px] leading-tight text-white/40">{opt.hint}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Optional business name — shown on the demo calendar if provided. */}
+          <label className="flex flex-col gap-1.5 text-left">
+            <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-white/45">
+              Business name
+              <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-white/40">
+                optional
+              </span>
+            </span>
+            <input
+              type="text"
+              value={form.businessName}
+              onChange={(e) => setForm((f) => ({ ...f, businessName: e.target.value }))}
+              placeholder="e.g. Riverside Dental"
+              autoComplete="organization"
+              maxLength={60}
+              className="rounded-xl border border-white/15 bg-white/[0.06] px-4 py-3 text-[15px] text-white placeholder:text-white/30 outline-none transition-colors focus:border-signal-soft/70 focus:bg-white/[0.09]"
+            />
+            <span className="text-[11px] leading-tight text-white/35">
+              We’ll put it on the demo calendar so it feels like yours. Leave blank and we’ll use a sample.
+            </span>
+          </label>
         </div>
 
         <button
@@ -693,9 +769,20 @@ function DemoStagePanel({
   const voiceAppt = appointments.find((a) => a.kind === 'voice') ?? null;
   const onCalendar = stage === 'booking' || stage === 'doublebook';
 
+  // Click-guidance: during the double-book stage the prospect must block an
+  // open slot themselves. Highlight the slots and point at the first one until
+  // they've blocked one. During booking it's voice-driven, so we nudge them to
+  // ask out loud instead.
+  const apptNoun = day?.industry === 'contractor' ? 'site estimate' : 'appointment';
+  const hasBlocked = appointments.some((a) => a.kind === 'blocked');
+  const guideBlock = stage === 'doublebook' && showCalendar && !!day && !hasBlocked;
+  const guideBook = stage === 'booking' && showCalendar && !!day && aiBooked === 0;
+  const firstOpen = guideBlock && day ? gridTimes(day).find((t) => !byTime.get(t)) : undefined;
+
+  const sampleCompany = day?.sampleCompany ?? 'Sample business';
   const header = {
     intro: { eyebrow: 'Live demo', title: 'What Ava will show you' },
-    booking: { eyebrow: 'Sample · Bayview Family Clinic', title: day?.dayLabel ?? 'Loading…' },
+    booking: { eyebrow: `Sample · ${sampleCompany}`, title: day?.dayLabel ?? 'Loading…' },
     doublebook: { eyebrow: 'Try to catch her out', title: 'She won’t double-book' },
     summary: { eyebrow: 'After the call', title: 'The summary you’d get' },
     close: { eyebrow: 'Your next step', title: 'Book your setup call' },
@@ -738,9 +825,32 @@ function DemoStagePanel({
               Loading the calendar…
             </div>
           ) : (
-            <ul className="max-h-[360px] flex-1 divide-y divide-line/50 overflow-y-auto px-5 py-1.5">
+            <div className="flex flex-1 flex-col">
+              {/* Coachmark: tell the prospect exactly what to do this stage. */}
+              {(guideBook || guideBlock) && (
+                <div className="mx-5 mb-1 mt-2 flex animate-pop-in items-center gap-2.5 rounded-xl border border-signal/30 bg-signal-soft/60 px-3.5 py-2.5">
+                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-signal text-white">
+                    {guideBlock ? (
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-3.5 w-3.5">
+                        <path d="M6 8.5 3 8l-.5 3.5L6 14l5-1 1.5-4-2.5-1-1 2-1-5.5-1.5.5L7 8" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    ) : (
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-3.5 w-3.5">
+                        <path d="M8 2.5a2 2 0 0 1 2 2v3a2 2 0 1 1-4 0v-3a2 2 0 0 1 2-2ZM4 7.5a4 4 0 0 0 8 0M8 11.5v2" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    )}
+                  </span>
+                  <p className="text-[12px] font-medium leading-snug text-signal-deep">
+                    {guideBlock
+                      ? 'Click any open slot below to block it — then ask Ava to book that exact time and watch her refuse.'
+                      : `Say it out loud: “Book me ${apptNoun === 'site estimate' ? 'a site estimate' : 'an appointment'} at 2 PM” — watch it land here.`}
+                  </p>
+                </div>
+              )}
+              <ul className="max-h-[360px] flex-1 divide-y divide-line/50 overflow-y-auto px-5 py-1.5">
               {gridTimes(day).map((time) => {
                 const appt = byTime.get(time);
+                const pointHere = firstOpen === time;
                 return (
                   <li key={time} className="flex items-center gap-3 py-2">
                     <span className="w-16 shrink-0 font-mono text-xs text-ink-muted">{to12(time)}</span>
@@ -749,12 +859,30 @@ function DemoStagePanel({
                         type="button"
                         onClick={() => onBlock(time)}
                         disabled={blocking === time}
-                        className="group flex flex-1 items-center justify-between rounded-xl border border-dashed border-line px-3.5 py-2 text-[13px] text-ink-muted/60 transition-colors hover:border-ink-muted/40 hover:text-ink-muted"
+                        className={`group relative flex flex-1 items-center justify-between rounded-xl border border-dashed px-3.5 py-2 text-[13px] transition-colors ${
+                          guideBlock
+                            ? 'animate-highlight border-signal/50 text-ink-muted hover:border-signal hover:text-ink'
+                            : 'border-line text-ink-muted/60 hover:border-ink-muted/40 hover:text-ink-muted'
+                        }`}
                       >
                         <span>Open</span>
-                        <span className="text-[11px] font-semibold opacity-0 transition-opacity group-hover:opacity-100">
+                        <span
+                          className={`text-[11px] font-semibold transition-opacity ${
+                            guideBlock ? 'text-signal-deep opacity-100' : 'opacity-0 group-hover:opacity-100'
+                          }`}
+                        >
                           {blocking === time ? 'Blocking…' : 'Block this slot'}
                         </span>
+                        {pointHere && (
+                          <span
+                            aria-hidden
+                            className="pointer-events-none absolute -right-1 top-1/2 hidden -translate-y-1/2 translate-x-full animate-nudge items-center pl-2 text-signal sm:flex"
+                          >
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className="h-5 w-5">
+                              <path d="M19 12H6M11 7l-5 5 5 5" strokeLinecap="round" strokeLinejoin="round" />
+                            </svg>
+                          </span>
+                        )}
                       </button>
                     ) : appt.kind === 'voice' ? (
                       <span className="flex flex-1 animate-pop-in items-center justify-between rounded-xl bg-gradient-to-r from-signal to-signal-deep px-3.5 py-2 text-[13px] font-semibold text-white shadow-pop">
@@ -776,7 +904,8 @@ function DemoStagePanel({
                   </li>
                 );
               })}
-            </ul>
+              </ul>
+            </div>
           )
         ) : stage === 'summary' ? (
           <DemoSummaryStage day={day} voiceAppt={voiceAppt} lead={lead} />
@@ -793,7 +922,13 @@ function DemoStagePanel({
 function InteractiveDemo() {
   const [view, setView] = useState<DemoView>('form');
   const [lead, setLead] = useState<DemoLeadResponse | null>(null);
-  const [form, setForm] = useState({ name: '', email: '', phone: '' });
+  const [form, setForm] = useState<DemoFormState>({
+    name: '',
+    email: '',
+    phone: '',
+    industry: null,
+    businessName: '',
+  });
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -866,9 +1001,20 @@ function InteractiveDemo() {
       setFormError('Please fill in your name, email, and phone.');
       return;
     }
+    if (!form.industry) {
+      setFormError('Pick the kind of business you run so we can tailor the demo.');
+      return;
+    }
     setSubmitting(true);
     try {
-      const res = await DemoApi.lead({ name, email, phone });
+      const businessName = form.businessName.trim();
+      const res = await DemoApi.lead({
+        name,
+        email,
+        phone,
+        industry: form.industry,
+        ...(businessName ? { businessName } : {}),
+      });
       setLead(res);
       setSessionId(res.sessionId);
       setDay(res.day);
@@ -966,35 +1112,43 @@ function InteractiveDemo() {
   // ----------------------------- gate: lead form ----------------------------
   if (view === 'form') {
     return (
-      <DemoLeadForm
-        form={form}
-        setForm={setForm}
-        submitting={submitting}
-        error={formError}
-        onSubmit={submitLead}
-      />
+      <div key="form" className="animate-fade-up">
+        <DemoLeadForm
+          form={form}
+          setForm={setForm}
+          submitting={submitting}
+          error={formError}
+          onSubmit={submitLead}
+        />
+      </div>
     );
   }
 
   // --------------------------- gate: choose a mode --------------------------
   if (view === 'choose' && lead) {
     return (
-      <DemoModeChoice
-        lead={lead}
-        onWeb={chooseWeb}
-        onCall={() => setView('call')}
-        onBack={() => setView('form')}
-      />
+      <div key="choose" className="animate-fade-up">
+        <DemoModeChoice
+          lead={lead}
+          onWeb={chooseWeb}
+          onCall={() => setView('call')}
+          onBack={() => setView('form')}
+        />
+      </div>
     );
   }
 
   // ------------------------- "get a call" placeholder -----------------------
   if (view === 'call' && lead) {
-    return <DemoCallView lead={lead} onBack={() => setView('choose')} onWeb={chooseWeb} />;
+    return (
+      <div key="call" className="animate-fade-up">
+        <DemoCallView lead={lead} onBack={() => setView('choose')} onWeb={chooseWeb} />
+      </div>
+    );
   }
 
   return (
-    <div className="grid items-stretch gap-5 lg:grid-cols-2">
+    <div key="web" className="grid animate-fade-up items-stretch gap-5 lg:grid-cols-2">
       {/* ------------------------------ call console ------------------------------ */}
       <div className="flex flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04] backdrop-blur">
         <div className="flex items-center justify-between border-b border-white/10 px-5 py-3.5">
@@ -1056,14 +1210,22 @@ function InteractiveDemo() {
                   End call
                 </button>
               ) : (
-                <button
-                  type="button"
-                  onClick={startCall}
-                  disabled={phase === 'requesting'}
-                  className="rounded-2xl bg-white px-7 py-3 text-[15px] font-semibold text-ink shadow-lift transition-transform hover:-translate-y-0.5 disabled:opacity-60"
-                >
-                  {phase === 'ended' ? 'Call again' : 'Start the demo call'}
-                </button>
+                <span className="relative inline-flex">
+                  {phase === 'idle' && transcript.length === 0 && (
+                    <span
+                      aria-hidden
+                      className="absolute inset-0 animate-pulse-ring rounded-2xl bg-white/50"
+                    />
+                  )}
+                  <button
+                    type="button"
+                    onClick={startCall}
+                    disabled={phase === 'requesting'}
+                    className="relative rounded-2xl bg-white px-7 py-3 text-[15px] font-semibold text-ink shadow-lift transition-transform hover:-translate-y-0.5 disabled:opacity-60"
+                  >
+                    {phase === 'ended' ? 'Call again' : 'Start the demo call'}
+                  </button>
+                </span>
               )}
               <p className="text-[11px] text-white/35">Free · runs in your browser · needs mic access</p>
               {error && <p className="text-center text-xs text-[#ffb4ba]">{error}</p>}

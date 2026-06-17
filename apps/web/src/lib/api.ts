@@ -649,6 +649,7 @@ export const CallsApi = {
 
 /* ---------------------------- public demo (no auth) ---------------------- */
 
+export type DemoIndustry = 'clinic' | 'contractor' | 'other';
 export interface DemoDay {
   date: string;
   dayLabel: string;
@@ -656,6 +657,10 @@ export interface DemoDay {
   open: string;
   close: string;
   slotMinutes: number;
+  /** Industry the sample calendar is dressed for. */
+  industry: DemoIndustry;
+  /** Sample business name shown atop the calendar, matched to the industry. */
+  sampleCompany: string;
 }
 export interface DemoAppointment {
   id: string;
@@ -676,12 +681,16 @@ export interface DemoLeadInput {
   name: string;
   email: string;
   phone: string;
+  industry: DemoIndustry;
+  /** Optional: the prospect's own business name, shown on the sample calendar. */
+  businessName?: string;
 }
 export interface DemoLeadResponse {
   leadId: string;
   sessionId: string;
   name: string;
   phone: string;
+  industry: DemoIndustry;
   /** True when the visitor may receive an outbound demo call (US/CA or +1). */
   callAllowed: boolean;
   ipCountry: string | null;

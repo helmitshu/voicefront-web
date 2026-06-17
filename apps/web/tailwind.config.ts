@@ -64,6 +64,16 @@ const config: Config = {
           from: { opacity: '0', transform: 'scale(0.92) translateY(6px)' },
           to: { opacity: '1', transform: 'scale(1) translateY(0)' },
         },
+        // Coachmark pointer that bobs toward its target to draw the eye.
+        nudge: {
+          '0%, 100%': { transform: 'translateX(0)' },
+          '50%': { transform: 'translateX(4px)' },
+        },
+        // Soft outline pulse to highlight a slot the prospect should click.
+        highlight: {
+          '0%, 100%': { boxShadow: '0 0 0 0 rgba(109, 91, 255, 0)' },
+          '50%': { boxShadow: '0 0 0 4px rgba(109, 91, 255, 0.22)' },
+        },
       },
       animation: {
         'wave-bar': 'wave-bar 1.1s ease-in-out infinite',
@@ -74,6 +84,8 @@ const config: Config = {
         'pulse-ring': 'pulse-ring 1.6s ease-out infinite',
         float: 'float 7s ease-in-out infinite',
         'pop-in': 'pop-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) backwards',
+        nudge: 'nudge 1.1s ease-in-out infinite',
+        highlight: 'highlight 1.6s ease-in-out infinite',
       },
     },
   },

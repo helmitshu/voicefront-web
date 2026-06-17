@@ -304,6 +304,12 @@ model DemoLead {
   ipCountry     String?  @map("ip_country")
   /// Phone number's country code ("US", "CA", "GB", etc.). Parsed from the number.
   phoneCountry  String?  @map("phone_country")
+  /// Prospect's self-reported industry ("clinic" | "contractor" | "other"),
+  /// so the on-screen sample calendar and Ava's framing match their world.
+  industry      String   @default("other")
+  /// Optional business name the prospect typed on the form. When present it's
+  /// shown on the sample calendar instead of the generic industry placeholder.
+  businessName  String?  @map("business_name")
   /// Which demo mode they're entering ("web" or "call").
   mode          String   // "web" or "call"
   createdAt     DateTime @default(now()) @map("created_at")
