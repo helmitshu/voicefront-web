@@ -5,18 +5,40 @@
 @layer base {
   html {
     @apply antialiased;
+    /* Buttery anchor navigation, offset clear of the fixed header. */
+    scroll-behavior: smooth;
+    scroll-padding-top: 7rem;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
   body {
     @apply bg-paper font-sans text-ink;
   }
+  /* Confident display type: tight tracking, balanced wrapping. */
   h1,
   h2,
   h3,
   h4 {
     @apply font-display;
+    letter-spacing: -0.022em;
+    text-wrap: balance;
+  }
+  /* Readable measure on long-form copy. */
+  p {
+    text-wrap: pretty;
   }
   ::selection {
     @apply bg-signal-soft text-signal-deep;
+  }
+  /* One consistent, calm focus ring across interactive elements. */
+  a:focus-visible,
+  button:focus-visible,
+  [role='button']:focus-visible,
+  summary:focus-visible {
+    outline: 2px solid theme('colors.signal.DEFAULT');
+    outline-offset: 2px;
+    border-radius: 8px;
   }
 }
 
@@ -34,6 +56,41 @@
   background: transparent;
 }
 
+/* -------------------- ambient sound-wave background motion ------------------- */
+/* Transform-only keyframes so the blurred layers stay GPU-composited (cached
+   blur, no per-frame repaint) — the secret to smooth, easy-on-the-eyes motion. */
+@keyframes bg-aurora-a {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50%      { transform: translate3d(8%, -6%, 0) scale(1.22); }
+}
+@keyframes bg-aurora-b {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1.15); }
+  50%      { transform: translate3d(-9%, 6%, 0) scale(0.92); }
+}
+@keyframes bg-aurora-c {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1.05); }
+  50%      { transform: translate3d(5%, 7%, 0) scale(1.18); }
+}
+@keyframes bg-wave-1 {
+  0%, 100% { transform: translate3d(-2%, 0, 0) scaleY(1); }
+  50%      { transform: translate3d(2%, -2.4%, 0) scaleY(1.08); }
+}
+@keyframes bg-wave-2 {
+  0%, 100% { transform: translate3d(1.6%, 1%, 0) scaleY(1.05); }
+  50%      { transform: translate3d(-2.6%, -1.4%, 0) scaleY(0.96); }
+}
+@keyframes bg-wave-3 {
+  0%, 100% { transform: translate3d(-1%, -0.6%, 0) scaleY(1); }
+  50%      { transform: translate3d(2.2%, 1.8%, 0) scaleY(1.1); }
+}
+
+.bg-aurora-a { animation: bg-aurora-a 26s ease-in-out infinite; }
+.bg-aurora-b { animation: bg-aurora-b 34s ease-in-out infinite; }
+.bg-aurora-c { animation: bg-aurora-c 30s ease-in-out infinite; }
+.bg-wave-1 { animation: bg-wave-1 19s ease-in-out infinite; transform-origin: bottom; }
+.bg-wave-2 { animation: bg-wave-2 25s ease-in-out infinite; transform-origin: bottom; }
+.bg-wave-3 { animation: bg-wave-3 31s ease-in-out infinite; transform-origin: bottom; }
+
 /* Respect users who opt out of motion: stop loops, settle bars statically. */
 @media (prefers-reduced-motion: reduce) {
   .animate-wave-bar {
@@ -41,7 +98,14 @@
     transform: scaleY(calc(var(--wave-max, 1) * 0.6));
   }
   .animate-fade-up,
-  .animate-pulse-ring {
+  .animate-pulse-ring,
+  .animate-wave-x,
+  .bg-aurora-a,
+  .bg-aurora-b,
+  .bg-aurora-c,
+  .bg-wave-1,
+  .bg-wave-2,
+  .bg-wave-3 {
     animation: none !important;
   }
 }

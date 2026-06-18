@@ -14,6 +14,7 @@ import { mediaRouter } from './routes/media.routes';
 import { inboundRouter } from './routes/inbound.routes';
 import { documentsRouter } from './routes/documents.routes';
 import { demoRouter } from './routes/demo.routes';
+import { bookingRouter } from './routes/booking.routes';
 
 export function createApp(): express.Express {
   const app = express();
@@ -49,6 +50,7 @@ export function createApp(): express.Express {
   app.use('/api/media', mediaRouter);
   app.use('/api/vapi/inbound', inboundRouter);
   app.use('/api/demo', demoRouter);
+  app.use('/api/booking', bookingRouter);
 
   app.use(notFound);
   app.use(errorHandler);

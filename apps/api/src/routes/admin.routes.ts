@@ -49,6 +49,11 @@ import {
   getFounderTimezone,
 } from '../services/founder.service';
 import {
+  generateAccessCode,
+  listAccessCodes,
+  revokeAccessCode,
+} from '../services/access-code.service';
+import {
   createAssistantForTenant,
   createPhoneNumberInVapi,
   findAssistantPhoneNumber,
@@ -875,6 +880,52 @@ adminRouter.delete(
     const adminEmail = getAdminEmail(req);
     await removeFounderEntry(req.params.id);
     await recordAdminAction(adminEmail, 'founder.unblock', req.params.id, {});
+    res.json({ ok: true });
+  }),
+);
+
+/* ------------------------------- access codes ------------------------------- */
+/* One-time signup invitations the founder issues after vetting a prospect.     */
+
+adminRouter.get(
+  '/access-codes',
+  requireFullAdmin,
+  asyncHandler(async (_req, res) => {
+    res.json({ codes: await listAccessCodes() });
+  }),
+);
+
+adminRouter.post(
+  '/access-codes',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const adminEmail = getAdminEmail(req);
+    const body = z
+      .object({
+        label: z.string().trim().max(120).optional(),
+        email: z.string().trim().toLowerCase().email().max(120).optional().or(z.literal('')),
+      })
+      .parse(req.body ?? {});
+    const code = await generateAccessCode({
+      label: body.label,
+      email: body.email || null,
+      createdBy: adminEmail,
+    });
+    await recordAdminAction(adminEmail, 'accessCode.create', code.code, {
+      label: code.label,
+      email: code.email,
+    });
+    res.status(201).json({ code });
+  }),
+);
+
+adminRouter.delete(
+  '/access-codes/:id',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const adminEmail = getAdminEmail(req);
+    await revokeAccessCode(req.params.id);
+    await recordAdminAction(adminEmail, 'accessCode.revoke', req.params.id, {});
     res.json({ ok: true });
   }),
 );

@@ -251,6 +251,31 @@ model PlatformAdmin {
   @@map("platform_admins")
 }
 
+/// A one-time invitation code the founder issues (after a demo or sales call)
+/// so a vetted prospect can create an account. Registration is gated on a
+/// valid, unused code: it's looked up case-insensitively, then atomically
+/// consumed (usedAt set) inside the signup transaction so it can't be reused
+/// or claimed twice in a race. Bootstrap platform admins are exempt.
+model AccessCode {
+  id             String    @id @default(cuid())
+  /// The code the customer types at signup. Stored uppercase; unique.
+  code           String    @unique
+  /// Optional note so the founder remembers who it's for (e.g. "Riverside Dental").
+  label          String?
+  /// Optional email it was issued to — a hint shown in the admin list.
+  email          String?
+  /// Email of the admin who generated it.
+  createdBy      String    @map("created_by")
+  /// Set when redeemed; null = still valid. Once set, the code is spent.
+  usedAt         DateTime? @map("used_at")
+  /// Tenant created when the code was redeemed (audit trail).
+  usedByTenantId String?   @map("used_by_tenant_id")
+  createdAt      DateTime  @default(now()) @map("created_at")
+
+  @@index([createdAt(sort: Desc)])
+  @@map("access_codes")
+}
+
 /// Every admin-panel mutation lands here — the founder's undo trail.
 model AdminAuditLog {
   id         String   @id @default(cuid())

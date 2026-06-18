@@ -206,7 +206,7 @@ function DashboardChrome({ children }: { children: ReactNode }) {
         <main className="relative mx-auto w-full max-w-6xl flex-1 px-6 py-10">
           <div
             aria-hidden
-            className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-[radial-gradient(60%_100%_at_50%_0%,rgba(109,91,255,0.05),transparent)]"
+            className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-[radial-gradient(60%_100%_at_50%_0%,rgba(14,107,99,0.05),transparent)]"
           />
           <div className="relative">{children}</div>
         </main>

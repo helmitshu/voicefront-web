@@ -5,29 +5,36 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // Deep charcoal-green for text, and a soft (not harsh) dark band when
+        // used as a background. Replaces the old near-black navy.
         ink: {
-          DEFAULT: '#0B1220',
-          soft: '#1C2435',
-          muted: '#5B6475',
+          DEFAULT: '#1E2421',
+          soft: '#2C332E',
+          muted: '#66706B',
         },
-        paper: '#F8FAFC',
-        line: '#E2E8F0',
+        // Warm off-white page canvas + tinted surface. `white` stays the pure
+        // elevated surface; `paper` is the calm neutral behind it.
+        paper: '#F6F7F3',
+        surface: '#F1F4F1',
+        line: '#E4E7E2',
+        // Primary accent: deep, calm teal. Drives CTAs, active states, key
+        // badges and small highlights — never large saturated blocks.
         signal: {
-          DEFAULT: '#6D5BFF',
-          deep: '#4F3DF5',
-          soft: '#EDEAFF',
+          DEFAULT: '#0E6B63',
+          deep: '#0A574F',
+          soft: '#D9EEEA',
         },
         clinic: {
           DEFAULT: '#0FA98E',
           soft: '#E2F6F1',
         },
         construction: {
-          DEFAULT: '#E8A33D',
-          soft: '#FBF1DF',
+          DEFAULT: '#A56A18',
+          soft: '#F6ECD9',
         },
         danger: {
-          DEFAULT: '#D64550',
-          soft: '#FBE9EA',
+          DEFAULT: '#C0453F',
+          soft: '#F8E7E5',
         },
       },
       fontFamily: {
@@ -36,12 +43,18 @@ const config: Config = {
         mono: ['"IBM Plex Mono"', 'ui-monospace', 'monospace'],
       },
       boxShadow: {
-        card: '0 1px 3px rgba(0, 0, 0, 0.05), 0 10px 20px -5px rgba(0, 0, 0, 0.03)',
+        // Soft, layered, low-opacity shadows — ambient + key light, the way a
+        // physical card casts. Diffuse rather than hard for a calm, premium feel.
+        card: '0 1px 2px rgba(20, 30, 25, 0.03), 0 6px 16px -6px rgba(20, 30, 25, 0.06), 0 14px 36px -14px rgba(20, 30, 25, 0.06)',
         'card-hover':
-          '0 1px 3px rgba(0, 0, 0, 0.06), 0 12px 28px -6px rgba(11, 18, 32, 0.10)',
-        lift: '0 2px 4px rgba(11, 18, 32, 0.04), 0 24px 48px -16px rgba(11, 18, 32, 0.14)',
-        pop: '0 1px 2px rgba(79, 61, 245, 0.4), 0 10px 24px -6px rgba(79, 61, 245, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.18)',
-        input: '0 1px 2px rgba(11, 18, 32, 0.04)',
+          '0 2px 4px rgba(20, 30, 25, 0.04), 0 12px 28px -8px rgba(20, 30, 25, 0.10), 0 28px 60px -18px rgba(20, 30, 25, 0.10)',
+        lift: '0 4px 10px -4px rgba(20, 30, 25, 0.06), 0 24px 56px -20px rgba(20, 30, 25, 0.14)',
+        pop: '0 1px 2px rgba(10, 87, 79, 0.20), 0 6px 18px -4px rgba(14, 107, 99, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.18)',
+        input: '0 1px 2px rgba(20, 30, 25, 0.04)',
+      },
+      transitionTimingFunction: {
+        // Apple-ish ease-out: quick to start, gentle settle. Used on interactions.
+        smooth: 'cubic-bezier(0.22, 1, 0.36, 1)',
       },
       keyframes: {
         'wave-bar': {
@@ -71,8 +84,8 @@ const config: Config = {
         },
         // Soft outline pulse to highlight a slot the prospect should click.
         highlight: {
-          '0%, 100%': { boxShadow: '0 0 0 0 rgba(109, 91, 255, 0)' },
-          '50%': { boxShadow: '0 0 0 4px rgba(109, 91, 255, 0.22)' },
+          '0%, 100%': { boxShadow: '0 0 0 0 rgba(14, 107, 99, 0)' },
+          '50%': { boxShadow: '0 0 0 4px rgba(14, 107, 99, 0.20)' },
         },
         // Green confirmation flash when Ava books a slot — a ring that swells
         // then settles, drawing the eye to the just-booked appointment.
@@ -80,6 +93,13 @@ const config: Config = {
           '0%': { boxShadow: '0 0 0 0 rgba(15, 169, 142, 0)' },
           '20%': { boxShadow: '0 0 0 5px rgba(15, 169, 142, 0.55)' },
           '100%': { boxShadow: '0 0 0 0 rgba(15, 169, 142, 0)' },
+        },
+        // Seamless horizontal drift for the background sound-wave field. The
+        // wave layer is 200% wide with periodic content, so a -50% shift loops
+        // back onto an identical phase — no visible jump.
+        'wave-x': {
+          from: { transform: 'translateX(0)' },
+          to: { transform: 'translateX(-50%)' },
         },
       },
       animation: {
@@ -94,6 +114,7 @@ const config: Config = {
         nudge: 'nudge 1.1s ease-in-out infinite',
         highlight: 'highlight 1.6s ease-in-out infinite',
         'flash-green': 'flash-green 2.6s ease-out',
+        'wave-x': 'wave-x 30s linear infinite',
       },
     },
   },

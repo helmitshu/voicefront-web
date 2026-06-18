@@ -35,6 +35,7 @@ interface AuthContextValue {
     fullName: string;
     email: string;
     password: string;
+    accessCode?: string;
   }) => Promise<Me>;
   signOut: () => void;
   refreshMe: () => Promise<void>;
