@@ -29,6 +29,18 @@ const NAV = [
     ),
   },
   {
+    href: '/admin/access-codes',
+    label: 'Access codes',
+    exact: false,
+    fullAdminOnly: true,
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-[18px] w-[18px]">
+        <circle cx="7" cy="10" r="3.5" />
+        <path d="M10 8.5h7.5M15 8.5v3M17.5 8.5v2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
     href: '/admin/numbers',
     label: 'Phone numbers',
     exact: false,

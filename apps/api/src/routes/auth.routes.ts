@@ -11,6 +11,7 @@ import { defaultBusinessHours } from '../domain/agent-config';
 import { industryDefaults, industryPersona } from '../domain/prompt-templates';
 import { getAuth, requireAuth } from '../middleware/auth';
 import { resolvePlatformRole } from '../services/platform-admin.service';
+import { consumeAccessCode } from '../services/access-code.service';
 import { getOnboarding, toOnboardingView } from '../services/onboarding.service';
 
 export const authRouter = Router();
@@ -29,6 +30,9 @@ const RegisterSchema = z.object({
   fullName: z.string().trim().min(2, 'Please enter your name').max(80),
   email: z.string().trim().toLowerCase().email('Please enter a valid email'),
   password: z.string().min(8, 'Password must be at least 8 characters').max(128),
+  /** One-time invitation code from the founder. Required for ordinary
+   *  customers; platform operators (bootstrap/granted) are exempt. */
+  accessCode: z.string().trim().max(40).optional(),
 });
 
 const LoginSchema = z.object({
@@ -98,6 +102,14 @@ authRouter.post(
       throw new HttpError(409, 'An account with this email already exists.', 'EMAIL_TAKEN');
     }
 
+    // Signups are invite-only: a vetted prospect enters the one-time code the
+    // founder sent after their demo/call. Platform operators (the founder and
+    // any granted staff) are exempt so they can never be locked out by the gate.
+    const isOperator = (await resolvePlatformRole(body.email)) !== null;
+    if (!isOperator && !body.accessCode) {
+      throw new HttpError(403, 'An invitation code is required to create an account.', 'CODE_REQUIRED');
+    }
+
     const passwordHash = await hashPassword(body.password);
     const persona = industryPersona(body.industry);
     const defaults = industryDefaults(body.industry, {
@@ -117,6 +129,15 @@ authRouter.post(
           const tenant = await tx.tenant.create({
             data: { companyName: body.companyName, industry: body.industry, slug },
           });
+          // Spend the invitation atomically with account creation: a failure
+          // here rolls back the whole signup, and the conditional update makes
+          // reuse/double-claim impossible. Operators skip the gate entirely.
+          if (!isOperator) {
+            const consumed = await consumeAccessCode(tx, body.accessCode ?? '', tenant.id);
+            if (!consumed) {
+              throw new HttpError(403, 'That invitation code is invalid or has already been used.', 'INVALID_CODE');
+            }
+          }
           const user = await tx.user.create({
             data: {
               tenantId: tenant.id,

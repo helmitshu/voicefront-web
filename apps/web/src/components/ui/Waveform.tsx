@@ -30,7 +30,9 @@ export function Waveform({
         // Deterministic pseudo-random heights so SSR and client markup match.
         const seed = Math.abs(Math.sin((i + 1) * 12.9898) * 43758.5453) % 1;
         const base = 0.25 + seed * 0.75;
-        const amplitude = active ? base * (0.35 + clamped * 0.65) : base * 0.3;
+        // Round to 3 dp so server- and client-rendered transforms match exactly
+        // (raw floats drift at ~1e-15 between Node and the browser → hydration warning).
+        const amplitude = Number((active ? base * (0.35 + clamped * 0.65) : base * 0.3).toFixed(3));
         return (
           <span
             key={i}

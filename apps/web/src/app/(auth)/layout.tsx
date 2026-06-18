@@ -1,6 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import Link from 'next/link';
 import { RedirectIfAuthed } from '@/lib/auth-context';
 import { Logo } from '@/components/ui/Logo';
 import { Waveform } from '@/components/ui/Waveform';
@@ -21,7 +22,9 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
             aria-hidden
             className="pointer-events-none absolute -right-32 -top-32 h-96 w-96 rounded-full bg-signal/20 blur-3xl"
           />
-          <Logo tone="light" />
+          <Link href="/" aria-label="VoiceFront home" className="relative w-fit">
+            <Logo tone="light" />
+          </Link>
           <div className="relative">
             <Waveform bars={36} active tone="light" className="mb-8 h-16 justify-start opacity-80" />
             <h1 className="max-w-md font-display text-4xl font-semibold leading-tight text-white">
@@ -46,7 +49,9 @@ export default function AuthLayout({ children }: { children: ReactNode }) {
         <main className="flex items-center justify-center px-6 py-12">
           <div className="w-full max-w-md animate-fade-up">
             <div className="mb-8 lg:hidden">
-              <Logo />
+              <Link href="/" aria-label="VoiceFront home" className="w-fit">
+                <Logo />
+              </Link>
             </div>
             {children}
           </div>

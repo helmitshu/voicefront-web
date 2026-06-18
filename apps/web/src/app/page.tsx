@@ -15,6 +15,9 @@ import {
   type DemoCallSummary,
 } from '@/lib/api';
 import { VoiceSession, type SimulatorPhase, type TranscriptEntry } from '@/lib/voice-client';
+import { BookCallSection } from '@/components/BookCallSection';
+import { WaveBackground } from '@/components/WaveBackground';
+import { WorkflowConsole } from '@/components/WorkflowConsole';
 
 /* ------------------------------ scroll reveal ----------------------------- */
 
@@ -116,7 +119,7 @@ function CallCard() {
       {/* glow */}
       <div
         aria-hidden
-        className="absolute -inset-8 rounded-[40px] bg-[radial-gradient(50%_50%_at_50%_50%,rgba(109,91,255,0.18),transparent_70%)]"
+        className="absolute -inset-8 rounded-[40px] bg-[radial-gradient(50%_50%_at_50%_50%,rgba(14,107,99,0.14),transparent_70%)]"
       />
       <div className="relative overflow-hidden rounded-3xl border border-line/70 bg-white shadow-lift ring-1 ring-ink/5">
         {/* header */}
@@ -405,7 +408,7 @@ function DemoLeadForm({
         <button
           type="submit"
           disabled={submitting}
-          className="mt-1 rounded-2xl bg-white px-7 py-3.5 text-[15px] font-semibold text-ink shadow-lift transition-transform hover:-translate-y-0.5 disabled:opacity-60"
+          className="mt-1 rounded-full bg-white px-7 py-3.5 text-[15px] font-semibold text-ink shadow-lift transition-transform hover:-translate-y-0.5 disabled:opacity-60"
         >
           {submitting ? 'Setting things up…' : 'Continue'}
         </button>
@@ -601,7 +604,7 @@ function DemoCallView({
               type="button"
               onClick={dial}
               disabled={state.status === 'dialing'}
-              className="rounded-2xl bg-white px-6 py-3 text-[15px] font-semibold text-ink shadow-lift transition-transform hover:-translate-y-0.5 disabled:opacity-60"
+              className="rounded-full bg-white px-6 py-3 text-[15px] font-semibold text-ink shadow-lift transition-transform hover:-translate-y-0.5 disabled:opacity-60"
             >
               {state.status === 'dialing' ? 'Calling…' : 'Call me now'}
             </button>
@@ -610,7 +613,7 @@ function DemoCallView({
             <button
               type="button"
               onClick={onWeb}
-              className="rounded-2xl bg-white px-6 py-3 text-[15px] font-semibold text-ink shadow-lift transition-transform hover:-translate-y-0.5"
+              className="rounded-full bg-white px-6 py-3 text-[15px] font-semibold text-ink shadow-lift transition-transform hover:-translate-y-0.5"
             >
               Try the in-browser demo
             </button>
@@ -1215,25 +1218,25 @@ function InteractiveDemo() {
   return (
     <div key="web" className="grid animate-fade-up items-stretch gap-5 lg:grid-cols-2">
       {/* ------------------------------ call console ------------------------------ */}
-      <div className="flex flex-col overflow-hidden rounded-3xl border border-white/10 bg-white/[0.04] backdrop-blur">
-        <div className="flex items-center justify-between border-b border-white/10 px-5 py-3.5">
-          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-white/50">Live demo call</p>
+      <div className="flex flex-col overflow-hidden rounded-3xl border border-white/10 bg-white shadow-lift">
+        <div className="flex items-center justify-between border-b border-line/60 bg-paper/70 px-5 py-3.5">
+          <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-muted">Live demo call</p>
           {live ? (
-            <span className="flex items-center gap-2 text-xs font-semibold text-emerald-300">
-              <Waveform bars={4} light />
+            <span className="flex items-center gap-2 text-xs font-semibold text-signal-deep">
+              <Waveform bars={4} />
               On the line
             </span>
           ) : (
-            <span className="text-xs font-medium text-white/40">
+            <span className="text-xs font-medium text-ink-muted/70">
               {phase === 'requesting' ? 'Connecting…' : phase === 'ended' ? 'Call ended' : 'Not connected'}
             </span>
           )}
         </div>
 
-        <div ref={transcriptBoxRef} className="flex min-h-[280px] flex-1 flex-col gap-2.5 overflow-y-auto px-5 py-5">
+        <div ref={transcriptBoxRef} className="flex h-[440px] flex-col gap-2.5 overflow-y-auto px-5 py-5">
           {transcript.length === 0 && !live && phase !== 'requesting' ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
-              <p className="max-w-xs text-sm text-white/50">
+              <p className="max-w-xs text-sm text-ink-muted">
                 Press the button and say hi to Ava. She’ll walk you through what VoiceFront does — live. Ask her to book, then try to trip her up.
               </p>
             </div>
@@ -1241,10 +1244,10 @@ function InteractiveDemo() {
             transcript.map((entry, i) => (
               <div
                 key={i}
-                className={`max-w-[88%] animate-pop-in rounded-2xl px-3.5 py-2 text-[13px] leading-snug ${
+                className={`max-w-[88%] animate-pop-in rounded-2xl px-3.5 py-2.5 text-[13px] leading-snug ${
                   entry.role === 'assistant'
-                    ? 'self-start rounded-bl-md bg-signal/25 text-white ring-1 ring-inset ring-signal/40'
-                    : 'self-end rounded-br-md bg-white/10 text-white/90 ring-1 ring-inset ring-white/10'
+                    ? 'self-start rounded-tl-sm bg-signal-soft/60 text-ink'
+                    : 'self-end rounded-tr-sm bg-ink text-white'
                 }`}
               >
                 {entry.text}
@@ -1253,14 +1256,14 @@ function InteractiveDemo() {
           )}
           {phase === 'requesting' && (
             <div className="flex flex-1 items-center justify-center">
-              <p className="text-sm text-white/40">Getting Ava on the line…</p>
+              <p className="text-sm text-ink-muted/70">Getting Ava on the line…</p>
             </div>
           )}
         </div>
 
-        <div className="border-t border-white/10 px-5 py-4">
+        <div className="border-t border-line/60 px-5 py-4">
           {unavailable ? (
-            <p className="text-center text-sm text-white/50">
+            <p className="text-center text-sm text-ink-muted">
               The live demo isn’t configured on this server yet. You can still create a workspace and run a
               free in-browser test call.
             </p>
@@ -1270,7 +1273,7 @@ function InteractiveDemo() {
                 <button
                   type="button"
                   onClick={endCall}
-                  className="rounded-2xl bg-[#ff5d6c] px-7 py-3 text-[15px] font-semibold text-white shadow-pop transition-transform hover:-translate-y-0.5"
+                  className="rounded-full bg-[#ff5d6c] px-7 py-3 text-[15px] font-semibold text-white shadow-pop transition-transform hover:-translate-y-0.5"
                 >
                   End call
                 </button>
@@ -1279,21 +1282,21 @@ function InteractiveDemo() {
                   {phase === 'idle' && transcript.length === 0 && (
                     <span
                       aria-hidden
-                      className="absolute inset-0 animate-pulse-ring rounded-2xl bg-white/50"
+                      className="absolute inset-0 animate-pulse-ring rounded-full bg-signal/40"
                     />
                   )}
                   <button
                     type="button"
                     onClick={startCall}
                     disabled={phase === 'requesting'}
-                    className="relative rounded-2xl bg-white px-7 py-3 text-[15px] font-semibold text-ink shadow-lift transition-transform hover:-translate-y-0.5 disabled:opacity-60"
+                    className="relative rounded-full bg-gradient-to-b from-signal to-signal-deep px-7 py-3 text-[15px] font-semibold text-white shadow-pop transition-all duration-200 ease-smooth hover:-translate-y-0.5 hover:shadow-lift disabled:opacity-60"
                   >
                     {phase === 'ended' ? 'Call again' : 'Start the demo call'}
                   </button>
                 </span>
               )}
-              <p className="text-[11px] text-white/35">Free · runs in your browser · needs mic access</p>
-              {error && <p className="text-center text-xs text-[#ffb4ba]">{error}</p>}
+              <p className="text-[11px] text-ink-muted/70">Free · runs in your browser · needs mic access</p>
+              {error && <p className="text-center text-xs text-danger">{error}</p>}
             </div>
           )}
         </div>
@@ -1325,14 +1328,14 @@ function InteractiveDemo() {
             return (
               <div
                 key={s.tag}
-                className={`rounded-2xl border p-4 backdrop-blur transition-all duration-300 ${
-                  active ? 'border-signal/50 bg-signal/10 ring-1 ring-inset ring-signal/30' : 'border-white/10 bg-white/[0.04]'
+                className={`rounded-2xl border p-4 shadow-card transition-all duration-300 ${
+                  active ? 'border-signal/40 bg-signal-soft/60 ring-1 ring-inset ring-signal/20' : 'border-line bg-white'
                 }`}
               >
-                <p className={`text-[11px] font-semibold uppercase tracking-wide ${active ? 'text-signal-soft' : 'text-signal-soft/80'}`}>
+                <p className={`text-[11px] font-semibold uppercase tracking-wide ${active ? 'text-signal-deep' : 'text-signal-deep/70'}`}>
                   {s.tag}
                 </p>
-                <p className={`mt-1.5 text-[13px] leading-snug ${active ? 'text-white/90' : 'text-white/70'}`}>{s.text}</p>
+                <p className={`mt-1.5 text-[13px] leading-snug ${active ? 'text-ink' : 'text-ink-muted'}`}>{s.text}</p>
               </div>
             );
           })}
@@ -1480,20 +1483,51 @@ export default function LandingPage() {
   }, []);
   const showDemo = demoOn === true;
 
+  // Mobile nav menu (the desktop links are hidden under md).
+  const [menuOpen, setMenuOpen] = useState(false);
+  const navLinks = [
+    ...(showDemo ? [{ href: '#demo', label: 'Demo' }] : []),
+    { href: '#how', label: 'How it works' },
+    { href: '#industries', label: 'Industries' },
+    { href: '#book', label: 'Book a call' },
+    { href: '#pricing', label: 'Pricing' },
+    { href: '#faq', label: 'FAQ' },
+  ];
+
   return (
-    <div className="bg-white text-ink">
-      {/* ---------------------------------- nav --------------------------------- */}
-      <header className="fixed inset-x-0 top-0 z-50 border-b border-line/60 bg-white/80 backdrop-blur-md">
+    <div className="relative text-ink">
+      {/* Ambient sound-wave backdrop (fixed, behind everything). */}
+      <WaveBackground />
+      {/* ---------------------------- header (bar + nav) ------------------------- */}
+      <header className="fixed inset-x-0 top-0 z-50">
+        {/* announcement / trust bar */}
+        <a
+          href="#demo"
+          className="group block bg-ink text-white"
+        >
+          <div className="mx-auto flex h-9 max-w-6xl items-center justify-center gap-2 px-6 text-[12.5px] font-medium">
+            <span className="flex h-1.5 w-1.5 shrink-0 rounded-full bg-clinic" aria-hidden />
+            <span className="text-white/85">New — talk to a live AI receptionist right in your browser</span>
+            <span className="hidden items-center gap-1 font-semibold text-clinic transition-transform group-hover:translate-x-0.5 sm:inline-flex">
+              Try the demo
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3 w-3">
+                <path d="M6 3.5 10.5 8 6 12.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </span>
+          </div>
+        </a>
+        {/* nav */}
+        <div className="border-b border-line/60 bg-white/80 backdrop-blur-md">
         <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6" aria-label="Main">
           <Link href="/">
             <Logo />
           </Link>
           <div className="hidden items-center gap-7 text-sm font-medium text-ink-muted md:flex">
-            {showDemo && <a href="#demo" className="transition-colors hover:text-ink">Demo</a>}
-            <a href="#how" className="transition-colors hover:text-ink">How it works</a>
-            <a href="#industries" className="transition-colors hover:text-ink">Industries</a>
-            <a href="#pricing" className="transition-colors hover:text-ink">Pricing</a>
-            <a href="#faq" className="transition-colors hover:text-ink">FAQ</a>
+            {navLinks.map((l) => (
+              <a key={l.href} href={l.href} className="transition-colors hover:text-ink">
+                {l.label}
+              </a>
+            ))}
           </div>
           <div className="flex items-center gap-3">
             {!authed && (
@@ -1506,28 +1540,64 @@ export default function LandingPage() {
             )}
             <Link
               href={primaryHref}
-              className="rounded-xl bg-gradient-to-b from-signal to-signal-deep px-4 py-2 text-sm font-semibold text-white shadow-pop transition-transform duration-150 hover:-translate-y-px active:translate-y-0"
+              className="rounded-full bg-gradient-to-b from-signal to-signal-deep px-4 py-2 text-sm font-semibold text-white shadow-pop transition-all duration-300 ease-smooth hover:-translate-y-px hover:shadow-lift active:translate-y-0"
             >
               {primaryLabel}
             </Link>
+            {/* hamburger — mobile only */}
+            <button
+              type="button"
+              onClick={() => setMenuOpen((v) => !v)}
+              aria-label={menuOpen ? 'Close menu' : 'Open menu'}
+              aria-expanded={menuOpen}
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-line text-ink md:hidden"
+            >
+              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+                {menuOpen ? (
+                  <path d="M5 5l10 10M15 5L5 15" strokeLinecap="round" />
+                ) : (
+                  <path d="M3 6h14M3 10h14M3 14h14" strokeLinecap="round" />
+                )}
+              </svg>
+            </button>
           </div>
         </nav>
+
+        {/* mobile dropdown menu */}
+        {menuOpen && (
+          <div className="animate-fade-up border-t border-line/60 bg-white px-6 py-4 md:hidden">
+            <div className="flex flex-col gap-1">
+              {navLinks.map((l) => (
+                <a
+                  key={l.href}
+                  href={l.href}
+                  onClick={() => setMenuOpen(false)}
+                  className="rounded-lg px-3 py-2.5 text-[15px] font-medium text-ink-muted transition-colors hover:bg-paper hover:text-ink"
+                >
+                  {l.label}
+                </a>
+              ))}
+              {!authed && (
+                <Link
+                  href="/login"
+                  onClick={() => setMenuOpen(false)}
+                  className="rounded-lg px-3 py-2.5 text-[15px] font-medium text-ink-muted transition-colors hover:bg-paper hover:text-ink"
+                >
+                  Sign in
+                </Link>
+              )}
+            </div>
+          </div>
+        )}
+        </div>
       </header>
 
       {/* --------------------------------- hero --------------------------------- */}
-      <section className="relative overflow-hidden px-6 pb-24 pt-36 md:pt-44">
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 bg-[radial-gradient(70%_60%_at_50%_0%,rgba(109,91,255,0.08),transparent)]"
-        />
-        <div
-          aria-hidden
-          className="pointer-events-none absolute inset-0 [background-image:radial-gradient(rgba(11,18,32,0.05)_1px,transparent_1px)] [background-size:28px_28px] [mask-image:radial-gradient(60%_50%_at_50%_30%,black,transparent)]"
-        />
+      <section className="relative overflow-hidden px-6 pb-24 pt-44 md:pt-52">
         <div className="relative mx-auto grid max-w-6xl items-center gap-16 lg:grid-cols-[1.05fr_0.95fr]">
           <div>
             <Reveal>
-              <span className="inline-flex items-center gap-2 rounded-full border border-signal/20 bg-signal-soft/60 px-3.5 py-1.5 text-xs font-semibold text-signal-deep">
+              <span className="inline-flex items-center gap-2 rounded-full border border-signal/15 bg-white/70 px-3.5 py-1.5 text-[13px] font-medium text-signal-deep shadow-input backdrop-blur">
                 <span className="relative flex h-1.5 w-1.5">
                   <span className="absolute h-full w-full animate-pulse-ring rounded-full bg-signal" />
                   <span className="relative h-1.5 w-1.5 rounded-full bg-signal" />
@@ -1536,7 +1606,7 @@ export default function LandingPage() {
               </span>
             </Reveal>
             <Reveal delay={80}>
-              <h1 className="mt-6 font-display text-[44px] font-bold leading-[1.04] tracking-tight md:text-[64px]">
+              <h1 className="mt-6 font-display text-[46px] font-semibold leading-[1.03] tracking-[-0.035em] text-ink md:text-[68px]">
                 Your phone is answered.
                 <br />
                 <span className="bg-gradient-to-r from-signal to-signal-deep bg-clip-text text-transparent">
@@ -1545,25 +1615,25 @@ export default function LandingPage() {
               </h1>
             </Reveal>
             <Reveal delay={160}>
-              <p className="mt-6 max-w-[520px] text-lg leading-relaxed text-ink-muted">
+              <p className="mt-6 max-w-[500px] text-[19px] leading-relaxed text-ink-muted">
                 VoiceFront answers every call with a voice your customers can’t tell from a person —
                 then books the appointment straight into your calendar. 24/7. No hold music. No missed revenue.
               </p>
             </Reveal>
             <Reveal delay={240}>
-              <div className="mt-9 flex flex-wrap items-center gap-4">
+              <div className="mt-9 flex flex-wrap items-center gap-3">
                 <Link
                   href={primaryHref}
-                  className="rounded-2xl bg-gradient-to-b from-signal to-signal-deep px-7 py-3.5 text-[15px] font-semibold text-white shadow-pop transition-all duration-150 hover:-translate-y-0.5 hover:shadow-lift active:translate-y-0"
+                  className="rounded-full bg-gradient-to-b from-signal to-signal-deep px-7 py-3.5 text-[15px] font-semibold text-white shadow-pop transition-all duration-300 ease-smooth hover:-translate-y-0.5 hover:shadow-lift active:translate-y-0"
                 >
                   {authed ? 'Open your dashboard' : 'Get started — it’s live in minutes'}
                 </Link>
                 <a
                   href="#demo"
-                  className="group flex items-center gap-2 rounded-2xl border border-line bg-white px-6 py-3.5 text-[15px] font-semibold text-ink shadow-input transition-all duration-150 hover:border-ink-muted/40"
+                  className="group flex items-center gap-2 rounded-full border border-line bg-white/80 px-6 py-3.5 text-[15px] font-semibold text-ink shadow-input backdrop-blur transition-all duration-300 ease-smooth hover:-translate-y-0.5 hover:border-ink-muted/30 hover:shadow-card"
                 >
                   Watch it book a call
-                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4 transition-transform duration-150 group-hover:translate-y-0.5">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4 transition-transform duration-300 ease-smooth group-hover:translate-y-0.5">
                     <path d="M8 3v10M3.5 8.5 8 13l4.5-4.5" strokeLinecap="round" strokeLinejoin="round" />
                   </svg>
                 </a>
@@ -1581,8 +1651,114 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* ------------------------------ social proof ----------------------------- */}
+      <section className="border-t border-line/60 px-6 py-10">
+        <div className="mx-auto max-w-5xl">
+          <Reveal className="text-center">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink-muted/70">
+              Built for the front desks that can’t miss a call
+            </p>
+          </Reveal>
+          <Reveal delay={80}>
+            <div className="mt-7 flex flex-wrap items-center justify-center gap-x-10 gap-y-5">
+              {[
+                { name: 'Dental & medical', d: 'M5 9h14M5 9a7 7 0 0 0 14 0M9 9V5h6v4M10 19h4M12 16v3' },
+                { name: 'Home services', d: 'M3 11.5 12 4l9 7.5M6 10v9h12v-9M10 19v-5h4v5' },
+                { name: 'Salons & spas', d: 'M7 4a3 3 0 1 0 0 6 3 3 0 0 0 0-6Zm0 6 10 9M17 4a3 3 0 1 1 0 6 3 3 0 0 1 0-6Zm0 6L7 19' },
+                { name: 'Legal & pro', d: 'M12 3v18M5 8h14M7 8l-3 6a3 3 0 0 0 6 0L7 8Zm10 0-3 6a3 3 0 0 0 6 0l-3-6Z' },
+                { name: 'Real estate', d: 'M4 11.5 12 5l8 6.5M6 10v9h5v-5h2v5h5v-9' },
+              ].map((seg) => (
+                <span key={seg.name} className="inline-flex items-center gap-2.5 text-ink-muted">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-5 w-5 text-signal/70" strokeLinecap="round" strokeLinejoin="round">
+                    <path d={seg.d} />
+                  </svg>
+                  <span className="text-sm font-semibold tracking-tight text-ink/80">{seg.name}</span>
+                </span>
+              ))}
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
+      {/* --------------------- how every call works (console) -------------------- */}
+      <section id="how" className="relative px-6 py-24 md:py-32">
+        <div className="mx-auto max-w-5xl">
+          <Reveal className="mx-auto max-w-2xl text-center">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-deep">
+              How every call works
+            </p>
+            <h2 className="mt-4 font-display text-4xl font-semibold tracking-[-0.02em] md:text-[44px]">
+              See exactly what happens — before they hang up.
+            </h2>
+            <p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-ink-muted">
+              Watch the receptionist handle a real call end to end: it reads the caller, books or
+              schedules a callback, answers questions, and writes the summary — all on your calendar,
+              never double-booked.
+            </p>
+          </Reveal>
+
+          <Reveal delay={120} className="mt-12">
+            <WorkflowConsole />
+          </Reveal>
+
+          {/* the three things prospects always ask */}
+          <div className="mt-16 grid gap-5 md:grid-cols-3">
+            {[
+              {
+                icon: (
+                  <path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z M9 12l2 2 4-4" strokeLinejoin="round" strokeLinecap="round" />
+                ),
+                title: 'No double-booking, ever',
+                body: 'Sync your Google or Outlook calendar, or just block busy times in your control panel. Every call checks real availability — two callers can never grab the same slot.',
+              },
+              {
+                icon: (
+                  <>
+                    <circle cx="9" cy="8" r="3" />
+                    <path d="M3 20a6 6 0 0 1 12 0M17 8a3 3 0 0 1 0 6M19 20a6 6 0 0 0-3-5.2" strokeLinecap="round" strokeLinejoin="round" />
+                  </>
+                ),
+                title: 'New & returning callers',
+                body: 'It welcomes new customers, recognizes returning ones, books appointments, schedules callbacks, and answers questions — then logs the exact outcome of every call.',
+              },
+              {
+                icon: (
+                  <path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4L12 3zM5 16l.9 2.3L8 19l-2.1.7L5 22l-.9-2.3L2 19l2.1-.7L5 16z" strokeLinejoin="round" strokeLinecap="round" />
+                ),
+                title: 'Want it built for you?',
+                body: 'We also build fully custom agents around your workflows, scripts, and tools. Book a 15-minute call with our founder and we deliver one tailored to your business.',
+                cta: { href: '#book', label: 'Book a call with the founder' },
+              },
+            ].map((card, i) => (
+              <Reveal key={card.title} delay={i * 120}>
+                <div className="flex h-full flex-col rounded-3xl border border-line/70 bg-white/80 p-7 shadow-card backdrop-blur transition-all duration-300 ease-smooth hover:-translate-y-1 hover:shadow-card-hover">
+                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl bg-signal-soft/70 text-signal-deep">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
+                      {card.icon}
+                    </svg>
+                  </span>
+                  <h3 className="mt-5 font-display text-lg font-semibold tracking-tight text-ink">{card.title}</h3>
+                  <p className="mt-2.5 flex-1 text-[14.5px] leading-relaxed text-ink-muted">{card.body}</p>
+                  {card.cta && (
+                    <a
+                      href={card.cta.href}
+                      className="group mt-4 inline-flex items-center gap-1.5 text-[14px] font-semibold text-signal-deep transition-colors hover:text-signal"
+                    >
+                      {card.cta.label}
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5 transition-transform duration-300 ease-smooth group-hover:translate-x-0.5">
+                        <path d="M3.5 8h9M9 4.5 12.5 8 9 11.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </a>
+                  )}
+                </div>
+              </Reveal>
+            ))}
+          </div>
+        </div>
+      </section>
+
       {/* ------------------------------- stat band ------------------------------- */}
-      <section className="border-y border-line/60 bg-paper/60 px-6 py-14">
+      <section className="border-y border-line/60 bg-surface/70 px-6 py-14">
         <div className="mx-auto grid max-w-5xl gap-10 text-center sm:grid-cols-3">
           {[
             { n: '62%', d: 'of callers hang up on voicemail and call a competitor instead' },
@@ -1602,12 +1778,12 @@ export default function LandingPage() {
       <section id="demo" className="relative overflow-hidden bg-ink px-6 py-24 md:py-32">
         <div
           aria-hidden
-          className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_50%_at_30%_0%,rgba(109,91,255,0.22),transparent),radial-gradient(40%_40%_at_90%_100%,rgba(79,61,245,0.18),transparent)]"
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_50%_at_30%_0%,rgba(16,169,142,0.16),transparent),radial-gradient(40%_40%_at_90%_100%,rgba(14,107,99,0.16),transparent)]"
         />
         <div className="relative mx-auto max-w-6xl">
           <Reveal className="mx-auto max-w-2xl text-center">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-soft/70">The product, live</p>
-            <h2 className="mt-4 font-display text-4xl font-bold tracking-tight text-white md:text-5xl">
+            <h2 className="mt-4 font-display text-4xl font-semibold tracking-tight text-white md:text-5xl">
               Watch it book. In real time.
             </h2>
             <p className="mt-5 text-lg leading-relaxed text-white/60">
@@ -1621,7 +1797,7 @@ export default function LandingPage() {
           <Reveal delay={250} className="mt-12 text-center">
             <Link
               href={primaryHref}
-              className="inline-block rounded-2xl bg-white px-7 py-3.5 text-[15px] font-semibold text-ink shadow-lift transition-all duration-150 hover:-translate-y-0.5"
+              className="inline-block rounded-full bg-white px-7 py-3.5 text-[15px] font-semibold text-ink shadow-lift transition-all duration-150 hover:-translate-y-0.5"
             >
               Try it with your own voice — free in-browser test call
             </Link>
@@ -1631,12 +1807,12 @@ export default function LandingPage() {
       </section>
       )}
 
-      {/* ------------------------------ how it works ----------------------------- */}
-      <section id="how" className="px-6 py-24 md:py-32">
+      {/* ------------------------------ getting set up --------------------------- */}
+      <section className="px-6 py-24 md:py-32">
         <div className="mx-auto max-w-6xl">
           <Reveal className="max-w-2xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-deep">How it works</p>
-            <h2 className="mt-4 font-display text-4xl font-bold tracking-tight md:text-[44px]">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-deep">Up and running</p>
+            <h2 className="mt-4 font-display text-4xl font-semibold tracking-tight md:text-[44px]">
               Live before your next missed call.
             </h2>
           </Reveal>
@@ -1675,7 +1851,7 @@ export default function LandingPage() {
         <div className="mx-auto max-w-6xl">
           <Reveal className="max-w-2xl">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-deep">What it does</p>
-            <h2 className="mt-4 font-display text-4xl font-bold tracking-tight md:text-[44px]">
+            <h2 className="mt-4 font-display text-4xl font-semibold tracking-tight md:text-[44px]">
               A real receptionist’s job. Done flawlessly.
             </h2>
           </Reveal>
@@ -1749,12 +1925,73 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* ----------------------------- integrations ------------------------------ */}
+      <section className="px-6 py-24 md:py-32">
+        <div className="mx-auto max-w-6xl">
+          <div className="grid items-center gap-12 lg:grid-cols-[0.95fr_1.05fr]">
+            <Reveal>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-deep">Fits your setup</p>
+              <h2 className="mt-4 font-display text-4xl font-semibold tracking-tight md:text-[44px]">
+                Works with what you already use.
+              </h2>
+              <p className="mt-5 max-w-md text-lg leading-relaxed text-ink-muted">
+                Keep your number, your voice and your calendar. VoiceFront slots in behind the line you
+                already give out — nothing to rip out, nothing for your team to relearn.
+              </p>
+              <ul className="mt-7 flex flex-col gap-3">
+                {[
+                  'Forward your existing number — always, after hours, or on no-answer',
+                  'Premium neural voices, or bring your own ElevenLabs voice',
+                  'Bookings land in your VoiceFront calendar the moment the call ends',
+                ].map((line) => (
+                  <li key={line} className="flex items-start gap-3 text-[15px] text-ink">
+                    <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-signal-soft ring-1 ring-inset ring-signal/20">
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3 text-signal-deep">
+                        <path d="M3 8.5 6.5 12 13 4.5" strokeLinecap="round" strokeLinejoin="round" />
+                      </svg>
+                    </span>
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            </Reveal>
+            <Reveal delay={120}>
+              <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3">
+                {[
+                  { name: 'Your phone number', tag: 'Forwarding', icon: <path d="M5 4h4l2 5-2.5 2a12 12 0 0 0 4.5 4.5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2Z" strokeLinejoin="round" /> },
+                  { name: 'ElevenLabs', tag: 'Voices', icon: <path d="M12 4v16M8 8v8M16 8v8M4 11v2M20 11v2" strokeLinecap="round" /> },
+                  { name: 'VoiceFront calendar', tag: 'Bookings', icon: <><rect x="3" y="5" width="18" height="16" rx="3" /><path d="M3 10h18M8 3v4M16 3v4" strokeLinecap="round" /></> },
+                  { name: 'Google Calendar', tag: 'Sync · soon', soon: true, icon: <><rect x="3" y="5" width="18" height="16" rx="3" /><path d="M3 10h18M8 3v4M16 3v4M9 15l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" /></> },
+                  { name: 'Microsoft 365', tag: 'Sync · soon', soon: true, icon: <><rect x="4" y="4" width="7" height="7" rx="1" /><rect x="13" y="4" width="7" height="7" rx="1" /><rect x="4" y="13" width="7" height="7" rx="1" /><rect x="13" y="13" width="7" height="7" rx="1" /></> },
+                  { name: 'Webhooks & CRM', tag: 'API · soon', soon: true, icon: <path d="M9 7a3 3 0 1 1 4.2 2.7L12 14M12 17v.01M6 12a6 6 0 1 1 12 0" strokeLinecap="round" strokeLinejoin="round" /> },
+                ].map((it) => (
+                  <div
+                    key={it.name}
+                    className="flex flex-col gap-3 rounded-2xl border border-line/70 bg-white p-4 shadow-card transition-all duration-200 hover:-translate-y-0.5 hover:shadow-card-hover"
+                  >
+                    <span className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-surface text-signal-deep ring-1 ring-inset ring-line/70">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-5 w-5">
+                        {it.icon}
+                      </svg>
+                    </span>
+                    <div>
+                      <p className="text-[13px] font-semibold leading-tight tracking-tight text-ink">{it.name}</p>
+                      <p className={`mt-0.5 text-[11px] font-medium ${it.soon ? 'text-construction' : 'text-ink-muted'}`}>{it.tag}</p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Reveal>
+          </div>
+        </div>
+      </section>
+
       {/* ------------------------------- industries ------------------------------ */}
-      <section id="industries" className="px-6 py-24 md:py-32">
+      <section id="industries" className="border-t border-line/60 bg-surface/50 px-6 py-24 md:py-32">
         <div className="mx-auto max-w-6xl">
           <Reveal className="mx-auto max-w-2xl text-center">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-deep">Industries</p>
-            <h2 className="mt-4 font-display text-4xl font-bold tracking-tight md:text-[44px]">
+            <h2 className="mt-4 font-display text-4xl font-semibold tracking-tight md:text-[44px]">
               Trained for your front desk.
             </h2>
             <p className="mt-5 text-lg leading-relaxed text-ink-muted">
@@ -1767,24 +2004,44 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* --------------------------------- pricing -------------------------------- */}
-      <section id="pricing" className="px-6 pb-24 md:pb-32">
+      {/* ------------------------------- book a call ------------------------------ */}
+      <section id="book" className="border-t border-line/60 bg-surface/50 px-6 py-24 md:py-32">
         <div className="mx-auto max-w-6xl">
-          <div className="relative overflow-hidden rounded-[32px] bg-ink px-8 py-16 md:px-16 md:py-20">
+          <Reveal className="mx-auto max-w-2xl text-center">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-deep">Talk to a human</p>
+            <h2 className="mt-4 font-display text-4xl font-semibold tracking-tight md:text-[44px]">
+              Rather just book a call?
+            </h2>
+            <p className="mt-5 text-lg leading-relaxed text-ink-muted">
+              Skip the demo and grab a time that suits you. Pick a slot on our real calendar, tell us a
+              little about your business, and we&apos;ll walk you through exactly how VoiceFront would fit —
+              no account needed.
+            </p>
+          </Reveal>
+          <Reveal delay={150} className="mt-12">
+            <BookCallSection />
+          </Reveal>
+        </div>
+      </section>
+
+      {/* --------------------------------- pricing -------------------------------- */}
+      <section id="pricing" className="px-6 py-24 md:py-32">
+        <div className="mx-auto max-w-6xl">
+          <div className="relative overflow-hidden rounded-[32px] border border-line/70 bg-white px-8 py-16 shadow-lift md:px-16 md:py-20">
             <div
               aria-hidden
-              className="pointer-events-none absolute inset-0 bg-[radial-gradient(50%_60%_at_80%_0%,rgba(109,91,255,0.28),transparent),radial-gradient(40%_50%_at_10%_100%,rgba(79,61,245,0.2),transparent)]"
+              className="pointer-events-none absolute inset-0 bg-[radial-gradient(45%_55%_at_85%_0%,rgba(14,107,99,0.07),transparent),radial-gradient(40%_50%_at_5%_100%,rgba(16,169,142,0.06),transparent)]"
             />
             <div className="relative grid items-center gap-12 lg:grid-cols-[1.1fr_0.9fr]">
               <div>
                 <Reveal>
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-soft/70">Pricing</p>
-                  <h2 className="mt-4 font-display text-4xl font-bold tracking-tight text-white md:text-[44px]">
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-deep">Pricing</p>
+                  <h2 className="mt-4 font-display text-4xl font-semibold tracking-tight text-ink md:text-[44px]">
                     Priced around your calls,
                     <br />
                     not a one-size plan.
                   </h2>
-                  <p className="mt-5 max-w-lg text-lg leading-relaxed text-white/60">
+                  <p className="mt-5 max-w-lg text-lg leading-relaxed text-ink-muted">
                     A solo contractor and a three-location clinic shouldn’t pay the same.
                     Tell us your call volume and we’ll quote a plan that pays for itself —
                     most customers cover it with the first few bookings it saves.
@@ -1793,24 +2050,24 @@ export default function LandingPage() {
                 <Reveal delay={120}>
                   <div className="mt-9 flex flex-wrap items-center gap-4">
                     <a
-                      href="mailto:sales@voicefront.app?subject=VoiceFront%20pricing&body=Hi%2C%20I%27d%20like%20a%20quote.%0A%0ABusiness%20type%3A%20%0AApprox.%20calls%20per%20day%3A%20%0ALocations%3A%20"
-                      className="rounded-2xl bg-white px-7 py-3.5 text-[15px] font-semibold text-ink shadow-lift transition-all duration-150 hover:-translate-y-0.5"
+                      href="#book"
+                      className="rounded-full bg-gradient-to-b from-signal to-signal-deep px-7 py-3.5 text-[15px] font-semibold text-white shadow-pop transition-all duration-150 hover:-translate-y-0.5 hover:shadow-lift"
                     >
-                      Talk to sales
+                      Book a call
                     </a>
                     <Link
                       href={primaryHref}
-                      className="rounded-2xl border border-white/20 px-7 py-3.5 text-[15px] font-semibold text-white transition-colors duration-150 hover:bg-white/10"
+                      className="rounded-2xl border border-line bg-white px-7 py-3.5 text-[15px] font-semibold text-ink shadow-input transition-colors duration-150 hover:border-ink-muted/40"
                     >
                       Try the product first
                     </Link>
                   </div>
-                  <p className="mt-5 text-sm text-white/40">Custom quote within a day · no contracts · no setup fees · cancel anytime</p>
+                  <p className="mt-5 text-sm text-ink-muted/80">Custom quote within a day · no contracts · no setup fees · cancel anytime</p>
                 </Reveal>
               </div>
               <Reveal delay={200}>
-                <div className="rounded-3xl border border-white/10 bg-white/[0.05] p-8 backdrop-blur">
-                  <p className="text-sm font-semibold uppercase tracking-[0.12em] text-white/50">Every plan includes</p>
+                <div className="rounded-3xl border border-signal/15 bg-signal-soft/40 p-8">
+                  <p className="text-sm font-semibold uppercase tracking-[0.12em] text-signal-deep">Every plan includes</p>
                   <ul className="mt-5 grid gap-3">
                     {[
                       '24/7 AI receptionist on your number',
@@ -1821,9 +2078,9 @@ export default function LandingPage() {
                       'Unlimited staff seats on the dashboard',
                       'White-glove setup & onboarding',
                     ].map((item) => (
-                      <li key={item} className="flex items-start gap-3 text-[15px] text-white/85">
-                        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-signal/30 ring-1 ring-inset ring-signal/50">
-                          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3 text-signal-soft">
+                      <li key={item} className="flex items-start gap-3 text-[15px] text-ink">
+                        <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-signal text-white shadow-sm">
+                          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3">
                             <path d="M3 8.5 6.5 12 13 4.5" strokeLinecap="round" strokeLinejoin="round" />
                           </svg>
                         </span>
@@ -1843,7 +2100,7 @@ export default function LandingPage() {
         <div className="mx-auto max-w-3xl">
           <Reveal className="text-center">
             <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-deep">FAQ</p>
-            <h2 className="mt-4 font-display text-4xl font-bold tracking-tight md:text-[44px]">
+            <h2 className="mt-4 font-display text-4xl font-semibold tracking-tight md:text-[44px]">
               The questions everyone asks.
             </h2>
           </Reveal>
@@ -1876,7 +2133,7 @@ export default function LandingPage() {
                 aria-hidden
                 className="pointer-events-none absolute inset-0 [background-image:radial-gradient(rgba(255,255,255,0.14)_1px,transparent_1px)] [background-size:24px_24px] [mask-image:radial-gradient(70%_70%_at_50%_50%,black,transparent)]"
               />
-              <h2 className="relative mx-auto max-w-2xl font-display text-4xl font-bold tracking-tight text-white md:text-5xl">
+              <h2 className="relative mx-auto max-w-2xl font-display text-4xl font-semibold tracking-tight text-white md:text-5xl">
                 Stop losing calls.
                 <br />
                 Start booking appointments.
@@ -1887,14 +2144,14 @@ export default function LandingPage() {
               <div className="relative mt-9 flex flex-wrap items-center justify-center gap-4">
                 <Link
                   href={primaryHref}
-                  className="rounded-2xl bg-white px-8 py-4 text-[15px] font-bold text-signal-deep shadow-lift transition-all duration-150 hover:-translate-y-0.5"
+                  className="rounded-full bg-white px-8 py-4 text-[15px] font-bold text-signal-deep shadow-lift transition-all duration-150 hover:-translate-y-0.5"
                 >
                   {primaryLabel}
                 </Link>
                 {!authed && (
                   <Link
                     href="/login"
-                    className="rounded-2xl border border-white/30 px-8 py-4 text-[15px] font-semibold text-white transition-colors hover:bg-white/10"
+                    className="rounded-full border border-white/30 px-8 py-4 text-[15px] font-semibold text-white transition-colors hover:bg-white/10"
                   >
                     Sign in
                   </Link>
@@ -1908,7 +2165,9 @@ export default function LandingPage() {
       {/* --------------------------------- footer --------------------------------- */}
       <footer className="border-t border-line/60 px-6 py-10">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-6 sm:flex-row">
-          <Logo size="sm" />
+          <Link href="/" aria-label="VoiceFront home">
+            <Logo size="sm" />
+          </Link>
           <div className="flex items-center gap-6 text-sm text-ink-muted">
             <a href="#demo" className="transition-colors hover:text-ink">Demo</a>
             <a href="#pricing" className="transition-colors hover:text-ink">Pricing</a>

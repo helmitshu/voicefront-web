@@ -249,6 +249,8 @@ export const AuthApi = {
     fullName: string;
     email: string;
     password: string;
+    /** One-time invitation code from the founder (required for customers). */
+    accessCode?: string;
   }) => api<AuthResponse>('/api/auth/register', { method: 'POST', body: input }),
   login: (input: { email: string; password: string }) =>
     api<AuthResponse>('/api/auth/login', { method: 'POST', body: input }),
@@ -578,7 +580,26 @@ export const AdminApi = {
     api<{ entry: FounderEntry }>('/api/admin/founder/block', { method: 'POST', body: input }),
   removeFounderEntry: (id: string) =>
     api<{ ok: true }>(`/api/admin/founder/calendar/${id}`, { method: 'DELETE' }),
+  // One-time signup invitation codes.
+  accessCodes: (signal?: AbortSignal) =>
+    api<{ codes: AccessCodeRow[] }>('/api/admin/access-codes', { signal }),
+  createAccessCode: (input: { label?: string; email?: string }) =>
+    api<{ code: AccessCodeRow }>('/api/admin/access-codes', { method: 'POST', body: input }),
+  revokeAccessCode: (id: string) =>
+    api<{ ok: true }>(`/api/admin/access-codes/${id}`, { method: 'DELETE' }),
 };
+
+/** A one-time signup invitation code issued by the founder. */
+export interface AccessCodeRow {
+  id: string;
+  code: string;
+  label: string | null;
+  email: string | null;
+  createdBy: string;
+  used: boolean;
+  usedAt: string | null;
+  createdAt: string;
+}
 
 /** An entry on the founder's planning-call calendar. */
 export interface FounderEntry {
@@ -605,6 +626,36 @@ export interface PooledNumberRow {
   assignedAt: string | null;
   createdAt: string;
 }
+
+/** A day in the public founder-booking calendar. */
+export interface BookingDay {
+  date: string;
+  dayLabel: string;
+  open: boolean;
+  /** Free "HH:MM" starts in founder-local time. */
+  slots: string[];
+}
+
+export const BookingApi = {
+  /** Founder availability for the next `days` days (public, no auth). */
+  slots: (days = 14, signal?: AbortSignal) =>
+    api<{ timezone: string; days: BookingDay[] }>(`/api/booking/slots?days=${days}`, { signal }),
+  /** Books an intro call into the founder's calendar (public, no auth). */
+  book: (input: {
+    name: string;
+    businessType: string;
+    phone: string;
+    email?: string;
+    notes?: string;
+    customSystem?: boolean;
+    date: string;
+    time: string;
+  }) =>
+    api<{ ok: true; timezone: string; date: string; time: string; durationMinutes: number }>(
+      '/api/booking',
+      { method: 'POST', body: input },
+    ),
+};
 
 export const AppointmentsApi = {
   list: (range: { from: string; to: string }, signal?: AbortSignal) => {

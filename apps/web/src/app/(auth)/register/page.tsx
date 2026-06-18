@@ -11,13 +11,14 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Field';
 
 const RegisterSchema = z.object({
+  accessCode: z.string().trim().min(1, 'Enter the invitation code we sent you'),
   companyName: z.string().trim().min(2, 'Company name is too short').max(80),
   fullName: z.string().trim().min(2, 'Please enter your name').max(80),
   email: z.string().trim().email('Please enter a valid email'),
   password: z.string().min(8, 'Use at least 8 characters').max(128),
 });
 
-type FieldKey = 'companyName' | 'fullName' | 'email' | 'password';
+type FieldKey = 'accessCode' | 'companyName' | 'fullName' | 'email' | 'password';
 type FieldErrors = Partial<Record<FieldKey, string>>;
 
 const INDUSTRY_CARDS: Array<{ value: Industry; icon: string }> = [
@@ -29,7 +30,13 @@ export default function RegisterPage() {
   const { register } = useAuth();
   const router = useRouter();
   const [industry, setIndustry] = useState<Industry>('CLINIC');
-  const [values, setValues] = useState({ companyName: '', fullName: '', email: '', password: '' });
+  const [values, setValues] = useState({
+    accessCode: '',
+    companyName: '',
+    fullName: '',
+    email: '',
+    password: '',
+  });
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -68,7 +75,8 @@ export default function RegisterPage() {
     <div>
       <h1 className="font-display text-2xl font-semibold text-ink">Create your workspace</h1>
       <p className="mt-1 text-sm text-ink-muted">
-        Your receptionist comes pre-trained for your industry — you&apos;ll fine-tune it in about two minutes.
+        VoiceFront is invite-only. Enter the access code we sent you after your demo, and your
+        receptionist comes pre-trained for your industry — fine-tune it in about two minutes.
       </p>
 
       <form onSubmit={onSubmit} noValidate className="mt-8 flex flex-col gap-5">
@@ -77,6 +85,20 @@ export default function RegisterPage() {
             {formError}
           </p>
         )}
+
+        <div className="rounded-2xl border border-signal/20 bg-signal-soft/40 p-4">
+          <Input
+            label="Invitation code"
+            value={values.accessCode}
+            onChange={(e) => setField('accessCode', e.target.value.toUpperCase())}
+            error={fieldErrors.accessCode}
+            hint="The one-time code from your demo or sales call."
+            placeholder="VF-XXXX-XXXX"
+            autoComplete="off"
+            autoCapitalize="characters"
+            spellCheck={false}
+          />
+        </div>
 
         <fieldset>
           <legend className="mb-2 text-sm font-medium text-ink">What kind of business is this?</legend>
