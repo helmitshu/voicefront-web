@@ -4,6 +4,7 @@ import {
   PERSONA_VOICE_LAYER,
   bookingDiscipline,
   composeSystemPrompt,
+  providerDiscipline,
   ENDING_THE_CALL,
   type ProviderInfo,
   type ServiceInfo,
@@ -614,11 +615,21 @@ export function buildTransientAssistant(
 export function buildAssistantUpdatePayload(
   tenant: Pick<Tenant, 'id' | 'companyName'>,
   settings: AgentSettings,
-  options: { serverUrl?: string; serverSecret?: string; knowledgeFileIds?: string[] } = {},
+  options: {
+    serverUrl?: string;
+    serverSecret?: string;
+    knowledgeFileIds?: string[];
+    /** Multi-provider mode (2+ providers): listed in the prompt + booking tools
+     *  gain providerName/serviceName, mirroring the transient assistant. */
+    providers?: ProviderInfo[];
+    services?: ServiceInfo[];
+    offerProviderChoice?: boolean;
+  } = {},
 ): TransientAssistant {
   const businessHours = parseBusinessHours(settings.businessHours);
   const forwardingNumbers = parseForwardingNumbers(settings.forwardingNumbers);
   const knowledgeTool = buildKnowledgeTool(tenant.companyName, options.knowledgeFileIds ?? []);
+  const multiProvider = (options.providers?.length ?? 0) > 1;
 
   const directory =
     forwardingNumbers.length > 0
@@ -658,11 +669,14 @@ export function buildAssistantUpdatePayload(
     '',
     bookingDiscipline(tz),
     '',
+    ...(multiProvider
+      ? [providerDiscipline(options.providers!, options.services ?? [], options.offerProviderChoice ?? false), '']
+      : []),
     ENDING_THE_CALL,
     ...(knowledgeTool ? ['', KNOWLEDGE_PROMPT] : []),
   ].join('\n');
 
-  const tools: Array<TransferCallTool | FunctionTool | QueryTool> = [...buildBookingTools()];
+  const tools: Array<TransferCallTool | FunctionTool | QueryTool> = [...buildBookingTools({ multiProvider })];
   if (knowledgeTool) tools.push(knowledgeTool);
   if (forwardingNumbers.length > 0) {
     tools.push({

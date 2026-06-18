@@ -364,13 +364,48 @@ export interface SyncResult {
 }
 
 /**
+ * Provider/service options for the persistent assistant, mirroring what the
+ * transient builder receives. Empty unless the operator enabled multi-provider
+ * for this tenant AND 2+ active providers exist — so a synced assistant honors
+ * "I'd like Dr. Smith" / named services, not just first-available auto-assign.
+ */
+async function providerSyncOptions(
+  tenantId: string,
+  multiProviderEnabled: boolean,
+  offerProviderChoice: boolean,
+): Promise<{
+  providers?: Array<{ name: string; title: string | null }>;
+  services?: Array<{ name: string; durationMinutes: number }>;
+  offerProviderChoice?: boolean;
+}> {
+  if (!multiProviderEnabled) return {};
+  const [providers, services] = await Promise.all([
+    prisma.provider.findMany({
+      where: { tenantId, active: true },
+      orderBy: { name: 'asc' },
+      select: { name: true, title: true },
+    }),
+    prisma.service.findMany({
+      where: { tenantId, active: true },
+      orderBy: { name: 'asc' },
+      select: { name: true, durationMinutes: true },
+    }),
+  ]);
+  if (providers.length <= 1) return {};
+  return { providers, services, offerProviderChoice };
+}
+
+/**
  * Pushes a tenant's current settings to their assigned Vapi assistant.
  * Best-effort: returns a status, never throws. Skips quietly when no assistant
  * is assigned or no private key is configured (the transient flow still works).
  */
 export async function syncAssistantForTenant(tenantId: string): Promise<SyncResult> {
   const [tenant, settings] = await Promise.all([
-    prisma.tenant.findUnique({ where: { id: tenantId }, select: { id: true, companyName: true } }),
+    prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true, companyName: true, multiProviderEnabled: true },
+    }),
     prisma.agentSettings.findUnique({ where: { tenantId } }),
   ]);
   if (!tenant || !settings) return { synced: false, reason: 'Workspace settings were not found.' };
@@ -391,10 +426,16 @@ export async function syncAssistantForTenant(tenantId: string): Promise<SyncResu
         select: { vapiFileId: true },
       }),
     ]);
+    const providerOpts = await providerSyncOptions(
+      tenantId,
+      tenant.multiProviderEnabled,
+      settings.offerProviderChoice,
+    );
     const payload = buildAssistantUpdatePayload(tenant, settings, {
       serverUrl: publicApiUrl ? `${publicApiUrl}/api/vapi/inbound` : undefined,
       serverSecret: webhookSecret ?? undefined,
       knowledgeFileIds: documents.map((d) => d.vapiFileId),
+      ...providerOpts,
     });
     const res = await vapiFetch(`/assistant/${encodeURIComponent(settings.assistantId)}`, {
       method: 'PATCH',
@@ -424,7 +465,10 @@ export async function syncAssistantForTenant(tenantId: string): Promise<SyncResu
  */
 export async function createAssistantForTenant(tenantId: string): Promise<string> {
   const [tenant, settings] = await Promise.all([
-    prisma.tenant.findUnique({ where: { id: tenantId }, select: { id: true, companyName: true } }),
+    prisma.tenant.findUnique({
+      where: { id: tenantId },
+      select: { id: true, companyName: true, multiProviderEnabled: true },
+    }),
     prisma.agentSettings.findUnique({ where: { tenantId } }),
   ]);
   if (!tenant || !settings) {
@@ -432,19 +476,21 @@ export async function createAssistantForTenant(tenantId: string): Promise<string
   }
   if (settings.assistantId) return settings.assistantId; // already provisioned
 
-  const [publicApiUrl, webhookSecret, documents] = await Promise.all([
+  const [publicApiUrl, webhookSecret, documents, providerOpts] = await Promise.all([
     getSettingValue('PUBLIC_API_URL'),
     getSettingValue('VAPI_WEBHOOK_SECRET'),
     prisma.document.findMany({
       where: { tenantId, status: { not: 'failed' } },
       select: { vapiFileId: true },
     }),
+    providerSyncOptions(tenantId, tenant.multiProviderEnabled, settings.offerProviderChoice),
   ]);
 
   const payload = buildAssistantUpdatePayload(tenant, settings, {
     serverUrl: publicApiUrl ? `${publicApiUrl}/api/vapi/inbound` : undefined,
     serverSecret: webhookSecret ?? undefined,
     knowledgeFileIds: documents.map((d) => d.vapiFileId),
+    ...providerOpts,
   });
 
   const res = await vapiFetch('/assistant', { method: 'POST', body: payload });
