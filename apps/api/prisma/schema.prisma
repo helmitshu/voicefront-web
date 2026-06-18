@@ -72,6 +72,8 @@ model Tenant {
   callLogs      CallLog[]
   appointments  Appointment[]
   documents     Document[]
+  providers     Provider[]
+  services      Service[]
 
   @@map("tenants")
 }
@@ -136,15 +138,72 @@ model AgentSettings {
   /// provider's backgroundSound field. Subtle office ambience makes the
   /// receptionist sound like a real front desk.
   backgroundSound    String   @default("office") @map("background_sound")
+  /// When true, the receptionist proactively offers the list of providers and
+  /// asks the caller to pick one. Default false = book the first available
+  /// qualified provider and only honor a specific request if the caller names
+  /// someone. Ignored for single-provider (or no-provider) businesses.
+  offerProviderChoice Boolean @default(false) @map("offer_provider_choice")
   updatedAt          DateTime @updatedAt @map("updated_at")
 
   @@map("agent_settings")
+}
+
+/// A bookable person or resource within a tenant (a dentist, a stylist, a
+/// crew, a chair). A tenant with zero Providers is treated as a single shared
+/// resource (the solo case) — appointments carry a null providerId and overlap
+/// against each other, exactly as before this model existed. With Providers
+/// defined, availability and the double-booking guard are scoped per provider.
+model Provider {
+  id           String        @id @default(cuid())
+  tenantId     String        @map("tenant_id")
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name         String
+  /// Optional spoken title/role ("Dr.", "Senior Stylist") — cosmetic only.
+  title        String?
+  active       Boolean       @default(true)
+  /// Services this provider is qualified to perform. Empty = can do any service.
+  services     Service[]     @relation("ProviderServices")
+  appointments Appointment[]
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@map("providers")
+}
+
+/// A bookable service type with its own duration (and the providers qualified
+/// to perform it). Drives slot length and narrows the eligible providers when a
+/// caller names a service. A tenant with zero Services uses the default slot
+/// length and lets any provider take any booking.
+model Service {
+  id              String        @id @default(cuid())
+  tenantId        String        @map("tenant_id")
+  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name            String
+  durationMinutes Int           @default(30) @map("duration_minutes")
+  description     String?       @db.Text
+  active          Boolean       @default(true)
+  /// Providers qualified for this service. Empty = any active provider.
+  providers       Provider[]    @relation("ProviderServices")
+  appointments    Appointment[]
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@map("services")
 }
 
 model Appointment {
   id            String            @id @default(cuid())
   tenantId      String            @map("tenant_id")
   tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// The provider this appointment is with. Null = unassigned / single-resource
+  /// business (the solo case). Overlap is checked within the same providerId.
+  providerId    String?           @map("provider_id")
+  provider      Provider?         @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  /// The service booked, when the tenant defines services. Sets the duration.
+  serviceId     String?           @map("service_id")
+  service       Service?          @relation(fields: [serviceId], references: [id], onDelete: SetNull)
   customerName  String            @map("customer_name")
   customerPhone String?           @map("customer_phone")
   /// Why the customer is coming in — spoken by the caller, shown on the calendar.
@@ -168,6 +227,7 @@ model Appointment {
   updatedAt     DateTime          @updatedAt @map("updated_at")
 
   @@index([tenantId, startsAt])
+  @@index([providerId])
   @@index([demoSessionId])
   @@map("appointments")
 }

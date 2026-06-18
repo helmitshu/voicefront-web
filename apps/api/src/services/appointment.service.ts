@@ -92,7 +92,12 @@ export function to12h(time: string): string {
 function addMinutes(time: string, minutes: number): string {
   const [h, m] = time.split(':').map(Number);
   const total = h * 60 + m + minutes;
-  const hh = String(Math.floor(total / 60) % 24).padStart(2, '0');
+  // Deliberately NOT modulo-24: this is used for monotonic comparisons against a
+  // day's close time and to step the availability grid. Wrapping past midnight
+  // (e.g. 23:30 + 30 → 00:00) would make "<= close" true forever and spin the
+  // slot loop — and let a booking that ends after midnight pass the hours check.
+  // A 24h-style overrun yields "24:15", which still compares correctly as text.
+  const hh = String(Math.floor(total / 60)).padStart(2, '0');
   const mm = String(total % 60).padStart(2, '0');
   return `${hh}:${mm}`;
 }
@@ -111,6 +116,12 @@ export interface SlotQuery {
   now?: Date;
   /** Landing-page demo only: scope availability to one visitor's session. */
   demoSessionId?: string | null;
+  /** A specific provider the caller asked for — availability is theirs alone. */
+  providerId?: string | null;
+  /** Candidate providers to check when no specific one was requested: a time is
+   *  offerable if ANY of them is free (first-available). Omitted/empty falls back
+   *  to the single shared resource (null provider) — the solo/no-provider case. */
+  providerIds?: string[];
 }
 
 export interface SlotResult {
@@ -156,18 +167,39 @@ export async function findFreeSlots(query: SlotQuery): Promise<SlotResult> {
       startsAt: { lt: windowEnd },
       endsAt: { gt: windowStart },
     },
-    select: { startsAt: true, endsAt: true },
+    select: { startsAt: true, endsAt: true, providerId: true },
   });
+
+  // Whose calendars to consider: a named provider, else the candidate pool, else
+  // the single shared resource (null) for solo/no-provider businesses.
+  const candidates = candidateProviders(query.providerId, query.providerIds);
 
   const freeSlots: string[] = [];
   for (let t = dayHours.open; addMinutes(t, slotMinutes) <= close; t = addMinutes(t, slotMinutes)) {
     const slotStart = zonedToUtc(date, t, timezone);
     const slotEnd = new Date(slotStart.getTime() + slotMinutes * 60_000);
     if (slotStart.getTime() <= now.getTime()) continue; // never offer the past
-    const clash = booked.some((b) => b.startsAt < slotEnd && b.endsAt > slotStart);
-    if (!clash) freeSlots.push(t);
+    // Offerable if at least one candidate provider has nothing overlapping it.
+    const free = candidates.some(
+      (p) => !booked.some((b) => b.providerId === p && b.startsAt < slotEnd && b.endsAt > slotStart),
+    );
+    if (free) freeSlots.push(t);
   }
   return { open: true, freeSlots, dayLabel };
+}
+
+/**
+ * Resolves the set of provider "buckets" a booking or availability check should
+ * consider: a single named provider, otherwise the candidate pool, otherwise
+ * `[null]` — the shared single resource used by solo/no-provider businesses.
+ */
+function candidateProviders(
+  providerId: string | null | undefined,
+  providerIds: string[] | undefined,
+): Array<string | null> {
+  if (providerId) return [providerId];
+  if (providerIds && providerIds.length > 0) return providerIds;
+  return [null];
 }
 
 export interface BookingInput {
@@ -185,6 +217,13 @@ export interface BookingInput {
   now?: Date;
   /** Landing-page demo only: tags the booking to one visitor's session. */
   demoSessionId?: string | null;
+  /** Book this specific provider (the caller named one). Takes precedence. */
+  providerId?: string | null;
+  /** Auto-assign among these qualified providers when none was named: the first
+   *  one free at the slot gets it. Omitted/empty → single shared resource. */
+  candidateProviderIds?: string[];
+  /** The service booked (sets which provider pool and is recorded on the row). */
+  serviceId?: string | null;
 }
 
 export interface BookingWindowInput {
@@ -239,6 +278,9 @@ export interface OverlapParams {
   endsAt: Date;
   /** Exclude this appointment from the clash search (i.e. when rescheduling it). */
   excludeId?: string;
+  /** Scope the clash to one provider's calendar. `null` = the shared resource;
+   *  `undefined` = don't filter by provider (any provider counts). */
+  providerId?: string | null;
 }
 
 /** Prisma filter for a CONFIRMED appointment that overlaps [startsAt, endsAt). */
@@ -248,6 +290,7 @@ export function overlapWhere(params: OverlapParams): Prisma.AppointmentWhereInpu
     demoSessionId: params.demoSessionId,
     status: 'CONFIRMED',
     ...(params.excludeId ? { id: { not: params.excludeId } } : {}),
+    ...(params.providerId !== undefined ? { providerId: params.providerId } : {}),
     startsAt: { lt: params.endsAt },
     endsAt: { gt: params.startsAt },
   };
@@ -258,10 +301,15 @@ function lockKeyFor(tenantId: string, demoSessionId: string | null): string {
   return demoSessionId ? `${tenantId}:${demoSessionId}` : tenantId;
 }
 
-/** Throws SLOT_TAKEN if anything already occupies the window. Run under the lock. */
-async function assertSlotFree(tx: Prisma.TransactionClient, params: OverlapParams): Promise<void> {
+/** True if a CONFIRMED appointment already occupies the window. Run under the lock. */
+async function providerHasClash(tx: Prisma.TransactionClient, params: OverlapParams): Promise<boolean> {
   const clash = await tx.appointment.findFirst({ where: overlapWhere(params), select: { id: true } });
-  if (clash) {
+  return clash !== null;
+}
+
+/** Throws SLOT_TAKEN if the window is occupied for the given provider scope. */
+async function assertSlotFree(tx: Prisma.TransactionClient, params: OverlapParams): Promise<void> {
+  if (await providerHasClash(tx, params)) {
     throw new HttpError(409, 'That time was just taken. Please pick another slot.', 'SLOT_TAKEN');
   }
 }
@@ -286,14 +334,27 @@ export async function bookAppointment(input: BookingInput): Promise<Appointment>
   });
 
   const demoSessionId = input.demoSessionId ?? null;
+  const candidates = candidateProviders(input.providerId, input.candidateProviderIds);
   // Serialize bookings so two concurrent calls can't double-book: the advisory
-  // lock holds for the transaction, then we re-check overlap.
+  // lock holds for the transaction, then we assign the first candidate provider
+  // who's actually free at this slot (or the shared resource when there are none).
   return prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKeyFor(tenantId, demoSessionId)}))`;
-    await assertSlotFree(tx, { tenantId, demoSessionId, startsAt, endsAt });
+    let chosen: string | null | undefined;
+    for (const providerId of candidates) {
+      if (!(await providerHasClash(tx, { tenantId, demoSessionId, startsAt, endsAt, providerId }))) {
+        chosen = providerId;
+        break;
+      }
+    }
+    if (chosen === undefined) {
+      throw new HttpError(409, 'That time was just taken. Please pick another slot.', 'SLOT_TAKEN');
+    }
     return tx.appointment.create({
       data: {
         tenantId,
+        providerId: chosen,
+        serviceId: input.serviceId ?? null,
         customerName,
         customerPhone: input.customerPhone?.trim() || null,
         reason: input.reason?.trim() || null,
@@ -374,10 +435,11 @@ export async function updateAppointment(
     return prisma.appointment.update({ where: { id }, data });
   }
 
-  const { demoSessionId } = existing;
+  const { demoSessionId, providerId } = existing;
   return prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKeyFor(tenantId, demoSessionId)}))`;
-    await assertSlotFree(tx, { tenantId, demoSessionId, startsAt, endsAt, excludeId: id });
+    // Clash check stays within this appointment's own provider's calendar.
+    await assertSlotFree(tx, { tenantId, demoSessionId, startsAt, endsAt, excludeId: id, providerId });
     return tx.appointment.update({ where: { id }, data });
   });
 }
