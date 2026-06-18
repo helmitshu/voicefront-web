@@ -160,7 +160,9 @@ appointmentsRouter.patch(
   asyncHandler(async (req, res) => {
     const auth = getAuth(req);
     const patch = PatchSchema.parse(req.body);
-    const appointment = await updateAppointment(auth.tenantId, req.params.id, patch);
+    const settings = await prisma.agentSettings.findUnique({ where: { tenantId: auth.tenantId } });
+    if (!settings) throw new HttpError(409, 'Receptionist settings are missing.', 'SETTINGS_MISSING');
+    const appointment = await updateAppointment(auth.tenantId, req.params.id, patch, settings.businessHours);
     res.json({ appointment: toDto(appointment) });
   }),
 );

@@ -196,5 +196,6 @@ export async function bookFounderCall(input: {
 /** Removes a block or cancels a booked call (founder-side). */
 export async function removeFounderEntry(id: string): Promise<void> {
   const { tenant } = await getOrCreateFounderTenant();
-  await updateAppointment(tenant.id, id, { status: 'CANCELLED' });
+  // Status-only cancel never re-validates times, so business hours are unused.
+  await updateAppointment(tenant.id, id, { status: 'CANCELLED' }, null);
 }

@@ -187,24 +187,31 @@ export interface BookingInput {
   demoSessionId?: string | null;
 }
 
-/**
- * Validates and creates a CONFIRMED appointment. Throws HttpError with a
- * speakable message on conflicts so the voice tool can relay it directly.
- */
-export async function bookAppointment(input: BookingInput): Promise<Appointment> {
-  const { tenantId, timezone } = input;
-  if (!DATE_REGEX.test(input.date)) throw new HttpError(400, 'Date must be YYYY-MM-DD.', 'BAD_DATE');
-  if (!TIME_REGEX.test(input.time)) throw new HttpError(400, 'Time must be 24h HH:MM.', 'BAD_TIME');
-  const customerName = input.customerName.trim();
-  if (customerName.length < 2) throw new HttpError(400, 'Customer name is required.', 'BAD_NAME');
+export interface BookingWindowInput {
+  date: string; // YYYY-MM-DD tenant-local
+  time: string; // HH:MM tenant-local
+  durationMinutes: number;
+  timezone: string;
+  businessHours: unknown;
+  now?: Date;
+}
 
-  const durationMinutes = input.durationMinutes ?? DEFAULT_SLOT_MINUTES;
+/**
+ * Validates a desired appointment window (format, duration bounds, lead-time,
+ * business hours) and resolves it to a concrete UTC start/end. Pure — no DB —
+ * so every write path (voice agent, manual create, manual reschedule) shares
+ * exactly one set of rules. Throws HttpError with speakable messages.
+ */
+export function resolveBookingWindow(input: BookingWindowInput): { startsAt: Date; endsAt: Date } {
+  const { date, time, durationMinutes, timezone } = input;
+  if (!DATE_REGEX.test(date)) throw new HttpError(400, 'Date must be YYYY-MM-DD.', 'BAD_DATE');
+  if (!TIME_REGEX.test(time)) throw new HttpError(400, 'Time must be 24h HH:MM.', 'BAD_TIME');
   if (durationMinutes < 10 || durationMinutes > 240) {
     throw new HttpError(400, 'Duration must be between 10 and 240 minutes.', 'BAD_DURATION');
   }
 
   const now = input.now ?? new Date();
-  const startsAt = zonedToUtc(input.date, input.time, timezone);
+  const startsAt = zonedToUtc(date, time, timezone);
   const endsAt = new Date(startsAt.getTime() + durationMinutes * 60_000);
 
   if (startsAt.getTime() <= now.getTime()) {
@@ -216,36 +223,74 @@ export async function bookAppointment(input: BookingInput): Promise<Appointment>
 
   // Must fall inside that local day's business-hours window.
   const hours = parseBusinessHours(input.businessHours);
-  const dayHours = hours[weekdayOf(input.date, timezone)];
+  const dayHours = hours[weekdayOf(date, timezone)];
   const close = dayHours.close > dayHours.open ? dayHours.close : '23:59';
-  if (!dayHours.enabled || input.time < dayHours.open || addMinutes(input.time, durationMinutes) > close) {
-    throw new HttpError(
-      409,
-      'That time is outside business hours for that day.',
-      'OUTSIDE_HOURS',
-    );
+  if (!dayHours.enabled || time < dayHours.open || addMinutes(time, durationMinutes) > close) {
+    throw new HttpError(409, 'That time is outside business hours for that day.', 'OUTSIDE_HOURS');
   }
+
+  return { startsAt, endsAt };
+}
+
+export interface OverlapParams {
+  tenantId: string;
+  demoSessionId: string | null;
+  startsAt: Date;
+  endsAt: Date;
+  /** Exclude this appointment from the clash search (i.e. when rescheduling it). */
+  excludeId?: string;
+}
+
+/** Prisma filter for a CONFIRMED appointment that overlaps [startsAt, endsAt). */
+export function overlapWhere(params: OverlapParams): Prisma.AppointmentWhereInput {
+  return {
+    tenantId: params.tenantId,
+    demoSessionId: params.demoSessionId,
+    status: 'CONFIRMED',
+    ...(params.excludeId ? { id: { not: params.excludeId } } : {}),
+    startsAt: { lt: params.endsAt },
+    endsAt: { gt: params.startsAt },
+  };
+}
+
+/** Demo sessions lock on tenant+session so unrelated visitors never block each other. */
+function lockKeyFor(tenantId: string, demoSessionId: string | null): string {
+  return demoSessionId ? `${tenantId}:${demoSessionId}` : tenantId;
+}
+
+/** Throws SLOT_TAKEN if anything already occupies the window. Run under the lock. */
+async function assertSlotFree(tx: Prisma.TransactionClient, params: OverlapParams): Promise<void> {
+  const clash = await tx.appointment.findFirst({ where: overlapWhere(params), select: { id: true } });
+  if (clash) {
+    throw new HttpError(409, 'That time was just taken. Please pick another slot.', 'SLOT_TAKEN');
+  }
+}
+
+/**
+ * Validates and creates a CONFIRMED appointment. Throws HttpError with a
+ * speakable message on conflicts so the voice tool can relay it directly.
+ */
+export async function bookAppointment(input: BookingInput): Promise<Appointment> {
+  const { tenantId, timezone } = input;
+  const customerName = input.customerName.trim();
+  if (customerName.length < 2) throw new HttpError(400, 'Customer name is required.', 'BAD_NAME');
+
+  const durationMinutes = input.durationMinutes ?? DEFAULT_SLOT_MINUTES;
+  const { startsAt, endsAt } = resolveBookingWindow({
+    date: input.date,
+    time: input.time,
+    durationMinutes,
+    timezone,
+    businessHours: input.businessHours,
+    now: input.now,
+  });
 
   const demoSessionId = input.demoSessionId ?? null;
   // Serialize bookings so two concurrent calls can't double-book: the advisory
-  // lock holds for the transaction, then we re-check overlap. Demo sessions
-  // lock on tenant+session so unrelated visitors never block each other.
-  const lockKey = demoSessionId ? `${tenantId}:${demoSessionId}` : tenantId;
+  // lock holds for the transaction, then we re-check overlap.
   return prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey}))`;
-    const clash = await tx.appointment.findFirst({
-      where: {
-        tenantId,
-        demoSessionId,
-        status: 'CONFIRMED',
-        startsAt: { lt: endsAt },
-        endsAt: { gt: startsAt },
-      },
-      select: { id: true },
-    });
-    if (clash) {
-      throw new HttpError(409, 'That time was just taken. Please pick another slot.', 'SLOT_TAKEN');
-    }
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKeyFor(tenantId, demoSessionId)}))`;
+    await assertSlotFree(tx, { tenantId, demoSessionId, startsAt, endsAt });
     return tx.appointment.create({
       data: {
         tenantId,
@@ -274,11 +319,18 @@ export type AppointmentPatch = Partial<{
   notes: string | null;
 }>;
 
-/** Tenant-scoped update; recomputes times when date/time/duration change. */
+/**
+ * Tenant-scoped update; recomputes times when date/time/duration change. A
+ * reschedule runs the same validation as a fresh booking (business hours,
+ * lead-time) and re-checks for overlap under the advisory lock — so a manual
+ * edit can't double-book the very calendar the voice agent protects.
+ * `businessHours` is the tenant's current settings, used to validate new times.
+ */
 export async function updateAppointment(
   tenantId: string,
   id: string,
   patch: AppointmentPatch,
+  businessHours: unknown,
 ): Promise<Appointment> {
   const existing = await prisma.appointment.findFirst({ where: { id, tenantId } });
   if (!existing) throw new HttpError(404, 'Appointment not found.', 'NOT_FOUND');
@@ -290,21 +342,44 @@ export async function updateAppointment(
   if (patch.reason !== undefined) data.reason = patch.reason?.trim() || null;
   if (patch.notes !== undefined) data.notes = patch.notes?.trim() || null;
 
-  if (patch.date !== undefined || patch.time !== undefined || patch.durationMinutes !== undefined) {
+  const timeChanged =
+    patch.date !== undefined || patch.time !== undefined || patch.durationMinutes !== undefined;
+
+  let startsAt = existing.startsAt;
+  let endsAt = existing.endsAt;
+  if (timeChanged) {
     const current = utcToZonedParts(existing.startsAt, existing.timezone);
-    const date = patch.date ?? current.date;
-    const time = patch.time ?? current.time;
-    if (!DATE_REGEX.test(date)) throw new HttpError(400, 'Date must be YYYY-MM-DD.', 'BAD_DATE');
-    if (!TIME_REGEX.test(time)) throw new HttpError(400, 'Time must be 24h HH:MM.', 'BAD_TIME');
-    const duration =
+    const durationMinutes =
       patch.durationMinutes ??
       Math.round((existing.endsAt.getTime() - existing.startsAt.getTime()) / 60_000);
-    const startsAt = zonedToUtc(date, time, existing.timezone);
+    ({ startsAt, endsAt } = resolveBookingWindow({
+      date: patch.date ?? current.date,
+      time: patch.time ?? current.time,
+      durationMinutes,
+      timezone: existing.timezone,
+      businessHours,
+    }));
     data.startsAt = startsAt;
-    data.endsAt = new Date(startsAt.getTime() + duration * 60_000);
+    data.endsAt = endsAt;
   }
 
-  return prisma.appointment.update({ where: { id }, data });
+  // The double-booking guard only matters when the result will occupy the
+  // calendar as CONFIRMED and either its time moved or it's being un-cancelled
+  // onto a slot that may now be taken. Status-only edits (cancel, complete,
+  // no-show) and note tweaks skip the lock entirely.
+  const finalStatus = patch.status ?? existing.status;
+  const becomesConfirmed = patch.status === 'CONFIRMED' && existing.status !== 'CONFIRMED';
+  const needsOverlapCheck = finalStatus === 'CONFIRMED' && (timeChanged || becomesConfirmed);
+  if (!needsOverlapCheck) {
+    return prisma.appointment.update({ where: { id }, data });
+  }
+
+  const { demoSessionId } = existing;
+  return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKeyFor(tenantId, demoSessionId)}))`;
+    await assertSlotFree(tx, { tenantId, demoSessionId, startsAt, endsAt, excludeId: id });
+    return tx.appointment.update({ where: { id }, data });
+  });
 }
 
 /** Ensures DAY_KEYS stays imported as the canonical weekday source. */
