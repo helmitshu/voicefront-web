@@ -1,163 +1,124 @@
 # VoiceFront
 
-A white-label B2B SaaS platform that gives medical clinics and construction companies an **AI voice receptionist** — powered by Vapi under the hood, fully invisible to your tenants. Tenants sign up, walk a three-step guided onboarding (profile → call-handling instructions → live in-browser voice test), then manage their receptionist and deep-dive every call from a branded dashboard.
+**An AI voice receptionist, sold as a white-label B2B SaaS — plus the live sales machine that sells it.**
+
+VoiceFront gives clinics, contractors, and service businesses an AI receptionist that answers every call 24/7, books appointments straight into a calendar, captures leads, answers questions, and routes urgent calls to a human — powered by [Vapi](https://vapi.ai) under the hood, completely invisible to the end customer. The platform also includes a **live, self-selling marketing site**: prospects watch the product work on screen, talk to the agent in their browser (or get a call), and book a setup call with the founder — whose calendar the agent reads in real time.
+
+- **Live:** Web `https://voicefrontweb-production.up.railway.app` · API `https://voicefrontapi-production.up.railway.app`
+- **Stack:** Next.js 14 (App Router) + Tailwind · Express + TypeScript + Prisma · PostgreSQL · Vapi voice · Railway
 
 ```
 voicefront/
 ├── apps/
-│   ├── api/        Express + TypeScript + Prisma (PostgreSQL) backend
-│   └── web/        Next.js 14 (App Router) + Tailwind frontend
-├── docker-compose.yml   Local PostgreSQL 16
-└── package.json         npm workspaces + dev orchestration
+│   ├── api/     Express + TypeScript + Prisma (PostgreSQL) backend
+│   └── web/     Next.js 14 (App Router) + Tailwind frontend
+├── docs/        Architecture handoff (CLAUDE.md), API reference, DB schema
+├── scripts/     Local setup (setup-local.ps1)
+└── docker-compose.yml   Local PostgreSQL
 ```
+
+> **Deep dive:** [`docs/CLAUDE.md`](docs/CLAUDE.md) is the full architecture & handoff document (data model, every system, data-flow walkthroughs, deployment, design decisions). Use it as the knowledge base for a Claude Project. [`docs/API_REFERENCE.md`](docs/API_REFERENCE.md) and [`docs/DATABASE_SCHEMA.md`](docs/DATABASE_SCHEMA.md) cover the contract and schema in detail.
 
 ---
 
-## Quick start
+## Who it's for
+
+1. **Tenants (clinics, contractors, businesses)** — a branded dashboard to manage their AI receptionist: onboarding, call-handling settings, voice & hours, knowledge-base documents, usage, and a searchable call history with transcripts and recordings.
+2. **The operator / founder** — a platform-admin portal to manage customers, assign Vapi assistants, control the public sales demo, review demo calls, manage their own booking calendar, and issue signup invitations.
+3. **Prospects** — a marketing site that *demonstrates* the product live (on-screen workflow, in-browser voice test, or an outbound call), proves it never double-books, and lets them self-book a call with the founder.
+
+---
+
+## Everything that's been built
+
+### Core receptionist platform
+- **Multi-tenant SaaS** — `Tenant` (industry, white-label `slug`, subscription status, `isBlocked`, `markupBps`, `monthlyMinuteLimit`) → `User` (roles `OWNER/MANAGER/AGENT`, bcrypt), `AgentSettings`, `OnboardingStatus`, `CallLog`.
+- **JWT auth** — bcrypt(12), timing-safe login, rate-limited auth routes, helmet + CORS allow-list; a global 401 signs out everywhere.
+- **Onboarding state machine** — `PROFILE → PROMPT → VOICE_TEST → ACTIVE`, server-enforced prerequisites, revisitable steps; Step 3 is a real in-browser test call.
+- **Transient assistants** — every inbound call composes a fresh Vapi assistant from the tenant's *current* settings (live prompt + open/closed context + transfer directory), so settings changes apply on the very next call. (Persistent push-sync also supported for assigned assistants.)
+- **Call booking engine** — `checkAvailability` / `bookAppointment` voice tools; double-booking prevented by an atomic per-tenant Postgres advisory lock; timezone-aware business hours (incl. overnight windows).
+- **Billing markup** — integer-cent costs; `billed = round(providerCost × (10000 + markupBps)/10000)`; provider cost/identifiers stripped from tenant DTOs.
+- **Masked recordings** — audio served through short-lived signed media tokens (`/api/media/:token`) with HTTP Range passthrough; the provider is never named in the UI.
+- **Webhook security & idempotency** — `x-vapi-secret` compared with `timingSafeEqual`; `end-of-call-report` upserts on the provider call id and always returns 200 (no retry loops).
+
+### Platform-admin (operator) layer
+- **Tiered platform staff** — `ADMIN` / `SUPPORT` operators; bootstrap admins via `PLATFORM_ADMIN_EMAILS`, plus DB-granted staff; role-aware middleware and nav.
+- **Customer management** — add/list customers, block/unblock, delete, invite users; block enforced at login and on the inbound webhook.
+- **Vapi assistant assignment** — assign + validate a Vapi assistant per customer, auto-fetch its phone number; customer settings changes push-sync to the assigned assistant.
+- **Knowledge base** — per-tenant document upload → Vapi files + an inline `query` tool attached to the assistant.
+- **Usage quotas** — per-tenant `monthlyMinuteLimit` (default 500) enforced in the assistant-request flow; surfaced on dashboard + admin.
+- **Runtime config + audit** — `PlatformSetting` key/value store and an audit log for sensitive admin actions.
+
+### Live sales demo (the marketing engine)
+- **Lead capture + geo-gating** — `POST /api/demo/lead` creates an isolated per-visitor session; IP (ipapi.co) + phone-country detection decides whether an outbound call is offered.
+- **In-browser voice demo** — talk to **Ava** (the sales agent); an **agent-driven on-screen stage** (intro → booking → double-book → summary → close) that *Ava herself* switches via a `set_demo_screen` tool, plus a live calendar she books into and a smart, call-specific summary she writes via `show_call_summary`.
+- **Outbound "Get a call"** — Ava rings the prospect's phone with country-routed caller ID (US/CA), running the same demo by voice.
+- **Industry-aware** — the sample calendar and Ava's script adapt to the prospect's industry (clinic vs. contractor).
+- **Sales-agent persona & playbook** — a warm, human prompt that builds rapport, qualifies, demos, and books a planning call on the **founder's real calendar** (`checkFounderAvailability` / `bookPlanningCall`) — which the booking engine prevents from double-booking.
+- **Demo call capture** — transcript, summary, and recording of every demo call captured for founder review.
+
+### Public booking & invite-gated signup *(latest)*
+- **Self-service "Book a call"** — a calendar/form section on the landing page books straight into the founder's real calendar via `GET /api/booking/slots` + `POST /api/booking` (rate-limited, atomic double-booking guard). Captures name, business type, phone, optional email/notes, and a "needs a custom system" flag; appears instantly in the founder's admin calendar.
+- **Invite-only signups** — registration is gated behind one-time `AccessCode`s. Admins generate/revoke codes (admin → **Access codes**); the code is consumed atomically inside the signup transaction (reuse/race-proof). Platform admins are exempt.
+
+### World-class landing page & design system *(latest)*
+- **"How every call works" console** — a self-driving, cinematic walkthrough: streaming transcript, a live calendar showing busy/booked/callback states (and *no double-booking*), and a call summary that resolves to an explicit **outcome** (booked / callback / answered) across three scenarios (new caller, returning customer, quick question).
+- **Live-demo restyle** — the in-browser call console reskinned to the same premium light card; the transcript is a fixed-height scrolling box (no more growing card).
+- **Apple-grade UX pass** — an ambient aurora sound-wave backdrop, softer layered shadows, pill buttons app-wide, tighter display typography, smooth anchor scrolling, consistent focus rings, a mobile nav menu, and the logo linking home everywhere.
+
+---
+
+## Quick start (local)
 
 Requirements: **Node ≥ 18.18**, **Docker** (for Postgres), npm 9+.
 
 ### Windows (PowerShell) — one command
-
 ```powershell
 .\scripts\setup-local.ps1          # bootstrap (keeps existing DB data)
 .\scripts\setup-local.ps1 -Reset   # full wipe: drops the DB volume first
-
 npm run dev                        # api :4000, web :3000
 ```
 
-The script checks Docker/Node, strips accidental quotes from `.env` values
-(Prisma P1012 on Windows), tears down stale containers/volumes (the cause of
-Prisma P1000 when credentials change after first init), starts Postgres with
-a healthcheck, installs dependencies, pushes the schema, seeds demo data, and
-verifies an authenticated connection from the host.
-
-### Manual steps (macOS/Linux)
-
+### macOS / Linux
 ```bash
-# 1. Start PostgreSQL
-docker compose up -d --wait
-
-# 2. Install everything (both workspaces)
-npm install
-
-# 3. Configure environments
+docker compose up -d --wait        # PostgreSQL (host port 5433)
+npm install                        # both workspaces
 cp apps/api/.env.example apps/api/.env
 cp apps/web/.env.example apps/web/.env
-#    apps/api/.env works out of the box against the docker-compose DB.
-#    Never wrap DATABASE_URL in quotes — Prisma fails validation (P1012).
-#    Set JWT_SECRET + VAPI_WEBHOOK_SECRET to real values before any deploy.
-
-# 4. Create schema + demo data
-npm run db:setup
-
-# 5. Run both apps (api :4000, web :3000)
-npm run dev
+npm run db:setup                   # prisma db push + seed
+npm run dev                        # api :4000, web :3000
 ```
 
-> **Note on ports:** the container publishes Postgres on host port **5433**
-> (not 5432) because many Windows machines run a native PostgreSQL service on
-> 5432. The native service binds IPv4 while Docker falls back to IPv6 only, so
-> `localhost:5432` connects to a *different* server depending on the client —
-> the classic source of "impossible" P1000 authentication errors.
->
-> **Note on credentials:** Postgres reads `POSTGRES_USER`/`POSTGRES_PASSWORD`
-> only when the data volume is first initialized. If you ever change them,
-> recreate the volume: `docker compose down -v` (or `setup-local.ps1 -Reset`).
+> **Ports:** Postgres is published on host **5433** (not 5432) because Windows often runs a native PostgreSQL on 5432 — a classic source of "impossible" auth errors. Never wrap `DATABASE_URL` in quotes (Prisma P1012). Schema changes use `prisma db push` — never `migrate dev`/`reset` (it wipes the DB).
 
-**Demo login** (seeded, fully onboarded, 12 realistic call logs):
-
-```
-email:    demo@voicefront.dev
-password: demo1234!
-```
-
-Or register a fresh tenant at `/register` to experience the full onboarding flow.
+**Demo tenant login** (seeded, fully onboarded): `demo@voicefront.dev` / `demo1234!`, or register a fresh tenant at `/register`.
 
 ---
 
-## Architecture
+## Deployment (Railway)
 
-### Multi-tenant data model (Prisma)
+Production runs three services on one Railway project: **web**, **api**, and **Postgres**.
 
-`Tenant` (company, industry `CLINIC|CONSTRUCTION`, unique white-label `slug`, `subscriptionStatus`, `markupBps`) → `User` (bcrypt-hashed password, role `OWNER|MANAGER|AGENT`), `OnboardingStatus` (state machine flags + `isActive`), `AgentSettings` (system prompt, greeting, voicemail, business hours JSON, dynamic forwarding numbers, masked inbound number), `CallLog` (provider cost **and** billed cost, AI summary, transcript, recording URL — provider fields never leave the server).
+> **Two-repo gotcha:** Railway auto-deploys from GitHub **`helmitshu/voicefront-web`** branch `main` — **not** `helmitshu/voicefront` (where `origin` points). Locally there's a `web` remote → `voicefront-web`. Deploy by overlaying the local tree onto `web/main` and pushing there. Make deploy fixes in this repo (never only on `voicefront-web`) or they get clobbered on the next push.
 
-### Backend (`apps/api`)
+- **API start:** `prisma db push --skip-generate && node dist/index.js` (schema auto-applies on deploy).
+- **Key env:** API needs `DATABASE_URL`, `CORS_ORIGIN` (= the web domain, exactly), `JWT_SECRET`, `VAPI_*`. Web needs `NEXT_PUBLIC_API_URL` (baked at build time). `PUBLIC_API_URL` auto-derives from `RAILWAY_PUBLIC_DOMAIN` when unset, so demo + assistant webhooks serve from the cloud (no tunnel).
 
-- **Auth** — JWT bearer tokens (7d default), bcrypt(12), rate-limited auth routes, timing-safe login (dummy hash compare for unknown emails), helmet + CORS allow-list.
-- **Onboarding state machine** — `PROFILE → PROMPT → VOICE_TEST` enforced server-side with prerequisites (e.g. the prompt step requires ≥40 chars of instructions actually saved). `POST /activate` flips the tenant live.
-- **Transient assistants** — nothing is persisted on Vapi. On every inbound call (`assistant-request` webhook) or browser test, the server composes a fresh assistant JSON from the tenant's *current* settings: system prompt + live call context (open/closed right now, business hours in words) + a transfer directory (labels only — numbers go in tool config, never in prompt text). Settings changes therefore apply to the very next call.
-- **Webhook security** — `POST /api/vapi/inbound` requires the `x-vapi-secret` header, compared with SHA-256 + `timingSafeEqual`. Inbound number → tenant mapping; unmapped numbers, canceled subscriptions, and not-yet-activated tenants are politely rejected. `end-of-call-report` ingestion is idempotent (upsert on the provider call id) and **always returns 200** so the provider never retries into a loop.
-- **Provider masking** — tenant-facing DTOs strip `providerCostCents`, `externalCallId`, raw `recordingUrl`, and `endedReason`. Audio plays through `GET /api/media/:token` — a short-lived signed JWT media token minted per detail-view, proxied server-side with HTTP Range passthrough so seeking works. The web UI never mentions the provider by name.
-- **Billing markup** — costs are integer **cents**. `billed = round(providerCost × (10000 + markupBps) / 10000)`; `markupBps` lives on the Tenant (default `5000` = +50%) so operators can adjust per-tenant profit margins in the DB.
-- **Error model** — every error is `{ error: { message, code?, details? } }`; Zod → 400, unique-violation → 409, async handlers everywhere, graceful SIGTERM shutdown with a hard 10s cap.
-
-### Frontend (`apps/web`)
-
-- Next 14 App Router, strict TS, Tailwind with a custom design system (Space Grotesk / Public Sans / IBM Plex Mono via self-hosted `@fontsource`, signature waveform motif, `prefers-reduced-motion` respected).
-- **Route guards** — `RequireAuth` / `RedirectIfAuthed` render nothing until the session is resolved *and* the user is in the right area (`/onboarding` vs `/dashboard` based on `isActive`), so there is never a flash of the wrong screen. A global 401 event from the API client signs out everywhere at once.
-- **Onboarding** — revisitable step rail; Step 3 is a real in-browser call to the tenant's assistant via the voice web SDK (dynamically imported client-side only): reactive sound-wave visualization driven by live volume events, live transcript bubbles, automatic step completion when a real call ends, and a graceful fallback when the operator hasn't configured a public key yet.
-- **Dashboard** — stats overview, live settings editor (dirty-tracking sticky save bar, role-aware read-only mode for `AGENT`s, template re-apply), call history with debounced search + range filter + abortable pagination, and a call detail page with a custom audio player (seek, speed cycle, duration fallback for chunked streams) and a speaker-attributed transcript view.
+Full deployment walkthrough and env reference: [`docs/CLAUDE.md` §5](docs/CLAUDE.md).
 
 ---
 
-## API reference
+## Security & deliberate tradeoffs
 
-| Method | Path | Auth | Purpose |
-|---|---|---|---|
-| POST | `/api/auth/register` | — | Create tenant + owner, returns JWT (rate-limited) |
-| POST | `/api/auth/login` | — | Login, returns JWT (rate-limited, timing-safe) |
-| GET | `/api/auth/me` | JWT | Session: user + tenant + onboarding view |
-| GET | `/api/onboarding/status` | JWT | Current onboarding state |
-| POST | `/api/onboarding/complete-step` | JWT | Complete `PROFILE`/`PROMPT`/`VOICE_TEST` (ordered) |
-| POST | `/api/onboarding/activate` | JWT | Go live (requires all steps) |
-| GET | `/api/agent/settings` | JWT | Receptionist settings DTO |
-| PATCH | `/api/agent/settings` | JWT (OWNER/MANAGER) | Update settings (validated) |
-| GET | `/api/calls` | JWT | Paginated list, `?search=&sinceDays=&page=&perPage=` |
-| GET | `/api/calls/stats` | JWT | 7/30-day stats for the overview |
-| GET | `/api/calls/:id` | JWT | Detail + transcript + one-time media token |
-| GET | `/api/media/:token` | media JWT | Masked recording proxy (Range supported) |
-| POST | `/api/voice/web-session` | JWT | Public key + transient assistant for browser test |
-| POST | `/api/vapi/inbound` | `x-vapi-secret` | Provider webhook (assistant-request, end-of-call-report) |
-| GET | `/api/health` | — | Liveness |
+- **Provider masking** — costs/identifiers stripped server-side, recordings proxied; the provider is never named to tenants. (The in-browser *test* call necessarily talks to provider endpoints — phone callers and all dashboard data stay masked.)
+- **Webhook auth** is constant-time; media tokens are scoped to a single call + tenant and expire (~5 min).
+- **Access codes** are consumed atomically inside the signup transaction (no reuse, no races).
+- **HIPAA / consent** — this is a foundation, not a compliance kit: PHI needs a BAA with the voice/LLM vendors, and some states require recording-consent disclosure in the greeting.
 
 ---
 
-## Operator runbook (connecting Vapi)
+## Where to go next
 
-Tenants never see Vapi; you, the platform operator, wire it up once:
-
-1. In your Vapi dashboard, create a **server webhook secret** and set the same value as `VAPI_WEBHOOK_SECRET` in `apps/api/.env`.
-2. Set your org's **public key** as `VAPI_PUBLIC_KEY` in `apps/api/.env` — this powers the in-browser test call (it is served to clients at session time; web public keys are designed to be client-visible). Without it, onboarding offers a graceful "mark complete" fallback.
-3. Buy a phone number in Vapi and point its **Server URL** at `https://<your-api-host>/api/vapi/inbound` (for local dev, expose port 4000 with ngrok). Configure the number/server to send the secret header.
-4. Assign the number to a tenant: in the dashboard, open **Receptionist → Your receptionist number** and paste the E.164 number (e.g. `+15551234567`), or set `agent_settings.inbound_phone_number` directly in SQL. Numbers are unique across tenants — assigning an already-used number returns a clear 409.
-5. Voice & ambience are tenant-configurable under **Receptionist → Voice & sound**: built-in Vapi V2 voices (realistic, human — Emma is the default) or ElevenLabs voices (`11labs` provider; add your ElevenLabs API key under Integrations in the Vapi dashboard, then pick a preset or paste any voice ID from your library, including clones). Background sound (`office`/`off`) is mixed in by the provider per call.
-6. Calls now flow: inbound ring → `assistant-request` → VoiceFront maps number → tenant → returns a transient assistant built from live settings → call proceeds → `end-of-call-report` → call log ingested with markup-applied billing.
-
-## Security notes & deliberate tradeoffs
-
-- **JWT in `localStorage`** — chosen for demo simplicity (no CSRF surface, trivial to inspect). For production, move to httpOnly cookies + CSRF tokens; the API client is isolated in `apps/web/src/lib/api.ts` so the swap is contained.
-- **Masking boundary** — provider identifiers/costs are stripped server-side and recordings are proxied, so tenants can't see raw provider URLs in the app. Caveat stated honestly: during the *browser test call*, the voice SDK necessarily talks to provider endpoints, which a tenant could observe in devtools. Phone callers and all dashboard data remain fully masked.
-- **Webhook** auth is constant-time; media tokens are scoped to a single call log + tenant and expire (default 5 min).
-- **HIPAA / recording consent** — this codebase is a foundation, not a compliance kit: clinics handling PHI need a BAA with the voice/LLM vendors, and several states require two-party consent disclosure for recording. Add a consent line to the greeting where required.
-
-## Extension points
-
-- **Roles** exist end-to-end (`OWNER/MANAGER/AGENT` — settings writes already gated); an invite-teammates flow is the natural next API.
-- **White-label slug** is unique per tenant and ready for subdomain routing (`acme.yourbrand.com` → tenant by slug); DNS/middleware wiring is deployment-specific and intentionally not hardcoded.
-- **Billing**: `markupBps` + integer-cent costs make Stripe metering straightforward.
-- `afterHoursShare` in `/api/calls/stats` is reserved (returns 0) until per-call after-hours tagging is added.
-
-## What was verified (and what wasn't)
-
-Ran in a clean Linux container against this exact tree:
-
-- `tsc --noEmit` — **clean** for both `apps/api` and `apps/web` (strict mode).
-- `next build` — **succeeds**; all 10 routes compile and prerender.
-- `prisma validate` — schema **valid**; Prisma Client generates.
-- API booted without a DB: `/api/health` 200; unsigned webhook → 401; signed unknown event → 200; protected route w/o token → 401; unknown route → 404 envelope — all correct.
-- Domain spot-checks: markup rounding (incl. 0 bps), dollars→cents, timezone-aware open-hours including **overnight windows**, and call-status derivation — 12/12 pass.
-
-Not verified here (requires live services): end-to-end Postgres migrations + seed against a running DB, and real Vapi calls/webhooks. The seed and webhook flows follow the provider's documented payload shapes and are written defensively (idempotent upserts, tolerant parsing), but exercise them in staging before launch.
-
-— Built with Next `^14.2` deliberately (stable App Router params/typing); upgrade to 15 is mechanical when desired.
+- **Architecture & handoff (use as Claude Project knowledge):** [`docs/CLAUDE.md`](docs/CLAUDE.md)
+- **API contract:** [`docs/API_REFERENCE.md`](docs/API_REFERENCE.md)
+- **Database schema:** [`docs/DATABASE_SCHEMA.md`](docs/DATABASE_SCHEMA.md)

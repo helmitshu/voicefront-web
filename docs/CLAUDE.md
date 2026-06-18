@@ -208,6 +208,24 @@ FounderEntry (via Appointment model with tenantId = __founder)
 └─ createdAt
 ```
 
+### Access Codes (invite-gated signup)
+
+```
+AccessCode (one-time invitation required to create a tenant)
+├─ id (uuid, PK)
+├─ code (unique, e.g. "VF-7Q4K-2M9X"; unambiguous charset, case-insensitive)
+├─ label (optional; e.g. "Riverside Dental" — who it's for)
+├─ email (optional hint; the customer's email)
+├─ createdBy (operator email who minted it)
+├─ usedAt (timestamp; null until consumed)
+├─ usedByTenantId (the tenant that consumed it)
+└─ createdAt
+
+Consumed atomically during registration: a conditional updateMany on
+(code = X AND usedAt IS NULL) inside the signup $transaction. count !== 1
+→ INVALID_CODE and the whole signup rolls back. Platform admins are exempt.
+```
+
 ### Platform Settings
 
 ```
@@ -491,6 +509,41 @@ Prerequisites for each step:
 - CallLog rows are upserted on `externalCallId` (the Vapi call ID)
 - If the same webhook arrives twice → second upsert succeeds silently (no error)
 - **Important:** All webhook responses are 200, even on error → Vapi never retries
+
+---
+
+### 4.9 Public Booking & Invite-Gated Signup
+
+#### Public self-service booking (`/api/booking`)
+
+A prospect on the landing page can skip the demo and book a call directly on the **founder's real calendar** — no account, no agent.
+
+- `GET /api/booking/slots?days=14` → `{ timezone, days: [{ date, dayLabel, open, slots: ["HH:MM", …] }] }` (founder availability, founder-local times).
+- `POST /api/booking` → `{ name, businessType, phone, email?, notes?, customSystem?, date, time }`; packs the form fields into the appointment `reason`, books on the `__founder` tenant via the **same booking engine** (advisory-lock double-booking guard), returns `201`. A second booking of the same slot is rejected `SLOT_TAKEN`.
+- Rate-limited separately for reads vs. writes. Bookings appear instantly in the founder's admin calendar (it already polls `__founder`).
+- Frontend: `apps/web/src/components/BookCallSection.tsx` — day chips + time grid + form, timezone-aware, conflict-aware (refreshes on `SLOT_TAKEN`).
+
+#### Invite-only registration (access codes)
+
+Signups are gated behind one-time `AccessCode`s (see data model above).
+
+- **Service:** `apps/api/src/services/access-code.service.ts` — `generateAccessCode`, `normalizeCode`, `consumeAccessCode(tx, code, tenantId)` (atomic), `listAccessCodes`, `revokeAccessCode`.
+- **Admin endpoints** (full-admin, audit-logged): `GET/POST /admin/access-codes`, `DELETE /admin/access-codes/:id`. UI at `/admin/access-codes` (generate with label + email hint, copy, revoke unused).
+- **Registration gate:** `RegisterSchema` requires `accessCode` for non-operators; consumed inside the signup `$transaction` so a failed signup never burns a code, and a spent/invalid code rolls the whole thing back. Bootstrap/granted platform admins bypass the requirement.
+- ⚠️ **Production note:** prod Postgres starts with **zero** codes — the operator must generate the first invites before any customer can sign up (operators themselves are exempt).
+
+---
+
+### 4.10 Marketing Landing Page (`apps/web/src/app/page.tsx`)
+
+The public site is the primary sales surface; it both explains and *demonstrates* the product.
+
+- **"How every call works" console** (`components/WorkflowConsole.tsx`) — a self-driving, no-audio walkthrough: a streaming transcript, a live calendar showing busy/booked/callback states (a pre-blocked slot proves *no double-booking*), and a call summary that resolves to an explicit **outcome** (booked / callback / answered). Three scenarios auto-cycle (new caller, returning customer, quick question) and are click-selectable. State machine driven by per-scenario step lists; runs only when scrolled into view.
+- **Self-book section** — `BookCallSection` (§4.9), plus three explainer cards (no double-booking / new & returning callers / "want it built for you?" → book the founder).
+- **Live in-browser demo** — the interactive `InteractiveDemo` (lead form → choose web/call → live console). Restyled to a light premium card; the transcript is a **fixed-height scrolling box** so the card never grows with the call.
+- **Design system** — `tailwind.config.ts` (teal "signal" accent, soft layered shadows, `ease-smooth` curve) + `globals.css` (display-type tracking, smooth anchor scroll with header offset, focus rings, ambient `bg-aurora-*` / `bg-wave-*` keyframes). Ambient backdrop in `components/WaveBackground.tsx` (blurred aurora blobs + gradient wave ribbons, transform-only/GPU-composited, honors `prefers-reduced-motion`). Buttons are pills app-wide via `components/ui/Button.tsx`.
+
+> Demo-agent behavior lives in `apps/api/src/domain/sales-agent.ts` (persona, playbook, `set_demo_screen` screen-control, sample-booking discipline). The prompt instructs Ava to **switch the screen before she talks about it** so the calendar never lags the conversation.
 
 ---
 
