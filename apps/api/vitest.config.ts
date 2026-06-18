@@ -4,6 +4,8 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts'],
+    // Integration tests need a real DB and run under their own config.
+    exclude: ['**/node_modules/**', '**/*.integration.test.ts'],
     // Dummy values so importing modules that construct the Prisma client or read
     // config never aborts the runner. Unit tests here are pure (no DB queries).
     env: {

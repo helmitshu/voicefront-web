@@ -76,6 +76,24 @@ Or register a fresh tenant at `/register` to experience the full onboarding flow
 
 ---
 
+## Testing
+
+The API has a Vitest suite. Unit tests are pure (no database) and run anywhere; integration tests exercise the double-booking advisory lock against a real Postgres.
+
+```powershell
+npm test                       # unit tests (billing, timezone/DST, booking rules, hours)
+
+# Integration tests — need a Postgres. Create an isolated test DB once:
+docker exec voicefront-db psql -U voicefront -c "CREATE DATABASE voicefront_test;"
+$env:TEST_DATABASE_URL="postgresql://voicefront:voicefront@localhost:5433/voicefront_test?schema=public"
+npx prisma db push --schema apps/api/prisma/schema.prisma --skip-generate   # first run only
+npm run test:integration -w apps/api
+```
+
+CI (`.github/workflows/ci.yml`) runs typecheck + unit tests + build, plus the integration suite against a Postgres service container, on every push to `main` and every PR.
+
+---
+
 ## Architecture
 
 ### Multi-tenant data model (Prisma)
