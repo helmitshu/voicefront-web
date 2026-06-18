@@ -382,5 +382,82 @@ export async function updateAppointment(
   });
 }
 
+export interface AppointmentMatch {
+  id: string;
+  customerName: string;
+  customerPhone: string | null;
+  reason: string | null;
+  startsAt: Date;
+  endsAt: Date;
+  timezone: string;
+  local: { date: string; time: string };
+}
+
+/** Last 10 digits of a phone, so formatting differences never block a match. */
+function phoneTail(value: string | null | undefined): string {
+  const d = (value ?? '').replace(/\D/g, '');
+  return d.length > 10 ? d.slice(-10) : d;
+}
+
+/**
+ * Upcoming CONFIRMED appointments a caller might want to change or cancel.
+ * Identified primarily by the phone the booking is under (matched on the last
+ * 10 digits, defaulting to the caller's number), with a name fallback for when
+ * the caller is on a different line, and an optional day filter to disambiguate.
+ * Returns soonest-first; an empty array means "nothing found under that caller".
+ */
+export async function findUpcomingAppointments(params: {
+  tenantId: string;
+  timezone: string;
+  phone?: string | null;
+  name?: string | null;
+  date?: string | null;
+  demoSessionId?: string | null;
+  now?: Date;
+}): Promise<AppointmentMatch[]> {
+  const now = params.now ?? new Date();
+  const pool = await prisma.appointment.findMany({
+    where: {
+      tenantId: params.tenantId,
+      demoSessionId: params.demoSessionId ?? null,
+      status: 'CONFIRMED',
+      endsAt: { gt: now },
+    },
+    orderBy: { startsAt: 'asc' },
+    take: 50,
+  });
+
+  const tail = phoneTail(params.phone);
+  // Phone is the strong identifier: when given, only its matches survive.
+  let matches = tail.length >= 7 ? pool.filter((r) => phoneTail(r.customerPhone) === tail) : pool;
+
+  const name = params.name?.trim().toLowerCase() ?? '';
+  if (name.length >= 2) {
+    if (matches.length === 0) {
+      // Caller may be ringing from a different line than they booked on.
+      matches = pool.filter((r) => r.customerName.toLowerCase().includes(name));
+    } else {
+      const byName = matches.filter((r) => r.customerName.toLowerCase().includes(name));
+      if (byName.length > 0) matches = byName;
+    }
+  }
+
+  if (params.date && DATE_REGEX.test(params.date)) {
+    const byDate = matches.filter((r) => utcToZonedParts(r.startsAt, r.timezone).date === params.date);
+    if (byDate.length > 0) matches = byDate;
+  }
+
+  return matches.map((r) => ({
+    id: r.id,
+    customerName: r.customerName,
+    customerPhone: r.customerPhone,
+    reason: r.reason,
+    startsAt: r.startsAt,
+    endsAt: r.endsAt,
+    timezone: r.timezone,
+    local: utcToZonedParts(r.startsAt, r.timezone),
+  }));
+}
+
 /** Ensures DAY_KEYS stays imported as the canonical weekday source. */
 export const WEEKDAYS: readonly DayKey[] = DAY_KEYS;

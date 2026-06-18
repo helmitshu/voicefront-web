@@ -2,7 +2,12 @@ import { randomUUID } from 'node:crypto';
 import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
 import { prisma } from '../lib/prisma';
 import { HttpError } from '../lib/http';
-import { bookAppointment, updateAppointment, utcToZonedParts } from './appointment.service';
+import {
+  bookAppointment,
+  findUpcomingAppointments,
+  updateAppointment,
+  utcToZonedParts,
+} from './appointment.service';
 
 /**
  * Integration tests for the double-booking guarantee. These hit a REAL Postgres
@@ -120,5 +125,64 @@ describe('booking concurrency', () => {
     expect(fulfilled).toHaveLength(1);
     expect(rejected).toHaveLength(1);
     expect((rejected[0].reason as HttpError).code).toBe('SLOT_TAKEN');
+  });
+});
+
+describe('appointment lookup by phone (reschedule / cancel)', () => {
+  const PHONE = '+1 (555) 222-3333';
+  const OTHER = '+1 555 999 0000';
+
+  function bookFor(phone: string, time: string, name = 'Jamie Rivera') {
+    return bookAppointment({
+      tenantId,
+      timezone: TZ,
+      businessHours: HOURS,
+      customerName: name,
+      customerPhone: phone,
+      date: TEST_DATE,
+      time,
+      source: 'VOICE_AGENT',
+    });
+  }
+
+  it('finds an appointment by phone regardless of formatting', async () => {
+    await bookFor(PHONE, '09:00');
+    await bookFor(OTHER, '10:00');
+
+    const matches = await findUpcomingAppointments({ tenantId, timezone: TZ, phone: '5552223333' });
+    expect(matches).toHaveLength(1);
+    expect(matches[0].local.time).toBe('09:00');
+  });
+
+  it('returns nothing when the phone matches no booking and no name is given', async () => {
+    await bookFor(PHONE, '09:00');
+    const matches = await findUpcomingAppointments({ tenantId, timezone: TZ, phone: '+1 555 000 1111' });
+    expect(matches).toHaveLength(0);
+  });
+
+  it('falls back to name when the caller rings from a different line', async () => {
+    await bookFor(PHONE, '09:00', 'Dana Lee');
+    const matches = await findUpcomingAppointments({
+      tenantId,
+      timezone: TZ,
+      phone: '+1 555 000 1111',
+      name: 'dana',
+    });
+    expect(matches).toHaveLength(1);
+    expect(matches[0].customerName).toBe('Dana Lee');
+  });
+
+  it('reschedules then cancels a looked-up appointment', async () => {
+    const booked = await bookFor(PHONE, '09:00');
+
+    const [found] = await findUpcomingAppointments({ tenantId, timezone: TZ, phone: PHONE });
+    expect(found.id).toBe(booked.id);
+
+    const moved = await updateAppointment(tenantId, found.id, { date: TEST_DATE, time: '13:00' }, HOURS);
+    expect(utcToZonedParts(moved.startsAt, TZ).time).toBe('13:00');
+
+    await updateAppointment(tenantId, found.id, { status: 'CANCELLED' }, null);
+    const after = await findUpcomingAppointments({ tenantId, timezone: TZ, phone: PHONE });
+    expect(after).toHaveLength(0);
   });
 });

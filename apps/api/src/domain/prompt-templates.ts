@@ -144,6 +144,12 @@ export function bookingDiscipline(tz: string): string {
     '4. The tool returns ALL open times for the day. If the caller asked for a specific time of day (e.g. "afternoon" or "around 3 PM"), offer the open slots closest to what they asked for — do not claim afternoons are full if afternoon slots are in the list. Otherwise offer about 3 reasonable options.',
     '5. When the caller picks a slot the tool listed as free, call bookAppointment with their name, number, reason, the date (YYYY-MM-DD) and the time (HH:MM, 24-hour).',
     '6. Only after bookAppointment succeeds, confirm by repeating the weekday, date, and time back. Never claim something is booked unless the tool confirmed it.',
+    '',
+    'CHANGING OR CANCELLING AN EXISTING APPOINTMENT:',
+    '- If a caller wants to move, confirm, or cancel an appointment they already have, call findAppointment FIRST. It uses the number they\'re calling from automatically; pass their name or the appointment day too if they mention it. Read back what you find before changing anything.',
+    '- To move it: confirm the new day is free with checkAvailability, then call rescheduleAppointment with the new date and time. If the tool says the new time was just taken, apologize and offer another open slot.',
+    '- To cancel: only after the caller clearly confirms, call cancelAppointment. Never move or cancel an appointment the caller hasn\'t clearly asked you to.',
+    '- If more than one appointment comes back, briefly list them and ask which one they mean before doing anything.',
   ].join('\n');
 }
 

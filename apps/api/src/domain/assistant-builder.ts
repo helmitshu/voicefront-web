@@ -77,6 +77,11 @@ const BOOKING_FILLERS = [
   'Great — putting that in now.',
   'Got it, booking that for you.',
 ];
+const LOOKUP_FILLERS = [
+  'Let me pull up your appointment.',
+  'One sec, let me find that booking.',
+  'Sure — let me look that up.',
+];
 
 interface TransferCallTool {
   type: 'transferCall';
@@ -266,6 +271,87 @@ function buildBookingTools(): FunctionTool[] {
             },
           },
           required: ['customerName', 'date', 'time'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      async: false,
+      messages: LOOKUP_FILLERS.map((content) => ({ type: 'request-start' as const, content })),
+      function: {
+        name: 'findAppointment',
+        description:
+          "Looks up the caller's existing upcoming appointment so it can be confirmed, rescheduled, or cancelled. Call this whenever a caller wants to change, move, confirm, or cancel an appointment. Matches on the phone number the appointment is under (defaults to the number the caller is calling from); pass customerName and/or the appointment date if the caller offers them, to narrow it down.",
+        parameters: {
+          type: 'object',
+          properties: {
+            customerPhone: {
+              type: 'string',
+              description:
+                "Phone number the appointment is booked under, with country code. Omit to use the number the caller is calling from.",
+            },
+            customerName: { type: 'string', description: 'Name on the appointment, if the caller provides it.' },
+            date: {
+              type: 'string',
+              description: "The appointment's current day as YYYY-MM-DD, if the caller mentions it.",
+            },
+          },
+          required: [],
+        },
+      },
+    },
+    {
+      type: 'function',
+      async: false,
+      messages: BOOKING_FILLERS.map((content) => ({ type: 'request-start' as const, content })),
+      function: {
+        name: 'rescheduleAppointment',
+        description:
+          "Moves the caller's existing appointment to a new day and time. Confirm the new time is free with checkAvailability first. Identifies the appointment the same way as findAppointment (the caller's number by default; pass customerName and/or currentDate to disambiguate). If the new time was just taken, the tool says so — offer another.",
+        parameters: {
+          type: 'object',
+          properties: {
+            customerPhone: {
+              type: 'string',
+              description: "Phone the appointment is under, with country code. Omit to use the caller's own number.",
+            },
+            customerName: { type: 'string', description: 'Name on the appointment, if known.' },
+            currentDate: {
+              type: 'string',
+              description: "The appointment's current day, YYYY-MM-DD — helps pick the right one if they have several.",
+            },
+            date: { type: 'string', description: 'New appointment day, YYYY-MM-DD in the business timezone.' },
+            time: {
+              type: 'string',
+              description: 'New start time as 24-hour HH:MM in the business timezone, e.g. 14:30.',
+            },
+          },
+          required: ['date', 'time'],
+        },
+      },
+    },
+    {
+      type: 'function',
+      async: false,
+      messages: [{ type: 'request-start' as const, content: 'Okay, let me take care of that for you.' }],
+      function: {
+        name: 'cancelAppointment',
+        description:
+          "Cancels the caller's existing upcoming appointment. Identifies it the same way as findAppointment. Only call this after the caller has clearly confirmed they want to cancel.",
+        parameters: {
+          type: 'object',
+          properties: {
+            customerPhone: {
+              type: 'string',
+              description: "Phone the appointment is under, with country code. Omit to use the caller's own number.",
+            },
+            customerName: { type: 'string', description: 'Name on the appointment, if known.' },
+            date: {
+              type: 'string',
+              description: "The appointment's day as YYYY-MM-DD, if the caller mentions it.",
+            },
+          },
+          required: [],
         },
       },
     },

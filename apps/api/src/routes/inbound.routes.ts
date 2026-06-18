@@ -11,8 +11,11 @@ import { isOverMonthlyLimit } from '../services/usage.service';
 import {
   bookAppointment,
   findFreeSlots,
+  findUpcomingAppointments,
   to12h,
+  updateAppointment,
   utcToZonedParts,
+  type AppointmentMatch,
 } from '../services/appointment.service';
 import { getOrCreateDemoTenant, captureDemoCall, setDemoScreen, setDemoSummary } from '../services/demo.service';
 import { founderAvailability, bookFounderCall } from '../services/founder.service';
@@ -118,6 +121,8 @@ const ToolCallsSchema = z
     call: z
       .object({
         id: z.string().optional(),
+        // The caller's own number — used to find their existing appointment.
+        customer: z.object({ number: z.string().optional() }).passthrough().optional(),
         assistant: z.object({ metadata: MetadataSchema.optional() }).passthrough().optional(),
       })
       .passthrough()
@@ -135,6 +140,41 @@ const BookingArgsSchema = z.object({
   date: z.string(),
   time: z.string(),
 });
+const FindAppointmentArgsSchema = z.object({
+  customerPhone: z.string().optional(),
+  customerName: z.string().optional(),
+  date: z.string().optional(),
+});
+const RescheduleArgsSchema = z.object({
+  customerPhone: z.string().optional(),
+  customerName: z.string().optional(),
+  currentDate: z.string().optional(),
+  date: z.string(),
+  time: z.string(),
+});
+const CancelArgsSchema = z.object({
+  customerPhone: z.string().optional(),
+  customerName: z.string().optional(),
+  date: z.string().optional(),
+});
+
+/** Long-form weekday + date label, spoken back to the caller. */
+function formatDay(date: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  }).format(date);
+}
+
+/** A short, speakable list of candidate appointments for disambiguation. */
+function describeMatches(matches: AppointmentMatch[], max = 3): string {
+  return matches
+    .slice(0, max)
+    .map((m) => `${formatDay(m.startsAt, m.timezone)} at ${to12h(m.local.time)}`)
+    .join('; ');
+}
 
 function parseToolArguments(raw: unknown): unknown {
   if (typeof raw !== 'string') return raw ?? {};
@@ -164,6 +204,8 @@ async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolC
     tenantId = settings?.tenantId ?? null;
   }
   const calls = message.toolCallList ?? message.toolCalls ?? [];
+  // The caller's own number, used to find the appointment they want to change.
+  const callerNumber = message.call?.customer?.number ?? null;
   const settings = tenantId
     ? await prisma.agentSettings.findUnique({ where: { tenantId } })
     : null;
@@ -270,6 +312,71 @@ async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolC
           day: 'numeric',
         }).format(appointment.startsAt);
         result = `Booked: ${appointment.customerName} on ${dayLabel} at ${to12h(local.time)}. Confirm this with the caller.`;
+      } else if (name === 'findAppointment') {
+        const a = FindAppointmentArgsSchema.parse(args);
+        const matches = await findUpcomingAppointments({
+          tenantId,
+          timezone: settings.timezone,
+          phone: a.customerPhone ?? callerNumber,
+          name: a.customerName ?? null,
+          date: a.date ?? null,
+          demoSessionId,
+        });
+        if (matches.length === 0) {
+          result =
+            "I'm not finding an upcoming appointment under that name or number. Could you double-check the name or phone number it's booked under?";
+        } else if (matches.length === 1) {
+          const m = matches[0];
+          result = `I found it — ${m.customerName} on ${formatDay(m.startsAt, m.timezone)} at ${to12h(m.local.time)}${m.reason ? ` for ${m.reason}` : ''}. Would you like to reschedule or cancel it?`;
+        } else {
+          result = `I see a few upcoming appointments: ${describeMatches(matches)}. Which one did you mean?`;
+        }
+      } else if (name === 'rescheduleAppointment') {
+        const a = RescheduleArgsSchema.parse(args);
+        const matches = await findUpcomingAppointments({
+          tenantId,
+          timezone: settings.timezone,
+          phone: a.customerPhone ?? callerNumber,
+          name: a.customerName ?? null,
+          date: a.currentDate ?? null,
+          demoSessionId,
+        });
+        if (matches.length === 0) {
+          result =
+            "I couldn't find that appointment to move. Could you confirm the name or phone number it's booked under?";
+        } else if (matches.length > 1) {
+          result = `There's more than one upcoming appointment (${describeMatches(matches)}). Which one should I move?`;
+        } else {
+          const updated = await updateAppointment(
+            tenantId,
+            matches[0].id,
+            { date: a.date, time: a.time },
+            settings.businessHours,
+          );
+          const moved = utcToZonedParts(updated.startsAt, updated.timezone);
+          result = `All set — I moved it to ${formatDay(updated.startsAt, updated.timezone)} at ${to12h(moved.time)}. Confirm that back to the caller.`;
+        }
+      } else if (name === 'cancelAppointment') {
+        const a = CancelArgsSchema.parse(args);
+        const matches = await findUpcomingAppointments({
+          tenantId,
+          timezone: settings.timezone,
+          phone: a.customerPhone ?? callerNumber,
+          name: a.customerName ?? null,
+          date: a.date ?? null,
+          demoSessionId,
+        });
+        if (matches.length === 0) {
+          result =
+            "I'm not finding an upcoming appointment to cancel under that name or number. Could you confirm the details?";
+        } else if (matches.length > 1) {
+          result = `There's more than one upcoming appointment (${describeMatches(matches)}). Which one should I cancel?`;
+        } else {
+          const m = matches[0];
+          // Status-only cancel; no time validation, so business hours are unused.
+          await updateAppointment(tenantId, m.id, { status: 'CANCELLED' }, null);
+          result = `Done — I've cancelled the appointment on ${formatDay(m.startsAt, m.timezone)} at ${to12h(m.local.time)}. Is there anything else I can help with?`;
+        }
       } else {
         result = `Unknown tool ${name || '(unnamed)'}.`;
       }
