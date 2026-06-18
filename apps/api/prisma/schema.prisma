@@ -63,6 +63,13 @@ model Tenant {
   /// answering until the month rolls over (or the operator raises the cap for
   /// a higher tier). Enforced per call in the assistant-request webhook.
   monthlyMinuteLimit Int                @default(500) @map("monthly_minute_limit")
+  /// Operator entitlement: when true the receptionist books across multiple
+  /// Providers/Services; when false it's a single shared calendar (the simple
+  /// case) regardless of any Providers defined. Set by the platform admin.
+  multiProviderEnabled  Boolean         @default(false) @map("multi_provider_enabled")
+  /// When true, the customer may flip `multiProviderEnabled` themselves from
+  /// their dashboard; otherwise only the platform admin controls it.
+  multiProviderSelfManage Boolean       @default(false) @map("multi_provider_self_manage")
   createdAt          DateTime           @default(now()) @map("created_at")
   updatedAt          DateTime           @updatedAt @map("updated_at")
 
