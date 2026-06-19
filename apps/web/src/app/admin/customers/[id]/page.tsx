@@ -10,6 +10,7 @@ import { useToast } from '@/components/ui/Toast';
 import { Badge, Card, CardHeader, CallStatusBadge, EmptyState } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input, Select } from '@/components/ui/Field';
+import { Toggle } from '@/components/ui/Toggle';
 import { Spinner } from '@/components/ui/Spinner';
 import { VoicePreviewButton } from '@/components/agent/VoicePreviewButton';
 import { sampleUrlFor } from '@/domain/voice-catalog';
@@ -445,6 +446,43 @@ export default function AdminCustomerDetailPage() {
             Add
           </Button>
         </div>
+      </Card>
+
+      {/* Booking mode — multi-provider entitlement (full-admin only) */}
+      <Card>
+        <CardHeader
+          title="Booking mode"
+          description="Choose how this customer's receptionist schedules — a simple single calendar, or multiple providers and services."
+        />
+        {isFullAdmin ? (
+          <div className="flex flex-col divide-y divide-line/60">
+            <div className="pb-4">
+              <Toggle
+                checked={tenant.multiProviderEnabled}
+                disabled={busy !== null}
+                onChange={(next) => patch({ multiProviderEnabled: next })}
+                label="Multi-provider booking"
+                description="Books across multiple providers and services (first-available, or a named request). Off = one shared calendar."
+              />
+            </div>
+            <div className="pt-4">
+              <Toggle
+                checked={tenant.multiProviderSelfManage}
+                disabled={busy !== null}
+                onChange={(next) => patch({ multiProviderSelfManage: next })}
+                label="Let the customer manage it"
+                description="Adds the on/off switch to their own dashboard so they can turn multi-provider on or off themselves."
+              />
+            </div>
+          </div>
+        ) : (
+          <p className="rounded-xl border border-line/70 bg-paper/60 px-4 py-3 text-sm text-ink-muted">
+            Multi-provider booking is{' '}
+            <span className="font-medium text-ink">{tenant.multiProviderEnabled ? 'on' : 'off'}</span> for this
+            customer{tenant.multiProviderSelfManage ? ', and they can manage it themselves' : ''}. A full admin can
+            change this.
+          </p>
+        )}
       </Card>
 
       <div className="grid gap-6 lg:grid-cols-3">
