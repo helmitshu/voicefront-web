@@ -754,6 +754,30 @@ export const ProvidersApi = {
   deleteService: (id: string) => api<{ ok: true }>(`/api/providers/services/${id}`, { method: 'DELETE' }),
 };
 
+/* ---------------------------------- SMS ---------------------------------- */
+
+export interface SmsSettings {
+  enabled: boolean;
+  confirmation: boolean;
+  reminder24h: boolean;
+  reminder1h: boolean;
+  confirmationTemplate: string;
+  reminder24hTemplate: string;
+  reminder1hTemplate: string;
+}
+
+export interface SmsSettingsResponse {
+  /** True when the platform operator has configured Twilio credentials. */
+  available: boolean;
+  settings: SmsSettings;
+}
+
+export const SmsApi = {
+  getSettings: () => api<SmsSettingsResponse>('/api/sms/settings'),
+  updateSettings: (patch: Partial<SmsSettings>) =>
+    api<{ ok: true }>('/api/sms/settings', { method: 'PATCH', body: patch }),
+};
+
 export const CallsApi = {
   list: (params: { page?: number; perPage?: number; search?: string; sinceDays?: number }, signal?: AbortSignal) => {
     const query = new URLSearchParams();

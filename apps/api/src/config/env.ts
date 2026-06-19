@@ -34,6 +34,14 @@ const EnvSchema = z.object({
   RAILWAY_PUBLIC_DOMAIN: z.string().optional(),
   MEDIA_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(300),
   /**
+   * Twilio credentials for outbound SMS (confirmations + reminders).
+   * All three must be set for SMS to be active. Optional — when unset the SMS
+   * feature is silently disabled and no messages are sent.
+   */
+  TWILIO_ACCOUNT_SID: z.string().optional(),
+  TWILIO_AUTH_TOKEN: z.string().optional(),
+  TWILIO_FROM_NUMBER: z.string().optional(),
+  /**
    * Comma-separated emails granted the founder admin panel (/admin).
    * These accounts see and control every workspace on the platform.
    */

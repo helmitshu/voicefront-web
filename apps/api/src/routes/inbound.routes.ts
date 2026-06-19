@@ -20,6 +20,7 @@ import {
 import { getOrCreateDemoTenant, captureDemoCall, setDemoScreen, setDemoSummary } from '../services/demo.service';
 import { founderAvailability, bookFounderCall } from '../services/founder.service';
 import { resolveBookingContext } from '../services/providers.service';
+import { sendBookingConfirmation } from '../services/sms.service';
 
 /**
  * Provider webhook. Two jobs:
@@ -331,6 +332,7 @@ async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolC
           serviceId: ctx?.serviceId ?? null,
           durationMinutes: ctx?.durationMinutes ?? undefined,
         });
+        void sendBookingConfirmation(appointment.id).catch(() => {});
         const local = utcToZonedParts(appointment.startsAt, appointment.timezone);
         const dayLabel = new Intl.DateTimeFormat('en-US', {
           timeZone: appointment.timezone,

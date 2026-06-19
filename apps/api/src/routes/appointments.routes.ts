@@ -12,6 +12,7 @@ import {
 } from '../services/appointment.service';
 import { E164_REGEX, normalizePhone } from '../lib/phone';
 import { bookingContextByIds } from '../services/providers.service';
+import { sendBookingConfirmation } from '../services/sms.service';
 
 export const appointmentsRouter = Router();
 appointmentsRouter.use(requireAuth);
@@ -151,6 +152,7 @@ appointmentsRouter.post(
       candidateProviderIds: ctx?.candidateProviderIds,
       serviceId: ctx?.serviceId ?? null,
     });
+    void sendBookingConfirmation(appointment.id).catch(() => {});
     res.status(201).json({ appointment: toDto(appointment) });
   }),
 );

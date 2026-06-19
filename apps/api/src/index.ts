@@ -1,11 +1,13 @@
 import { createApp } from './app';
 import { env } from './config/env';
 import { prisma } from './lib/prisma';
+import { startReminderJob } from './jobs/reminder.job';
 
 const app = createApp();
 
 const server = app.listen(env.PORT, () => {
   console.log(`✔ VoiceFront API listening on http://localhost:${env.PORT}`);
+  startReminderJob();
 });
 
 // Belt-and-braces: every route is wrapped in asyncHandler, but anything that

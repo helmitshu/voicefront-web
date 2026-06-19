@@ -150,6 +150,25 @@ model AgentSettings {
   /// qualified provider and only honor a specific request if the caller names
   /// someone. Ignored for single-provider (or no-provider) businesses.
   offerProviderChoice Boolean @default(false) @map("offer_provider_choice")
+
+  // ── SMS notifications ────────────────────────────────────────────────────
+  /// Master switch. SMS only fires when the platform has Twilio configured AND
+  /// this is true. Tenants opt in — default off so nobody gets surprise texts.
+  smsEnabled              Boolean  @default(false) @map("sms_enabled")
+  /// Send a confirmation SMS immediately after a booking is made.
+  smsConfirmation         Boolean  @default(true)  @map("sms_confirmation")
+  /// Send a reminder SMS 24 hours before the appointment.
+  smsReminder24h          Boolean  @default(true)  @map("sms_reminder_24h")
+  /// Send a reminder SMS 1 hour before the appointment.
+  smsReminder1h           Boolean  @default(false) @map("sms_reminder_1h")
+  /// Custom confirmation message. Null = use platform default.
+  /// Variables: {customerName} {businessName} {date} {time}
+  smsConfirmationTemplate String?  @db.Text @map("sms_confirmation_template")
+  /// Custom 24-hour reminder message. Null = use platform default.
+  smsReminder24hTemplate  String?  @db.Text @map("sms_reminder_24h_template")
+  /// Custom 1-hour reminder message. Null = use platform default.
+  smsReminder1hTemplate   String?  @db.Text @map("sms_reminder_1h_template")
+
   updatedAt          DateTime @updatedAt @map("updated_at")
 
   @@map("agent_settings")
@@ -230,6 +249,10 @@ model Appointment {
   /// Set only for the public landing-page demo: isolates each visitor's
   /// throwaway bookings under the shared demo tenant. Null for real bookings.
   demoSessionId String?           @map("demo_session_id")
+  // ── SMS sent timestamps (null = not yet sent) ────────────────────────────
+  confirmationSentAt DateTime?     @map("confirmation_sent_at")
+  reminder24hSentAt  DateTime?     @map("reminder_24h_sent_at")
+  reminder1hSentAt   DateTime?     @map("reminder_1h_sent_at")
   createdAt     DateTime          @default(now()) @map("created_at")
   updatedAt     DateTime          @updatedAt @map("updated_at")
 
@@ -409,6 +432,22 @@ model DemoLead {
   @@index([demoSessionId])
   @@index([createdAt(sort: Desc)])
   @@map("demo_leads")
+}
+
+/// Phones that replied STOP to a tenant's SMS. Checked before every outbound
+/// SMS to that tenant — once opted out, no more texts until they reply START.
+/// Twilio auto-handles the STOP/START reply flow; we mirror it here so our
+/// cron job doesn't retry opted-out numbers before Twilio's webhook fires.
+model SmsOptOut {
+  id        String   @id @default(cuid())
+  /// E.164 phone number that opted out.
+  phone     String
+  tenantId  String   @map("tenant_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([phone, tenantId])
+  @@index([tenantId])
+  @@map("sms_opt_outs")
 }
 
 model DemoCall {
