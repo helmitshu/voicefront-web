@@ -16,11 +16,13 @@ const DEFAULT_TEMPLATES = {
     'Reminder: You have an appointment at {businessName} tomorrow at {time}. Reply STOP to unsubscribe.',
   reminder1hTemplate:
     'Your {businessName} appointment starts in 1 hour ({time}). Reply STOP to unsubscribe.',
+  waitlistTemplate:
+    'Good news {customerName} — a spot just opened at {businessName} on {date} at {time}. Call us back to grab it before someone else does. Reply STOP to opt out.',
 };
 
 const VARIABLE_CHIPS = ['{customerName}', '{businessName}', '{date}', '{time}'];
 
-type TemplateKey = 'confirmationTemplate' | 'reminder24hTemplate' | 'reminder1hTemplate';
+type TemplateKey = 'confirmationTemplate' | 'reminder24hTemplate' | 'reminder1hTemplate' | 'waitlistTemplate';
 
 interface TemplateSectionProps {
   label: string;
@@ -209,6 +211,17 @@ export function SmsSettingsCard() {
                     disabled={readOnly}
                   />
                 </div>
+                <div className="flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-ink">Waitlist opening alert</p>
+                    <p className="text-xs text-ink-muted">When a cancellation frees a slot, text the next person waiting.</p>
+                  </div>
+                  <Toggle
+                    checked={draft.waitlist}
+                    onChange={(v) => patch({ waitlist: v })}
+                    disabled={readOnly}
+                  />
+                </div>
               </div>
             </div>
 
@@ -264,6 +277,16 @@ export function SmsSettingsCard() {
                       readOnly={readOnly}
                       defaultValue={DEFAULT_TEMPLATES.reminder1hTemplate}
                       onReset={() => resetTemplate('reminder1hTemplate')}
+                    />
+                  )}
+                  {draft.waitlist && (
+                    <TemplateSection
+                      label="Waitlist opening alert"
+                      value={draft.waitlistTemplate}
+                      onChange={(v) => patch({ waitlistTemplate: v })}
+                      readOnly={readOnly}
+                      defaultValue={DEFAULT_TEMPLATES.waitlistTemplate}
+                      onReset={() => resetTemplate('waitlistTemplate')}
                     />
                   )}
                 </div>

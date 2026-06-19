@@ -14,6 +14,9 @@ export const DEFAULT_REMINDER_24H_TEMPLATE =
 export const DEFAULT_REMINDER_1H_TEMPLATE =
   'Your {businessName} appointment starts in 1 hour ({time}). Reply STOP to unsubscribe.';
 
+export const DEFAULT_WAITLIST_TEMPLATE =
+  'Good news {customerName} — a spot just opened at {businessName} on {date} at {time}. Call us back to grab it before someone else does. Reply STOP to opt out.';
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /** True when all three Twilio credentials are present in the environment. */
@@ -170,4 +173,38 @@ export async function sendReminder(appointmentId: string, type: ReminderType): P
     where: { id: appointmentId },
     data: type === '24h' ? { reminder24hSentAt: new Date() } : { reminder1hSentAt: new Date() },
   });
+}
+
+// ── Waitlist opening ─────────────────────────────────────────────────────────
+
+export interface WaitlistOpeningParams {
+  tenantId: string;
+  phone: string;
+  customerName: string;
+  businessName: string;
+  /** Pre-formatted, in the tenant's locale: long date + 12h time. */
+  date: string;
+  time: string;
+  /** Tenant override, or null to use the platform default. */
+  template: string | null;
+}
+
+/**
+ * Text a waitlisted customer that a slot has opened. Returns true if a message
+ * was actually sent (Twilio configured + not opted out), false otherwise — so
+ * the caller only flips the entry to NOTIFIED when the text really went out.
+ */
+export async function sendWaitlistOpening(params: WaitlistOpeningParams): Promise<boolean> {
+  if (!isSmsAvailable()) return false;
+  if (await isOptedOut(params.phone, params.tenantId)) return false;
+
+  const body = interpolate(params.template ?? DEFAULT_WAITLIST_TEMPLATE, {
+    customerName: params.customerName,
+    businessName: params.businessName,
+    date: params.date,
+    time: params.time,
+  });
+
+  await sendRaw(params.phone, body);
+  return true;
 }

@@ -430,18 +430,32 @@ export async function updateAppointment(
   // no-show) and note tweaks skip the lock entirely.
   const finalStatus = patch.status ?? existing.status;
   const becomesConfirmed = patch.status === 'CONFIRMED' && existing.status !== 'CONFIRMED';
+  const becomesCancelled = patch.status === 'CANCELLED' && existing.status !== 'CANCELLED';
   const needsOverlapCheck = finalStatus === 'CONFIRMED' && (timeChanged || becomesConfirmed);
+
+  let updated: Appointment;
   if (!needsOverlapCheck) {
-    return prisma.appointment.update({ where: { id }, data });
+    updated = await prisma.appointment.update({ where: { id }, data });
+  } else {
+    const { demoSessionId, providerId } = existing;
+    updated = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKeyFor(tenantId, demoSessionId)}))`;
+      // Clash check stays within this appointment's own provider's calendar.
+      await assertSlotFree(tx, { tenantId, demoSessionId, startsAt, endsAt, excludeId: id, providerId });
+      return tx.appointment.update({ where: { id }, data });
+    });
   }
 
-  const { demoSessionId, providerId } = existing;
-  return prisma.$transaction(async (tx) => {
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKeyFor(tenantId, demoSessionId)}))`;
-    // Clash check stays within this appointment's own provider's calendar.
-    await assertSlotFree(tx, { tenantId, demoSessionId, startsAt, endsAt, excludeId: id, providerId });
-    return tx.appointment.update({ where: { id }, data });
-  });
+  // A real (non-demo) cancellation frees a slot — let the next person on the
+  // waitlist know. Fire-and-forget; the dynamic import keeps the service graph
+  // acyclic (appointment → waitlist → sms → appointment).
+  if (becomesCancelled && !updated.demoSessionId) {
+    void import('./waitlist.service')
+      .then((m) => m.notifyWaitlistForOpening(updated))
+      .catch((err) => console.error('[waitlist] opening notification failed', err));
+  }
+
+  return updated;
 }
 
 export interface AppointmentMatch {

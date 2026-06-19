@@ -18,6 +18,7 @@ import { bookingRouter } from './routes/booking.routes';
 import { providersRouter } from './routes/providers.routes';
 import { smsRouter } from './routes/sms.routes';
 import { analyticsRouter } from './routes/analytics.routes';
+import { waitlistRouter } from './routes/waitlist.routes';
 
 export function createApp(): express.Express {
   const app = express();
@@ -52,6 +53,7 @@ export function createApp(): express.Express {
   app.use('/api/providers', providersRouter);
   app.use('/api/sms', smsRouter);
   app.use('/api/analytics', analyticsRouter);
+  app.use('/api/waitlist', waitlistRouter);
   app.use('/api/calls', callsRouter);
   app.use('/api/voice', voiceRouter);
   app.use('/api/media', mediaRouter);

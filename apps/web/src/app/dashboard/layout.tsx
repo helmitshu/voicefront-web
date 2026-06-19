@@ -46,6 +46,17 @@ const NAV = [
     ),
   },
   {
+    href: '/dashboard/waitlist',
+    label: 'Waitlist',
+    exact: false,
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-[18px] w-[18px]">
+        <circle cx="10" cy="10" r="7.5" />
+        <path d="M10 5.5V10l3 1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
     href: '/dashboard/providers',
     label: 'Providers',
     exact: false,

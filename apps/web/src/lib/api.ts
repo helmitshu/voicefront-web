@@ -761,9 +761,11 @@ export interface SmsSettings {
   confirmation: boolean;
   reminder24h: boolean;
   reminder1h: boolean;
+  waitlist: boolean;
   confirmationTemplate: string;
   reminder24hTemplate: string;
   reminder1hTemplate: string;
+  waitlistTemplate: string;
 }
 
 export interface SmsSettingsResponse {
@@ -776,6 +778,39 @@ export const SmsApi = {
   getSettings: () => api<SmsSettingsResponse>('/api/sms/settings'),
   updateSettings: (patch: Partial<SmsSettings>) =>
     api<{ ok: true }>('/api/sms/settings', { method: 'PATCH', body: patch }),
+};
+
+/* -------------------------------- waitlist -------------------------------- */
+
+export type WaitlistStatus = 'WAITING' | 'NOTIFIED' | 'CONVERTED' | 'CANCELLED';
+
+export interface WaitlistEntry {
+  id: string;
+  customerName: string;
+  customerPhone: string;
+  providerId: string | null;
+  serviceId: string | null;
+  note: string | null;
+  status: WaitlistStatus;
+  notifiedAt: string | null;
+  createdAt: string;
+}
+
+export const WaitlistApi = {
+  list: (status?: WaitlistStatus, signal?: AbortSignal) => {
+    const qs = status ? `?status=${status}` : '';
+    return api<{ waitlist: WaitlistEntry[] }>(`/api/waitlist${qs}`, { signal });
+  },
+  create: (input: {
+    customerName: string;
+    customerPhone: string;
+    providerId?: string | null;
+    serviceId?: string | null;
+    note?: string | null;
+  }) => api<{ entry: WaitlistEntry }>('/api/waitlist', { method: 'POST', body: input }),
+  setStatus: (id: string, status: WaitlistStatus) =>
+    api<{ entry: WaitlistEntry }>(`/api/waitlist/${id}`, { method: 'PATCH', body: { status } }),
+  remove: (id: string) => api<void>(`/api/waitlist/${id}`, { method: 'DELETE' }),
 };
 
 export const CallsApi = {

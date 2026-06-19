@@ -45,6 +45,17 @@ enum AppointmentSource {
   MANUAL
 }
 
+enum WaitlistStatus {
+  /// Still waiting for a slot to open.
+  WAITING
+  /// We texted them about an opening; awaiting their move.
+  NOTIFIED
+  /// They booked (manually marked, or a later booking matched).
+  CONVERTED
+  /// Removed by staff or aged out.
+  CANCELLED
+}
+
 model Tenant {
   id                 String             @id @default(cuid())
   companyName        String             @map("company_name")
@@ -81,6 +92,7 @@ model Tenant {
   documents     Document[]
   providers     Provider[]
   services      Service[]
+  waitlist      Waitlist[]
 
   @@map("tenants")
 }
@@ -168,6 +180,10 @@ model AgentSettings {
   smsReminder24hTemplate  String?  @db.Text @map("sms_reminder_24h_template")
   /// Custom 1-hour reminder message. Null = use platform default.
   smsReminder1hTemplate   String?  @db.Text @map("sms_reminder_1h_template")
+  /// Text the next person on the waitlist when a slot opens (a cancellation).
+  smsWaitlist             Boolean  @default(true)  @map("sms_waitlist")
+  /// Custom waitlist-opening message. Null = use platform default.
+  smsWaitlistTemplate     String?  @db.Text @map("sms_waitlist_template")
 
   updatedAt          DateTime @updatedAt @map("updated_at")
 
@@ -190,6 +206,7 @@ model Provider {
   /// Services this provider is qualified to perform. Empty = can do any service.
   services     Service[]     @relation("ProviderServices")
   appointments Appointment[]
+  waitlist     Waitlist[]
   createdAt    DateTime      @default(now()) @map("created_at")
   updatedAt    DateTime      @updatedAt @map("updated_at")
 
@@ -212,6 +229,7 @@ model Service {
   /// Providers qualified for this service. Empty = any active provider.
   providers       Provider[]    @relation("ProviderServices")
   appointments    Appointment[]
+  waitlist        Waitlist[]
   createdAt       DateTime      @default(now()) @map("created_at")
   updatedAt       DateTime      @updatedAt @map("updated_at")
 
@@ -260,6 +278,37 @@ model Appointment {
   @@index([providerId])
   @@index([demoSessionId])
   @@map("appointments")
+}
+
+/// Someone who wanted an appointment when nothing suitable was open. When a
+/// CONFIRMED appointment is cancelled, a slot opens — the oldest WAITING entry
+/// that matches (same provider, or any) is texted that a spot is available and
+/// flipped to NOTIFIED. Staff add entries by hand from the dashboard; the voice
+/// agent can populate it later. Requires a phone number — the whole point is to
+/// reach back out.
+model Waitlist {
+  id            String         @id @default(cuid())
+  tenantId      String         @map("tenant_id")
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerName  String         @map("customer_name")
+  customerPhone String         @map("customer_phone")
+  /// Optional: they want a specific provider. Null = any provider is fine.
+  providerId    String?        @map("provider_id")
+  provider      Provider?      @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  /// Optional: the service they want (sets duration when they eventually book).
+  serviceId     String?        @map("service_id")
+  service       Service?       @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  /// Free-text of what they're after ("any morning next week", "after 5pm").
+  note          String?        @db.Text
+  status        WaitlistStatus @default(WAITING)
+  /// When we last texted them about an opening.
+  notifiedAt    DateTime?      @map("notified_at")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  @@index([tenantId, status])
+  @@index([providerId])
+  @@map("waitlist")
 }
 
 /// A business document the tenant uploaded to power the voice agent's

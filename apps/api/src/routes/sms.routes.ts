@@ -9,6 +9,7 @@ import {
   DEFAULT_CONFIRMATION_TEMPLATE,
   DEFAULT_REMINDER_24H_TEMPLATE,
   DEFAULT_REMINDER_1H_TEMPLATE,
+  DEFAULT_WAITLIST_TEMPLATE,
 } from '../services/sms.service';
 
 export const smsRouter = Router();
@@ -30,6 +31,8 @@ smsRouter.get(
         smsConfirmationTemplate: true,
         smsReminder24hTemplate: true,
         smsReminder1hTemplate: true,
+        smsWaitlist: true,
+        smsWaitlistTemplate: true,
       },
     });
     if (!settings) throw new HttpError(409, 'Settings missing.', 'SETTINGS_MISSING');
@@ -40,9 +43,11 @@ smsRouter.get(
         confirmation: settings.smsConfirmation,
         reminder24h: settings.smsReminder24h,
         reminder1h: settings.smsReminder1h,
+        waitlist: settings.smsWaitlist,
         confirmationTemplate: settings.smsConfirmationTemplate ?? DEFAULT_CONFIRMATION_TEMPLATE,
         reminder24hTemplate: settings.smsReminder24hTemplate ?? DEFAULT_REMINDER_24H_TEMPLATE,
         reminder1hTemplate: settings.smsReminder1hTemplate ?? DEFAULT_REMINDER_1H_TEMPLATE,
+        waitlistTemplate: settings.smsWaitlistTemplate ?? DEFAULT_WAITLIST_TEMPLATE,
       },
     });
   }),
@@ -54,9 +59,11 @@ const SmsPatchSchema = z
     confirmation: z.boolean(),
     reminder24h: z.boolean(),
     reminder1h: z.boolean(),
+    waitlist: z.boolean(),
     confirmationTemplate: z.string().trim().min(10).max(320),
     reminder24hTemplate: z.string().trim().min(10).max(320),
     reminder1hTemplate: z.string().trim().min(10).max(320),
+    waitlistTemplate: z.string().trim().min(10).max(320),
   })
   .partial()
   .refine((v) => Object.keys(v).length > 0, { message: 'Nothing to update.' });
@@ -76,6 +83,7 @@ smsRouter.patch(
         ...(patch.confirmation !== undefined && { smsConfirmation: patch.confirmation }),
         ...(patch.reminder24h !== undefined && { smsReminder24h: patch.reminder24h }),
         ...(patch.reminder1h !== undefined && { smsReminder1h: patch.reminder1h }),
+        ...(patch.waitlist !== undefined && { smsWaitlist: patch.waitlist }),
         // Store null when the tenant resets to the platform default.
         ...(patch.confirmationTemplate !== undefined && {
           smsConfirmationTemplate:
@@ -94,6 +102,10 @@ smsRouter.patch(
             patch.reminder1hTemplate === DEFAULT_REMINDER_1H_TEMPLATE
               ? null
               : patch.reminder1hTemplate,
+        }),
+        ...(patch.waitlistTemplate !== undefined && {
+          smsWaitlistTemplate:
+            patch.waitlistTemplate === DEFAULT_WAITLIST_TEMPLATE ? null : patch.waitlistTemplate,
         }),
       },
     });
