@@ -23,6 +23,17 @@ const NAV = [
     ),
   },
   {
+    href: '/dashboard/analytics',
+    label: 'Analytics',
+    exact: false,
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-[18px] w-[18px]">
+        <path d="M3 17V3M3 17h14" strokeLinecap="round" />
+        <path d="M6.5 13.5l3-3.5 2.5 2 3.5-5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
     href: '/dashboard/calendar',
     label: 'Calendar',
     exact: false,

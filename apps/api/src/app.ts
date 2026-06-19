@@ -17,6 +17,7 @@ import { demoRouter } from './routes/demo.routes';
 import { bookingRouter } from './routes/booking.routes';
 import { providersRouter } from './routes/providers.routes';
 import { smsRouter } from './routes/sms.routes';
+import { analyticsRouter } from './routes/analytics.routes';
 
 export function createApp(): express.Express {
   const app = express();
@@ -50,6 +51,7 @@ export function createApp(): express.Express {
   app.use('/api/appointments', appointmentsRouter);
   app.use('/api/providers', providersRouter);
   app.use('/api/sms', smsRouter);
+  app.use('/api/analytics', analyticsRouter);
   app.use('/api/calls', callsRouter);
   app.use('/api/voice', voiceRouter);
   app.use('/api/media', mediaRouter);

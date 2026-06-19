@@ -792,6 +792,26 @@ export const CallsApi = {
   detail: (id: string) => api<{ call: CallDetailDto; mediaToken: string | null }>(`/api/calls/${id}`),
 };
 
+/* -------------------------------- analytics ------------------------------- */
+
+export interface AnalyticsOverview {
+  rangeDays: number;
+  totalCalls: number;
+  totalBookings: number;
+  bookingsBySource: { voice: number; manual: number };
+  bookingsByStatus: { confirmed: number; completed: number; cancelled: number; noShow: number };
+  noShowRate: number;
+  conversionRate: number;
+  daily: { date: string; calls: number; bookings: number }[];
+  byHour: { hour: number; bookings: number }[];
+  byWeekday: { weekday: number; bookings: number }[];
+}
+
+export const AnalyticsApi = {
+  overview: (days = 30, signal?: AbortSignal) =>
+    api<{ overview: AnalyticsOverview }>(`/api/analytics/overview?days=${days}`, { signal }),
+};
+
 /* ---------------------------- public demo (no auth) ---------------------- */
 
 export type DemoIndustry = 'clinic' | 'contractor' | 'other';
