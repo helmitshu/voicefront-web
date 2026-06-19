@@ -330,6 +330,8 @@ export interface AppointmentDto {
   status: AppointmentStatus;
   source: 'VOICE_AGENT' | 'MANUAL';
   notes: string | null;
+  /** Provider this appointment is with; null for single-resource/unassigned. */
+  providerId: string | null;
   createdAt: string;
 }
 
@@ -416,6 +418,10 @@ export interface AdminTenantDetail {
   monthlyMinuteLimit: number;
   usage: MonthlyUsage;
   blocked: boolean;
+  /** Operator entitlement: multi-provider booking on/off for this customer. */
+  multiProviderEnabled: boolean;
+  /** Whether the customer may flip multiProviderEnabled themselves. */
+  multiProviderSelfManage: boolean;
   createdAt: string;
   receptionistActive: boolean;
   settings: {
@@ -484,6 +490,8 @@ export const AdminApi = {
       markupBps: number;
       monthlyMinuteLimit: number;
       blocked: boolean;
+      multiProviderEnabled: boolean;
+      multiProviderSelfManage: boolean;
     }>,
   ) => api<{ ok: true }>(`/api/admin/tenants/${id}`, { method: 'PATCH', body: patch }),
   /** Create a whole workspace (tenant + owner login). Returns a one-time owner password. */
@@ -671,6 +679,10 @@ export const AppointmentsApi = {
     date: string;
     time: string;
     durationMinutes?: number;
+    /** Multi-provider only: book a specific provider (omit for first-available). */
+    providerId?: string | null;
+    /** Multi-provider only: the service type (sets the length). */
+    serviceId?: string | null;
   }) => api<{ appointment: AppointmentDto }>('/api/appointments', { method: 'POST', body: input }),
   update: (
     id: string,
@@ -682,6 +694,64 @@ export const AppointmentsApi = {
       notes: string | null;
     }>,
   ) => api<{ appointment: AppointmentDto }>(`/api/appointments/${id}`, { method: 'PATCH', body: patch }),
+};
+
+/* ----------------------------- providers/services ----------------------------- */
+
+export interface ProviderDto {
+  id: string;
+  name: string;
+  title: string | null;
+  active: boolean;
+  /** Services this provider can perform; empty = any service. */
+  serviceIds: string[];
+}
+export interface ServiceDto {
+  id: string;
+  name: string;
+  durationMinutes: number;
+  description: string | null;
+  active: boolean;
+  /** Providers qualified for this service; empty = any provider. */
+  providerIds: string[];
+}
+export interface ProvidersConfig {
+  /** Operator entitlement: is multi-provider mode on for this tenant. */
+  enabled: boolean;
+  /** Whether the customer may flip `enabled` from their dashboard. */
+  selfManage: boolean;
+  /** Proactively offer the provider list vs. book first-available. */
+  offerProviderChoice: boolean;
+}
+export interface ProvidersResponse {
+  providers: ProviderDto[];
+  services: ServiceDto[];
+  config: ProvidersConfig;
+}
+
+export type ProviderInput = { name: string; title?: string | null; active?: boolean; serviceIds?: string[] };
+export type ServiceInput = {
+  name: string;
+  durationMinutes: number;
+  description?: string | null;
+  active?: boolean;
+  providerIds?: string[];
+};
+
+export const ProvidersApi = {
+  list: (signal?: AbortSignal) => api<ProvidersResponse>('/api/providers', { signal }),
+  setConfig: (patch: Partial<Pick<ProvidersConfig, 'enabled' | 'offerProviderChoice'>>) =>
+    api<{ ok: true }>('/api/providers/config', { method: 'PATCH', body: patch }),
+  createProvider: (input: ProviderInput) =>
+    api<{ provider: ProviderDto }>('/api/providers', { method: 'POST', body: input }),
+  updateProvider: (id: string, patch: Partial<ProviderInput>) =>
+    api<{ provider: ProviderDto }>(`/api/providers/${id}`, { method: 'PATCH', body: patch }),
+  deleteProvider: (id: string) => api<{ ok: true }>(`/api/providers/${id}`, { method: 'DELETE' }),
+  createService: (input: ServiceInput) =>
+    api<{ service: ServiceDto }>('/api/providers/services', { method: 'POST', body: input }),
+  updateService: (id: string, patch: Partial<ServiceInput>) =>
+    api<{ service: ServiceDto }>(`/api/providers/services/${id}`, { method: 'PATCH', body: patch }),
+  deleteService: (id: string) => api<{ ok: true }>(`/api/providers/services/${id}`, { method: 'DELETE' }),
 };
 
 export const CallsApi = {

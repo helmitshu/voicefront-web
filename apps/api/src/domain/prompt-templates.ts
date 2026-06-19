@@ -86,6 +86,15 @@ function constructionDefaults({ companyName, personaName }: TemplateInput): Indu
   };
 }
 
+export interface ProviderInfo {
+  name: string;
+  title?: string | null;
+}
+export interface ServiceInfo {
+  name: string;
+  durationMinutes: number;
+}
+
 export interface ComposeContext {
   companyName: string;
   basePrompt: string;
@@ -96,6 +105,56 @@ export interface ComposeContext {
   forwardingNumbers: ForwardingNumber[];
   /** Tenant-local "today" as YYYY-MM-DD plus weekday, for date math in booking. */
   localToday?: { date: string; weekday: string };
+  /** Multi-provider mode only: the bookable people (2+ activates the section). */
+  providers?: ProviderInfo[];
+  services?: ServiceInfo[];
+  /** When true, proactively offer the provider list; else book first-available. */
+  offerProviderChoice?: boolean;
+}
+
+/**
+ * Prompt block for businesses with multiple providers. Encodes the
+ * "first-available by default, honor a request if the caller makes one" policy
+ * so a new caller is never forced to pick a name they don't know — while a
+ * caller who wants a specific person (or service) gets routed correctly.
+ */
+export function providerDiscipline(
+  providers: ProviderInfo[],
+  services: ServiceInfo[],
+  offerProviderChoice: boolean,
+): string {
+  const lines = [
+    'PROVIDERS & SERVICES:',
+    'This business has more than one provider. The people who can be booked:',
+    providers.map((p) => `- ${p.title ? `${p.title} ` : ''}${p.name}`).join('\n'),
+  ];
+  if (services.length > 0) {
+    lines.push(
+      '',
+      'Services offered (each has its own length):',
+      services.map((s) => `- ${s.name} (about ${s.durationMinutes} minutes)`).join('\n'),
+    );
+  }
+  lines.push('', 'MATCHING A CALLER TO A PROVIDER:');
+  if (offerProviderChoice) {
+    lines.push(
+      '- Offer the list above and ask if they have a preference on who they see. If they don\'t mind, just book the first available.',
+    );
+  } else {
+    lines.push(
+      '- Do NOT ask which provider unless the caller brings it up. Most callers — especially new ones — don\'t know or care, so just book the first available and keep things moving.',
+    );
+  }
+  lines.push(
+    '- If the caller DOES ask for a specific person ("I\'d like Dr. Smith", "the same stylist as last time"), pass that name as providerName to checkAvailability and bookAppointment.',
+  );
+  if (services.length > 0) {
+    lines.push(
+      '- If the caller says what kind of visit it is (e.g. "a cleaning"), pass it as serviceName so the right length and the right provider are used. If they don\'t, a standard appointment is fine.',
+    );
+  }
+  lines.push("- You may mention who the appointment is with when confirming, but never force the caller to choose.");
+  return lines.join('\n');
 }
 
 /**
@@ -200,6 +259,10 @@ export function composeSystemPrompt(ctx: ComposeContext): string {
         bookingDiscipline(ctx.timezone),
       ].join('\n'),
     );
+  }
+
+  if (ctx.providers && ctx.providers.length > 1) {
+    sections.push(providerDiscipline(ctx.providers, ctx.services ?? [], ctx.offerProviderChoice ?? false));
   }
 
   sections.push(ENDING_THE_CALL);

@@ -4,7 +4,10 @@ import {
   PERSONA_VOICE_LAYER,
   bookingDiscipline,
   composeSystemPrompt,
+  providerDiscipline,
   ENDING_THE_CALL,
+  type ProviderInfo,
+  type ServiceInfo,
 } from './prompt-templates';
 import { utcToZonedParts } from '../services/appointment.service';
 
@@ -225,8 +228,8 @@ function buildCallSummaryTool(): FunctionTool {
 }
 
 /** Booking tools handled by our webhook (`tool-calls` messages). */
-function buildBookingTools(): FunctionTool[] {
-  return [
+function buildBookingTools(opts: { multiProvider?: boolean } = {}): FunctionTool[] {
+  const tools: FunctionTool[] = [
     {
       type: 'function',
       async: false,
@@ -356,6 +359,30 @@ function buildBookingTools(): FunctionTool[] {
       },
     },
   ];
+
+  // Multi-provider businesses: let the agent pass an optional provider and/or
+  // service on availability checks and bookings (defaults to first-available).
+  if (opts.multiProvider) {
+    const providerParams: Record<string, { type: string; description: string }> = {
+      providerName: {
+        type: 'string',
+        description:
+          'Only when the caller asks for a specific provider by name — otherwise omit and the first available is booked.',
+      },
+      serviceName: {
+        type: 'string',
+        description:
+          "The kind of appointment the caller wants (e.g. 'cleaning', 'consultation'), if they say it — sets the length and the eligible provider.",
+      },
+    };
+    for (const tool of tools) {
+      if (tool.function.name === 'checkAvailability' || tool.function.name === 'bookAppointment') {
+        Object.assign(tool.function.parameters.properties, providerParams);
+      }
+    }
+  }
+
+  return tools;
 }
 
 /**
@@ -435,6 +462,12 @@ export function buildTransientAssistant(
     transcriberKeywords?: string[];
     /** Replace the default end-of-call summary prompt (sales-demo recap). */
     summaryPrompt?: string;
+    /** Multi-provider mode: bookable providers/services + matching policy. When
+     *  2+ providers are present the prompt lists them and the booking tools gain
+     *  optional providerName/serviceName params. */
+    providers?: ProviderInfo[];
+    services?: ServiceInfo[];
+    offerProviderChoice?: boolean;
   } = {},
 ): TransientAssistant {
   const businessHours = parseBusinessHours(settings.businessHours);
@@ -460,11 +493,15 @@ export function buildTransientAssistant(
         voicemailGreeting: settings.voicemailGreeting,
         forwardingNumbers,
         localToday: { date: local.date, weekday },
+        providers: options.providers,
+        services: options.services,
+        offerProviderChoice: options.offerProviderChoice,
       }),
       ...(knowledgeTool ? ['', KNOWLEDGE_PROMPT] : []),
     ].join('\n');
 
-  const tools: Array<TransferCallTool | FunctionTool | QueryTool> = [...buildBookingTools()];
+  const multiProvider = (options.providers?.length ?? 0) > 1;
+  const tools: Array<TransferCallTool | FunctionTool | QueryTool> = [...buildBookingTools({ multiProvider })];
   if (options.includeFounderBooking) tools.push(...buildFounderBookingTools());
   if (options.includeScreenControl) tools.push(buildScreenControlTool(), buildCallSummaryTool());
   if (knowledgeTool) tools.push(knowledgeTool);
@@ -578,11 +615,21 @@ export function buildTransientAssistant(
 export function buildAssistantUpdatePayload(
   tenant: Pick<Tenant, 'id' | 'companyName'>,
   settings: AgentSettings,
-  options: { serverUrl?: string; serverSecret?: string; knowledgeFileIds?: string[] } = {},
+  options: {
+    serverUrl?: string;
+    serverSecret?: string;
+    knowledgeFileIds?: string[];
+    /** Multi-provider mode (2+ providers): listed in the prompt + booking tools
+     *  gain providerName/serviceName, mirroring the transient assistant. */
+    providers?: ProviderInfo[];
+    services?: ServiceInfo[];
+    offerProviderChoice?: boolean;
+  } = {},
 ): TransientAssistant {
   const businessHours = parseBusinessHours(settings.businessHours);
   const forwardingNumbers = parseForwardingNumbers(settings.forwardingNumbers);
   const knowledgeTool = buildKnowledgeTool(tenant.companyName, options.knowledgeFileIds ?? []);
+  const multiProvider = (options.providers?.length ?? 0) > 1;
 
   const directory =
     forwardingNumbers.length > 0
@@ -622,11 +669,14 @@ export function buildAssistantUpdatePayload(
     '',
     bookingDiscipline(tz),
     '',
+    ...(multiProvider
+      ? [providerDiscipline(options.providers!, options.services ?? [], options.offerProviderChoice ?? false), '']
+      : []),
     ENDING_THE_CALL,
     ...(knowledgeTool ? ['', KNOWLEDGE_PROMPT] : []),
   ].join('\n');
 
-  const tools: Array<TransferCallTool | FunctionTool | QueryTool> = [...buildBookingTools()];
+  const tools: Array<TransferCallTool | FunctionTool | QueryTool> = [...buildBookingTools({ multiProvider })];
   if (knowledgeTool) tools.push(knowledgeTool);
   if (forwardingNumbers.length > 0) {
     tools.push({

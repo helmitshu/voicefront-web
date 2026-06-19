@@ -98,7 +98,7 @@ CI (`.github/workflows/ci.yml`) runs typecheck + unit tests + build, plus the in
 
 ### Multi-tenant data model (Prisma)
 
-`Tenant` (company, industry `CLINIC|CONSTRUCTION`, unique white-label `slug`, `subscriptionStatus`, `markupBps`) → `User` (bcrypt-hashed password, role `OWNER|MANAGER|AGENT`), `OnboardingStatus` (state machine flags + `isActive`), `AgentSettings` (system prompt, greeting, voicemail, business hours JSON, dynamic forwarding numbers, masked inbound number), `CallLog` (provider cost **and** billed cost, AI summary, transcript, recording URL — provider fields never leave the server).
+`Tenant` (company, industry `CLINIC|CONSTRUCTION`, unique white-label `slug`, `subscriptionStatus`, `markupBps`, `multiProviderEnabled`, `multiProviderSelfManage`) → `User` (bcrypt-hashed password, role `OWNER|MANAGER|AGENT`), `OnboardingStatus` (state machine flags + `isActive`), `AgentSettings` (system prompt, greeting, voicemail, business hours JSON, dynamic forwarding numbers, masked inbound number, `offerProviderChoice`), `CallLog` (provider cost **and** billed cost, AI summary, transcript, recording URL — provider fields never leave the server), `Provider` (name, title, active, services m-n), `Service` (name, durationMinutes, description, active, providers m-n), `Appointment` (gains `providerId?`, `serviceId?` — both nullable for backward-compat with solo businesses).
 
 ### Backend (`apps/api`)
 
@@ -136,6 +136,17 @@ CI (`.github/workflows/ci.yml`) runs typecheck + unit tests + build, plus the in
 | GET | `/api/calls/:id` | JWT | Detail + transcript + one-time media token |
 | GET | `/api/media/:token` | media JWT | Masked recording proxy (Range supported) |
 | POST | `/api/voice/web-session` | JWT | Public key + transient assistant for browser test |
+| GET | `/api/appointments` | JWT | List appointments (calendar range, `?from=&to=`) |
+| POST | `/api/appointments` | JWT (OWNER/MANAGER) | Manual booking (supports `providerId?`, `serviceId?`) |
+| PATCH | `/api/appointments/:id` | JWT (OWNER/MANAGER) | Reschedule / status change (overlap-safe) |
+| GET | `/api/providers` | JWT | Providers, services, multi-provider config for this tenant |
+| PATCH | `/api/providers/config` | JWT (OWNER/MANAGER) | Toggle `offerProviderChoice`; `enabled` only if `selfManage` |
+| POST | `/api/providers` | JWT (OWNER/MANAGER) | Create provider |
+| PATCH | `/api/providers/:id` | JWT (OWNER/MANAGER) | Update provider |
+| DELETE | `/api/providers/:id` | JWT (OWNER/MANAGER) | Delete provider |
+| POST | `/api/providers/services` | JWT (OWNER/MANAGER) | Create service |
+| PATCH | `/api/providers/services/:id` | JWT (OWNER/MANAGER) | Update service |
+| DELETE | `/api/providers/services/:id` | JWT (OWNER/MANAGER) | Delete service |
 | POST | `/api/vapi/inbound` | `x-vapi-secret` | Provider webhook (assistant-request, end-of-call-report) |
 | GET | `/api/health` | — | Liveness |
 
@@ -158,6 +169,20 @@ Tenants never see Vapi; you, the platform operator, wire it up once:
 - **Masking boundary** — provider identifiers/costs are stripped server-side and recordings are proxied, so tenants can't see raw provider URLs in the app. Caveat stated honestly: during the *browser test call*, the voice SDK necessarily talks to provider endpoints, which a tenant could observe in devtools. Phone callers and all dashboard data remain fully masked.
 - **Webhook** auth is constant-time; media tokens are scoped to a single call log + tenant and expire (default 5 min).
 - **HIPAA / recording consent** — this codebase is a foundation, not a compliance kit: clinics handling PHI need a BAA with the voice/LLM vendors, and several states require two-party consent disclosure for recording. Add a consent line to the greeting where required.
+
+## Multi-provider booking
+
+Group practices (dental clinics, barbershops, law firms with multiple staff) can enable multi-provider mode per tenant from the admin panel. Once on:
+
+- **Providers & Services** dashboard page (`/dashboard/providers`) — OWNER/MANAGER can create providers (name, title, active toggle) and services (name, duration, description, provider assignments) with a premium inline form UI.
+- **Voice agent** automatically lists available providers/services in its prompt and accepts spoken name resolution ("with Dr. Smith", "a cleaning"). It honors specific requests when the provider can do the service, otherwise falls back gracefully to first-available.
+- **Appointment lifecycle** — the agent can look up, reschedule, or cancel existing appointments by caller phone number (three new voice tools: `findAppointment`, `rescheduleAppointment`, `cancelAppointment`).
+- **Calendar day view** shows appointments grouped by provider with initials avatars; unassigned appointments (from before multi-provider was enabled) appear in a separate section.
+- **Manual bookings** from the calendar "New" form include optional provider and service dropdowns; a selected service auto-sets the duration.
+- **Persistent assistants** are automatically re-synced (best-effort, non-blocking) whenever the provider roster, service list, or `offerProviderChoice` setting changes.
+- **Solo businesses** are fully backward-compatible: `providerId`/`serviceId` are nullable on `Appointment`, and all multi-provider logic is gated on `Tenant.multiProviderEnabled`.
+
+Admin toggles (`multiProviderEnabled`, `multiProviderSelfManage`) live in the admin customer detail page and are full-admin only. `selfManage` controls whether the customer can flip the feature on themselves from their dashboard.
 
 ## Extension points
 
