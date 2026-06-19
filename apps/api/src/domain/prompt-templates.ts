@@ -86,6 +86,15 @@ function constructionDefaults({ companyName, personaName }: TemplateInput): Indu
   };
 }
 
+export interface ProviderInfo {
+  name: string;
+  title?: string | null;
+}
+export interface ServiceInfo {
+  name: string;
+  durationMinutes: number;
+}
+
 export interface ComposeContext {
   companyName: string;
   basePrompt: string;
@@ -96,6 +105,56 @@ export interface ComposeContext {
   forwardingNumbers: ForwardingNumber[];
   /** Tenant-local "today" as YYYY-MM-DD plus weekday, for date math in booking. */
   localToday?: { date: string; weekday: string };
+  /** Multi-provider mode only: the bookable people (2+ activates the section). */
+  providers?: ProviderInfo[];
+  services?: ServiceInfo[];
+  /** When true, proactively offer the provider list; else book first-available. */
+  offerProviderChoice?: boolean;
+}
+
+/**
+ * Prompt block for businesses with multiple providers. Encodes the
+ * "first-available by default, honor a request if the caller makes one" policy
+ * so a new caller is never forced to pick a name they don't know — while a
+ * caller who wants a specific person (or service) gets routed correctly.
+ */
+export function providerDiscipline(
+  providers: ProviderInfo[],
+  services: ServiceInfo[],
+  offerProviderChoice: boolean,
+): string {
+  const lines = [
+    'PROVIDERS & SERVICES:',
+    'This business has more than one provider. The people who can be booked:',
+    providers.map((p) => `- ${p.title ? `${p.title} ` : ''}${p.name}`).join('\n'),
+  ];
+  if (services.length > 0) {
+    lines.push(
+      '',
+      'Services offered (each has its own length):',
+      services.map((s) => `- ${s.name} (about ${s.durationMinutes} minutes)`).join('\n'),
+    );
+  }
+  lines.push('', 'MATCHING A CALLER TO A PROVIDER:');
+  if (offerProviderChoice) {
+    lines.push(
+      '- Offer the list above and ask if they have a preference on who they see. If they don\'t mind, just book the first available.',
+    );
+  } else {
+    lines.push(
+      '- Do NOT ask which provider unless the caller brings it up. Most callers — especially new ones — don\'t know or care, so just book the first available and keep things moving.',
+    );
+  }
+  lines.push(
+    '- If the caller DOES ask for a specific person ("I\'d like Dr. Smith", "the same stylist as last time"), pass that name as providerName to checkAvailability and bookAppointment.',
+  );
+  if (services.length > 0) {
+    lines.push(
+      '- If the caller says what kind of visit it is (e.g. "a cleaning"), pass it as serviceName so the right length and the right provider are used. If they don\'t, a standard appointment is fine.',
+    );
+  }
+  lines.push("- You may mention who the appointment is with when confirming, but never force the caller to choose.");
+  return lines.join('\n');
 }
 
 /**
@@ -144,6 +203,12 @@ export function bookingDiscipline(tz: string): string {
     '4. The tool returns ALL open times for the day. If the caller asked for a specific time of day (e.g. "afternoon" or "around 3 PM"), offer the open slots closest to what they asked for — do not claim afternoons are full if afternoon slots are in the list. Otherwise offer about 3 reasonable options.',
     '5. When the caller picks a slot the tool listed as free, call bookAppointment with their name, number, reason, the date (YYYY-MM-DD) and the time (HH:MM, 24-hour).',
     '6. Only after bookAppointment succeeds, confirm by repeating the weekday, date, and time back. Never claim something is booked unless the tool confirmed it.',
+    '',
+    'CHANGING OR CANCELLING AN EXISTING APPOINTMENT:',
+    '- If a caller wants to move, confirm, or cancel an appointment they already have, call findAppointment FIRST. It uses the number they\'re calling from automatically; pass their name or the appointment day too if they mention it. Read back what you find before changing anything.',
+    '- To move it: confirm the new day is free with checkAvailability, then call rescheduleAppointment with the new date and time. If the tool says the new time was just taken, apologize and offer another open slot.',
+    '- To cancel: only after the caller clearly confirms, call cancelAppointment. Never move or cancel an appointment the caller hasn\'t clearly asked you to.',
+    '- If more than one appointment comes back, briefly list them and ask which one they mean before doing anything.',
   ].join('\n');
 }
 
@@ -194,6 +259,10 @@ export function composeSystemPrompt(ctx: ComposeContext): string {
         bookingDiscipline(ctx.timezone),
       ].join('\n'),
     );
+  }
+
+  if (ctx.providers && ctx.providers.length > 1) {
+    sections.push(providerDiscipline(ctx.providers, ctx.services ?? [], ctx.offerProviderChoice ?? false));
   }
 
   sections.push(ENDING_THE_CALL);

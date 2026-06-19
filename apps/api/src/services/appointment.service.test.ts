@@ -116,6 +116,16 @@ describe('resolveBookingWindow', () => {
     ).toBe('OUTSIDE_HOURS');
   });
 
+  it('rejects a booking that runs past a late close without wrapping midnight', () => {
+    // A 24h-style day (closes 23:59). 23:45 + 30m = 00:15 next day, past close.
+    const allDay = { ...hours, wed: { enabled: true, open: '00:00', close: '23:59' } };
+    expect(
+      thrownCode(() =>
+        resolveBookingWindow({ date: '2025-07-02', time: '23:45', durationMinutes: 30, timezone: tz, businessHours: allDay, now }),
+      ),
+    ).toBe('OUTSIDE_HOURS');
+  });
+
   it('validates format and duration bounds', () => {
     const base = { time: '10:00', durationMinutes: 30, timezone: tz, businessHours: hours, now };
     expect(thrownCode(() => resolveBookingWindow({ ...base, date: '07/02/2025' }))).toBe('BAD_DATE');

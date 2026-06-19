@@ -15,6 +15,7 @@ import { inboundRouter } from './routes/inbound.routes';
 import { documentsRouter } from './routes/documents.routes';
 import { demoRouter } from './routes/demo.routes';
 import { bookingRouter } from './routes/booking.routes';
+import { providersRouter } from './routes/providers.routes';
 
 export function createApp(): express.Express {
   const app = express();
@@ -45,6 +46,7 @@ export function createApp(): express.Express {
   app.use('/api/agent', agentRouter);
   app.use('/api/documents', documentsRouter);
   app.use('/api/appointments', appointmentsRouter);
+  app.use('/api/providers', providersRouter);
   app.use('/api/calls', callsRouter);
   app.use('/api/voice', voiceRouter);
   app.use('/api/media', mediaRouter);

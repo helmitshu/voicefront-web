@@ -35,6 +35,18 @@ const NAV = [
     ),
   },
   {
+    href: '/dashboard/providers',
+    label: 'Providers',
+    exact: false,
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-[18px] w-[18px]">
+        <circle cx="7" cy="6.5" r="2.5" />
+        <circle cx="13.5" cy="7.5" r="2" />
+        <path d="M2.5 16c0-2.5 2-4 4.5-4s4.5 1.5 4.5 4M12 12c2.2 0 4 1.4 4 3.5" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
     href: '/dashboard/settings',
     label: 'Receptionist',
     exact: false,

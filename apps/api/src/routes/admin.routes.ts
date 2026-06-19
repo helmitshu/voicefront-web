@@ -275,6 +275,8 @@ adminRouter.get(
         monthlyMinuteLimit: tenant.monthlyMinuteLimit,
         usage,
         blocked: tenant.isBlocked,
+        multiProviderEnabled: tenant.multiProviderEnabled,
+        multiProviderSelfManage: tenant.multiProviderSelfManage,
         createdAt: tenant.createdAt.toISOString(),
         receptionistActive: tenant.onboarding?.isActive ?? false,
         settings: tenant.agentSettings
@@ -307,6 +309,10 @@ const TenantPatchSchema = z
     markupBps: z.coerce.number().int().min(0).max(30000),
     monthlyMinuteLimit: z.coerce.number().int().min(0).max(100000),
     blocked: z.boolean(),
+    /** Operator entitlement: turn multi-provider booking on/off for this customer. */
+    multiProviderEnabled: z.boolean(),
+    /** Whether the customer may flip multiProviderEnabled from their own dashboard. */
+    multiProviderSelfManage: z.boolean(),
   })
   .partial()
   .refine((v) => Object.keys(v).length > 0, { message: 'Nothing to update.' });
@@ -317,12 +323,15 @@ adminRouter.patch(
     const adminEmail = getAdminEmail(req);
     const patch = TenantPatchSchema.parse(req.body);
 
-    // Billing and suspension are full-admin actions; SUPPORT may only pause/activate.
+    // Billing, suspension, and the multi-provider entitlement are full-admin
+    // actions; SUPPORT may only pause/activate.
     const touchesRestricted =
       patch.subscriptionStatus !== undefined ||
       patch.markupBps !== undefined ||
       patch.monthlyMinuteLimit !== undefined ||
-      patch.blocked !== undefined;
+      patch.blocked !== undefined ||
+      patch.multiProviderEnabled !== undefined ||
+      patch.multiProviderSelfManage !== undefined;
     if (touchesRestricted && getAdminRole(req) !== 'ADMIN') {
       throw new HttpError(
         403,
@@ -341,7 +350,9 @@ adminRouter.patch(
       patch.subscriptionStatus !== undefined ||
       patch.markupBps !== undefined ||
       patch.monthlyMinuteLimit !== undefined ||
-      patch.blocked !== undefined
+      patch.blocked !== undefined ||
+      patch.multiProviderEnabled !== undefined ||
+      patch.multiProviderSelfManage !== undefined
     ) {
       await prisma.tenant.update({
         where: { id: tenant.id },
@@ -350,6 +361,10 @@ adminRouter.patch(
           ...(patch.markupBps !== undefined ? { markupBps: patch.markupBps } : {}),
           ...(patch.monthlyMinuteLimit !== undefined ? { monthlyMinuteLimit: patch.monthlyMinuteLimit } : {}),
           ...(patch.blocked !== undefined ? { isBlocked: patch.blocked } : {}),
+          ...(patch.multiProviderEnabled !== undefined ? { multiProviderEnabled: patch.multiProviderEnabled } : {}),
+          ...(patch.multiProviderSelfManage !== undefined
+            ? { multiProviderSelfManage: patch.multiProviderSelfManage }
+            : {}),
         },
       });
     }
@@ -360,6 +375,12 @@ adminRouter.patch(
         where: { tenantId: tenant.id },
         data: { isActive: forceInactive ? false : patch.receptionistActive },
       });
+    }
+
+    // Toggling the multi-provider entitlement changes the assistant's tools and
+    // prompt; re-push it so a persistent (synced) assistant reflects the new mode.
+    if (patch.multiProviderEnabled !== undefined) {
+      void syncAssistantForTenant(tenant.id).catch(() => {});
     }
 
     await recordAdminAction(adminEmail, 'tenant.update', tenant.companyName, patch);
