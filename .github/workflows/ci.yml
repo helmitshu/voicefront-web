@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Cancel superseded runs on the same ref to save minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Typecheck, test & build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The Prisma client is generated, not committed; typecheck and tests
+      # import it, so it must exist before those steps run.
+      - name: Generate Prisma client
+        run: npm run generate -w apps/api
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build
+        run: npm run build
+        env:
+          # Next bakes this at build time; a placeholder keeps the build
+          # hermetic (no real backend is contacted during CI).
+          NEXT_PUBLIC_API_URL: https://api.example.invalid
+
+  integration:
+    name: Integration tests (Postgres)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: voicefront
+          POSTGRES_PASSWORD: voicefront
+          POSTGRES_DB: voicefront_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U voicefront"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://voicefront:voicefront@localhost:5432/voicefront_test?schema=public
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npm run generate -w apps/api
+
+      - name: Apply schema to the test database
+        run: npm run db:push -w apps/api
+
+      - name: Integration tests (advisory-lock booking concurrency)
+        run: npm run test:integration -w apps/api
