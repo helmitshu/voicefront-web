@@ -17,6 +17,9 @@ export const DEFAULT_REMINDER_1H_TEMPLATE =
 export const DEFAULT_WAITLIST_TEMPLATE =
   'Good news {customerName} — a spot just opened at {businessName} on {date} at {time}. Call us back to grab it before someone else does. Reply STOP to opt out.';
 
+export const DEFAULT_REACTIVATION_TEMPLATE =
+  "Hi {customerName}, it's been a while since your last visit to {businessName}. We'd love to see you again — call us to book a time that works for you. Reply STOP to opt out.";
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /** True when all three Twilio credentials are present in the environment. */
@@ -203,6 +206,35 @@ export async function sendWaitlistOpening(params: WaitlistOpeningParams): Promis
     businessName: params.businessName,
     date: params.date,
     time: params.time,
+  });
+
+  await sendRaw(params.phone, body);
+  return true;
+}
+
+// ── Reactivation / recall ────────────────────────────────────────────────────
+
+export interface ReactivationParams {
+  tenantId: string;
+  phone: string;
+  customerName: string;
+  businessName: string;
+  /** Tenant override, or null to use the platform default. */
+  template: string | null;
+}
+
+/**
+ * Text a lapsed customer an invitation to rebook. Returns true if a message was
+ * actually sent (Twilio configured + not opted out), false otherwise — so the
+ * caller only records the send when the text really went out.
+ */
+export async function sendReactivation(params: ReactivationParams): Promise<boolean> {
+  if (!isSmsAvailable()) return false;
+  if (await isOptedOut(params.phone, params.tenantId)) return false;
+
+  const body = interpolate(params.template ?? DEFAULT_REACTIVATION_TEMPLATE, {
+    customerName: params.customerName,
+    businessName: params.businessName,
   });
 
   await sendRaw(params.phone, body);

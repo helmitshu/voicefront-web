@@ -26,6 +26,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { VoicePreviewButton } from '@/components/agent/VoicePreviewButton';
 import { DocumentsEditor } from '@/components/agent/DocumentsEditor';
 import { SmsSettingsCard } from '@/components/agent/SmsSettingsCard';
+import { ReactivationSettingsCard } from '@/components/agent/ReactivationSettingsCard';
 import { BusinessHoursEditor } from '@/components/agent/BusinessHoursEditor';
 import {
   ForwardingNumbersEditor,
@@ -494,6 +495,8 @@ export default function SettingsPage() {
       </Card>
 
       <SmsSettingsCard />
+
+      <ReactivationSettingsCard />
 
       {/* Floating save dock */}
       {!readOnly && (

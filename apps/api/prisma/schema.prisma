@@ -93,6 +93,7 @@ model Tenant {
   providers     Provider[]
   services      Service[]
   waitlist      Waitlist[]
+  reactivationLogs ReactivationLog[]
 
   @@map("tenants")
 }
@@ -184,6 +185,14 @@ model AgentSettings {
   smsWaitlist             Boolean  @default(true)  @map("sms_waitlist")
   /// Custom waitlist-opening message. Null = use platform default.
   smsWaitlistTemplate     String?  @db.Text @map("sms_waitlist_template")
+
+  // ── Reactivation / recall campaign ───────────────────────────────────────
+  /// When true, a daily job texts lapsed customers an invite to rebook.
+  reactivationEnabled        Boolean @default(false) @map("reactivation_enabled")
+  /// A customer is "lapsed" once this many days pass since their last visit.
+  reactivationInactivityDays Int     @default(180)   @map("reactivation_inactivity_days")
+  /// Custom recall message. Null = use platform default.
+  reactivationTemplate       String? @db.Text @map("reactivation_template")
 
   updatedAt          DateTime @updatedAt @map("updated_at")
 
@@ -309,6 +318,21 @@ model Waitlist {
   @@index([tenantId, status])
   @@index([providerId])
   @@map("waitlist")
+}
+
+/// One row per recall (reactivation) text sent. The daily scan checks this to
+/// avoid re-texting a lapsed customer within their inactivity window, so a
+/// customer hears from us at most once per lapse — never on a loop.
+model ReactivationLog {
+  id        String   @id @default(cuid())
+  tenantId  String   @map("tenant_id")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// E.164 phone the recall text went to.
+  phone     String
+  sentAt    DateTime @default(now()) @map("sent_at")
+
+  @@index([tenantId, phone, sentAt])
+  @@map("reactivation_logs")
 }
 
 /// A business document the tenant uploaded to power the voice agent's

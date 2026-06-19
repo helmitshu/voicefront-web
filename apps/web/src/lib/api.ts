@@ -813,6 +813,28 @@ export const WaitlistApi = {
   remove: (id: string) => api<void>(`/api/waitlist/${id}`, { method: 'DELETE' }),
 };
 
+/* ------------------------------ reactivation ------------------------------ */
+
+export interface ReactivationSettings {
+  enabled: boolean;
+  inactivityDays: number;
+  template: string;
+}
+
+export interface ReactivationSettingsResponse {
+  /** True when the platform operator has configured Twilio credentials. */
+  available: boolean;
+  /** How many lapsed customers would be texted on the next run. */
+  eligibleCount: number;
+  settings: ReactivationSettings;
+}
+
+export const ReactivationApi = {
+  getSettings: () => api<ReactivationSettingsResponse>('/api/reactivation/settings'),
+  updateSettings: (patch: Partial<ReactivationSettings>) =>
+    api<{ ok: true }>('/api/reactivation/settings', { method: 'PATCH', body: patch }),
+};
+
 export const CallsApi = {
   list: (params: { page?: number; perPage?: number; search?: string; sinceDays?: number }, signal?: AbortSignal) => {
     const query = new URLSearchParams();
