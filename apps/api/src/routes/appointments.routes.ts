@@ -29,6 +29,8 @@ interface AppointmentDto {
   status: string;
   source: string;
   notes: string | null;
+  /** Provider this appointment is with; null for single-resource/unassigned. */
+  providerId: string | null;
   createdAt: string;
 }
 
@@ -46,6 +48,7 @@ function toDto(appointment: Appointment): AppointmentDto {
     status: appointment.status,
     source: appointment.source,
     notes: appointment.notes,
+    providerId: appointment.providerId,
     createdAt: appointment.createdAt.toISOString(),
   };
 }

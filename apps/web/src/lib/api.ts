@@ -330,6 +330,8 @@ export interface AppointmentDto {
   status: AppointmentStatus;
   source: 'VOICE_AGENT' | 'MANUAL';
   notes: string | null;
+  /** Provider this appointment is with; null for single-resource/unassigned. */
+  providerId: string | null;
   createdAt: string;
 }
 
