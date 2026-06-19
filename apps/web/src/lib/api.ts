@@ -679,6 +679,10 @@ export const AppointmentsApi = {
     date: string;
     time: string;
     durationMinutes?: number;
+    /** Multi-provider only: book a specific provider (omit for first-available). */
+    providerId?: string | null;
+    /** Multi-provider only: the service type (sets the length). */
+    serviceId?: string | null;
   }) => api<{ appointment: AppointmentDto }>('/api/appointments', { method: 'POST', body: input }),
   update: (
     id: string,

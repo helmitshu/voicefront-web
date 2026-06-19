@@ -3,6 +3,16 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { asyncHandler, HttpError } from '../lib/http';
 import { getAuth, requireAuth, requireRole } from '../middleware/auth';
+import { syncAssistantForTenant } from '../services/vapi.service';
+
+/**
+ * A persistent (synced) assistant lists the providers/services in its prompt and
+ * carries provider-aware tools, so any roster or policy change should re-push it.
+ * Best-effort and non-blocking — no-ops for tenants on the transient flow.
+ */
+function kickResync(tenantId: string): void {
+  void syncAssistantForTenant(tenantId).catch(() => {});
+}
 
 /**
  * Tenant-facing management of the bookable Providers and Services used by
@@ -126,6 +136,7 @@ providersRouter.patch(
         data: { offerProviderChoice: patch.offerProviderChoice },
       });
     }
+    kickResync(tenantId);
     res.json({ ok: true });
   }),
 );
@@ -154,6 +165,7 @@ providersRouter.post(
       },
       include: { services: { select: { id: true } } },
     });
+    kickResync(tenantId);
     res.status(201).json({
       provider: {
         id: created.id,
@@ -187,6 +199,7 @@ providersRouter.patch(
       },
       include: { services: { select: { id: true } } },
     });
+    kickResync(tenantId);
     res.json({
       provider: {
         id: updated.id,
@@ -206,6 +219,7 @@ providersRouter.delete(
     const { tenantId } = getAuth(req);
     const { count } = await prisma.provider.deleteMany({ where: { id: req.params.id, tenantId } });
     if (count === 0) throw new HttpError(404, 'Provider not found.', 'NOT_FOUND');
+    kickResync(tenantId);
     res.json({ ok: true });
   }),
 );
@@ -236,6 +250,7 @@ providersRouter.post(
       },
       include: { providers: { select: { id: true } } },
     });
+    kickResync(tenantId);
     res.status(201).json({
       service: {
         id: created.id,
@@ -271,6 +286,7 @@ providersRouter.patch(
       },
       include: { providers: { select: { id: true } } },
     });
+    kickResync(tenantId);
     res.json({
       service: {
         id: updated.id,
@@ -291,6 +307,7 @@ providersRouter.delete(
     const { tenantId } = getAuth(req);
     const { count } = await prisma.service.deleteMany({ where: { id: req.params.id, tenantId } });
     if (count === 0) throw new HttpError(404, 'Service not found.', 'NOT_FOUND');
+    kickResync(tenantId);
     res.json({ ok: true });
   }),
 );

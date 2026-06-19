@@ -163,7 +163,33 @@ Tenant (the clinic/business)
 │  ├─ timezone (tenant-local)
 │  ├─ source (VOICE_AGENT | MANUAL)
 │  ├─ status (CONFIRMED | CANCELLED | COMPLETED | NO_SHOW)
+│  ├─ providerId (FK → Provider; nullable — null = solo/unassigned)
+│  ├─ serviceId (FK → Service; nullable)
 │  └─ createdAt, updatedAt
+
+├─ N:1 Provider (multi-provider mode)
+│  ├─ id (uuid)
+│  ├─ tenantId (FK)
+│  ├─ name (e.g., "Sarah Chen")
+│  ├─ title (e.g., "Dr." — optional)
+│  ├─ active (bool; false = hidden from booking)
+│  └─ services (m-n relation to Service via ProviderServices)
+
+├─ N:1 Service (multi-provider mode)
+│  ├─ id (uuid)
+│  ├─ tenantId (FK)
+│  ├─ name (e.g., "Teeth Cleaning")
+│  ├─ durationMinutes (int; sets slot length when chosen)
+│  ├─ description (optional)
+│  ├─ active (bool)
+│  └─ providers (m-n relation to Provider)
+
+Tenant also gains:
+│  ├─ multiProviderEnabled (bool, default false; operator-controlled)
+│  └─ multiProviderSelfManage (bool; if true, tenant may flip enabled themselves)
+
+AgentSettings also gains:
+│  └─ offerProviderChoice (bool; if true, agent proactively lists providers)
 ```
 
 ### Sales Demo Model
@@ -491,6 +517,50 @@ Prerequisites for each step:
 - CallLog rows are upserted on `externalCallId` (the Vapi call ID)
 - If the same webhook arrives twice → second upsert succeeds silently (no error)
 - **Important:** All webhook responses are 200, even on error → Vapi never retries
+
+---
+
+### 4.9 Multi-Provider Booking Engine
+
+VoiceFront supports both solo businesses (single shared resource) and group practices with multiple bookable staff members. The feature is backward-compatible: `Appointment.providerId` is nullable and all multi-provider logic is gated behind `Tenant.multiProviderEnabled`.
+
+#### Entitlement Model
+
+- `Tenant.multiProviderEnabled` — platform operator sets this (full-admin only in the admin panel)
+- `Tenant.multiProviderSelfManage` — if true, the customer can toggle `enabled` from their own `/dashboard/providers` page
+- `AgentSettings.offerProviderChoice` — customer-controlled; if true, the agent proactively lists available providers at the start of a call
+
+#### Booking Resolution (Voice)
+
+1. Caller's spoken provider/service names are resolved via `resolveBookingContext()` in `providers.service.ts`
+2. Service is matched first (sets duration; narrows the qualified provider pool)
+3. Provider is then matched against the qualified pool; if they can't do the service, agent falls back gracefully to first-available
+4. Fuzzy matching: strips titles (Dr., Mr., Prof.), partial substring, shared-word fallback (so "Smith" finds "Dr. Sarah Smith")
+5. First-available auto-assignment runs under the same Postgres advisory lock as solo booking — no double-booking across providers
+
+#### Booking Resolution (Manual Calendar Form)
+
+1. Calendar "New" form shows Provider + Service dropdowns when `multiProvider` is true and providers exist
+2. Trusted IDs from the form are resolved by `bookingContextByIds()` — validates they belong to the tenant, derives the provider pool
+3. When a service is selected, its `durationMinutes` overrides the manual duration selector
+
+#### Voice Tools Added
+
+| Tool | Args | Description |
+|------|------|-------------|
+| `checkAvailability` | `date`, `providerName?`, `serviceName?` | Returns free slots, optionally per-provider |
+| `bookAppointment` | …+ `providerName?`, `serviceName?` | Books with provider/service resolution |
+| `findAppointment` | `customerPhone`, `customerName?`, `date?` | Looks up caller's upcoming appointments |
+| `rescheduleAppointment` | `appointmentId`, `date`, `time` | Reschedules with overlap check |
+| `cancelAppointment` | `appointmentId` | Cancels the appointment |
+
+#### Auto-Sync (Persistent Assistants)
+
+Any mutation to the provider/service roster or `offerProviderChoice` fires `kickResync(tenantId)` — a best-effort, non-blocking call to `syncAssistantForTenant`. This keeps persistent assistants up to date with the live roster without manual operator intervention.
+
+#### Calendar Day View
+
+When `multiProviderEnabled` is true and 2+ active providers exist, the day panel groups appointments under per-provider headings (gradient initials avatar). Appointments without a `providerId` (booked before multi-provider was enabled) appear under "Unassigned".
 
 ---
 

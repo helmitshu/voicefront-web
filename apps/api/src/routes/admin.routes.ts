@@ -377,6 +377,12 @@ adminRouter.patch(
       });
     }
 
+    // Toggling the multi-provider entitlement changes the assistant's tools and
+    // prompt; re-push it so a persistent (synced) assistant reflects the new mode.
+    if (patch.multiProviderEnabled !== undefined) {
+      void syncAssistantForTenant(tenant.id).catch(() => {});
+    }
+
     await recordAdminAction(adminEmail, 'tenant.update', tenant.companyName, patch);
     res.json({ ok: true });
   }),

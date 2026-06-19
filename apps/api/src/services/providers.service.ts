@@ -110,3 +110,39 @@ export async function resolveBookingContext(
 
   return { providerId, candidateProviderIds: qualified, serviceId, durationMinutes, note };
 }
+
+/**
+ * Like resolveBookingContext but driven by ids from a trusted UI (the manual
+ * calendar booking form) instead of spoken names. Ids are validated against the
+ * tenant; an unknown/foreign id is simply ignored (falls back to first-available).
+ */
+export async function bookingContextByIds(
+  tenantId: string,
+  opts: { providerId?: string | null; serviceId?: string | null },
+): Promise<BookingContext> {
+  const [providers, service] = await Promise.all([
+    prisma.provider.findMany({ where: { tenantId, active: true }, select: { id: true } }),
+    opts.serviceId
+      ? prisma.service.findFirst({
+          where: { id: opts.serviceId, tenantId, active: true },
+          select: { id: true, durationMinutes: true, providers: { where: { active: true }, select: { id: true } } },
+        })
+      : Promise.resolve(null),
+  ]);
+
+  if (providers.length === 0) {
+    return { providerId: null, candidateProviderIds: [], serviceId: null, durationMinutes: null };
+  }
+
+  let qualified = providers.map((p) => p.id);
+  let serviceId: string | null = null;
+  let durationMinutes: number | null = null;
+  if (service) {
+    serviceId = service.id;
+    durationMinutes = service.durationMinutes;
+    if (service.providers.length > 0) qualified = service.providers.map((p) => p.id);
+  }
+
+  const providerId = opts.providerId && qualified.includes(opts.providerId) ? opts.providerId : null;
+  return { providerId, candidateProviderIds: qualified, serviceId, durationMinutes };
+}

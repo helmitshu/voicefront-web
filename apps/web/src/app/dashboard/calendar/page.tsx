@@ -10,6 +10,7 @@ import {
   type AppointmentDto,
   type AvailabilityResult,
   type ProviderDto,
+  type ServiceDto,
 } from '@/lib/api';
 import { formatPhone } from '@/lib/format';
 import { Card, Badge, EmptyState } from '@/components/ui/Card';
@@ -122,22 +123,44 @@ export default function CalendarPage() {
   // New-appointment form
   const [formOpen, setFormOpen] = useState(false);
   const [availability, setAvailability] = useState<AvailabilityResult | null>(null);
-  const [form, setForm] = useState({ customerName: '', customerPhone: '', reason: '', time: '', duration: '30' });
+  const [form, setForm] = useState({
+    customerName: '',
+    customerPhone: '',
+    reason: '',
+    time: '',
+    duration: '30',
+    providerId: '',
+    serviceId: '',
+  });
   const [saving, setSaving] = useState(false);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
-  const [providersInfo, setProvidersInfo] = useState<{ enabled: boolean; providers: ProviderDto[] } | null>(null);
+  const [providersInfo, setProvidersInfo] = useState<{
+    enabled: boolean;
+    providers: ProviderDto[];
+    services: ServiceDto[];
+  } | null>(null);
 
   useEffect(() => {
     ProvidersApi.list()
-      .then((d) => setProvidersInfo({ enabled: d.config.enabled, providers: d.providers }))
-      .catch(() => setProvidersInfo({ enabled: false, providers: [] }));
+      .then((d) =>
+        setProvidersInfo({ enabled: d.config.enabled, providers: d.providers, services: d.services }),
+      )
+      .catch(() => setProvidersInfo({ enabled: false, providers: [], services: [] }));
   }, []);
 
   const activeProviders = useMemo(
     () => (providersInfo?.providers ?? []).filter((p) => p.active),
     [providersInfo],
   );
+  const activeServices = useMemo(
+    () => (providersInfo?.services ?? []).filter((s) => s.active),
+    [providersInfo],
+  );
   const multiProvider = !!providersInfo && providersInfo.enabled && activeProviders.length > 1;
+  const selectedService = useMemo(
+    () => (form.serviceId ? activeServices.find((s) => s.id === form.serviceId) ?? null : null),
+    [form.serviceId, activeServices],
+  );
   const providerLabel = useCallback(
     (id: string | null) => {
       if (!id) return 'Unassigned';
@@ -223,10 +246,12 @@ export default function CalendarPage() {
         reason: form.reason.trim() || undefined,
         date: selected,
         time: form.time,
-        durationMinutes: Number(form.duration),
+        durationMinutes: selectedService ? selectedService.durationMinutes : Number(form.duration),
+        providerId: multiProvider && form.providerId ? form.providerId : undefined,
+        serviceId: multiProvider && form.serviceId ? form.serviceId : undefined,
       });
       toast('Appointment booked.', 'success');
-      setForm({ customerName: '', customerPhone: '', reason: '', time: '', duration: '30' });
+      setForm({ customerName: '', customerPhone: '', reason: '', time: '', duration: '30', providerId: '', serviceId: '' });
       setFormOpen(false);
       setReloadKey((k) => k + 1);
     } catch (err) {
@@ -423,6 +448,36 @@ export default function CalendarPage() {
                   value={form.reason}
                   onChange={(e) => setForm((f) => ({ ...f, reason: e.target.value }))}
                 />
+                {multiProvider && activeProviders.length > 0 && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <Select
+                      label="Provider (optional)"
+                      value={form.providerId}
+                      onChange={(e) => setForm((f) => ({ ...f, providerId: e.target.value }))}
+                    >
+                      <option value="">Any available</option>
+                      {activeProviders.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.title ? `${p.title} ${p.name}` : p.name}
+                        </option>
+                      ))}
+                    </Select>
+                    {activeServices.length > 0 && (
+                      <Select
+                        label="Service (optional)"
+                        value={form.serviceId}
+                        onChange={(e) => setForm((f) => ({ ...f, serviceId: e.target.value }))}
+                      >
+                        <option value="">No specific service</option>
+                        {activeServices.map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.name}
+                          </option>
+                        ))}
+                      </Select>
+                    )}
+                  </div>
+                )}
                 {availability === null ? (
                   <div className="flex items-center gap-2 py-1 text-xs text-ink-muted">
                     <Spinner className="h-3.5 w-3.5" /> Checking open slots…
@@ -444,17 +499,26 @@ export default function CalendarPage() {
                         </option>
                       ))}
                     </Select>
-                    <Select
-                      label="Duration"
-                      value={form.duration}
-                      onChange={(e) => setForm((f) => ({ ...f, duration: e.target.value }))}
-                    >
-                      {DURATION_OPTIONS.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </Select>
+                    {selectedService ? (
+                      <div className="flex flex-col gap-1">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-muted">Duration</p>
+                        <p className="flex h-9 items-center rounded-lg border border-line/70 bg-paper/60 px-3 text-sm text-ink-muted">
+                          {selectedService.durationMinutes} min
+                        </p>
+                      </div>
+                    ) : (
+                      <Select
+                        label="Duration"
+                        value={form.duration}
+                        onChange={(e) => setForm((f) => ({ ...f, duration: e.target.value }))}
+                      >
+                        {DURATION_OPTIONS.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </Select>
+                    )}
                   </div>
                 )}
                 <div className="flex justify-end gap-2 pt-1">

@@ -11,6 +11,7 @@ import {
   utcToZonedParts,
 } from '../services/appointment.service';
 import { E164_REGEX, normalizePhone } from '../lib/phone';
+import { bookingContextByIds } from '../services/providers.service';
 
 export const appointmentsRouter = Router();
 appointmentsRouter.use(requireAuth);
@@ -111,6 +112,10 @@ const CreateSchema = z.object({
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   time: z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/),
   durationMinutes: z.coerce.number().int().min(10).max(240).optional(),
+  /** Multi-provider only: book a specific provider, else first-available. */
+  providerId: z.string().optional().nullable(),
+  /** Multi-provider only: the service (sets duration + narrows the provider pool). */
+  serviceId: z.string().optional().nullable(),
 });
 
 appointmentsRouter.post(
@@ -119,8 +124,17 @@ appointmentsRouter.post(
   asyncHandler(async (req, res) => {
     const auth = getAuth(req);
     const input = CreateSchema.parse(req.body);
-    const settings = await prisma.agentSettings.findUnique({ where: { tenantId: auth.tenantId } });
+    const settings = await prisma.agentSettings.findUnique({
+      where: { tenantId: auth.tenantId },
+      include: { tenant: { select: { multiProviderEnabled: true } } },
+    });
     if (!settings) throw new HttpError(409, 'Receptionist settings are missing.', 'SETTINGS_MISSING');
+
+    // In multi-provider mode, resolve the chosen provider/service (or first-
+    // available) so a manual booking lands on a real provider, not unassigned.
+    const ctx = settings.tenant?.multiProviderEnabled
+      ? await bookingContextByIds(auth.tenantId, { providerId: input.providerId, serviceId: input.serviceId })
+      : null;
 
     const appointment = await bookAppointment({
       tenantId: auth.tenantId,
@@ -131,8 +145,11 @@ appointmentsRouter.post(
       reason: input.reason || null,
       date: input.date,
       time: input.time,
-      durationMinutes: input.durationMinutes,
+      durationMinutes: ctx?.durationMinutes ?? input.durationMinutes,
       source: 'MANUAL',
+      providerId: ctx?.providerId ?? null,
+      candidateProviderIds: ctx?.candidateProviderIds,
+      serviceId: ctx?.serviceId ?? null,
     });
     res.status(201).json({ appointment: toDto(appointment) });
   }),
