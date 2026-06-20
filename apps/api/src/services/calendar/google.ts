@@ -117,27 +117,34 @@ export const googleProvider: CalendarProvider = {
     return tokensFromResponse(json, refreshToken);
   },
 
-  async getBusy(accessToken, calendarId, from, to) {
+  async getBusy(accessToken, _calendarId, from, to) {
+    // Query freeBusy across ALL the user's own calendars, not just primary —
+    // their bookings often live on a separate calendar in the same account.
+    const ids = await listCalendarIds(accessToken);
     const res = await fetch(`${API_BASE}/freeBusy`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
         timeMin: from.toISOString(),
         timeMax: to.toISOString(),
-        items: [{ id: calendarId }],
+        items: ids.map((id) => ({ id })),
       }),
     });
     if (!res.ok) throw await apiError(res, 'freeBusy');
     const json = (await res.json()) as {
       calendars?: Record<string, { busy?: { start: string; end: string }[] }>;
     };
-    // Google resolves "primary" to the user's actual email in the response key,
-    // so looking up by the sent calendarId misses. Flatten all returned calendars.
+    // Flatten busy across every returned calendar (Google keys the response by
+    // each calendar's real id, e.g. resolves "primary" to the account email).
     const busy = Object.values(json.calendars ?? {}).flatMap((c) => c.busy ?? []);
     return busy.map((b): BusyInterval => ({ start: new Date(b.start), end: new Date(b.end) }));
   },
 
-  async listEvents(accessToken, calendarId, from, to) {
+  async listEvents(accessToken, _calendarId, from, to) {
+    // Fan out across every calendar in the account so events on a separate
+    // calendar still surface. Each call is best-effort — one failing calendar
+    // doesn't sink the rest.
+    const ids = await listCalendarIds(accessToken);
     const params = new URLSearchParams({
       timeMin: from.toISOString(),
       timeMax: to.toISOString(),
@@ -145,36 +152,21 @@ export const googleProvider: CalendarProvider = {
       orderBy: 'startTime',
       maxResults: '250',
     });
-    const res = await fetch(
-      `${API_BASE}/calendars/${encodeURIComponent(calendarId)}/events?${params.toString()}`,
-      { headers: { Authorization: `Bearer ${accessToken}` } },
+    const perCalendar = await Promise.all(
+      ids.map(async (id): Promise<ExternalEvent[]> => {
+        const res = await fetch(
+          `${API_BASE}/calendars/${encodeURIComponent(id)}/events?${params.toString()}`,
+          { headers: { Authorization: `Bearer ${accessToken}` } },
+        );
+        if (!res.ok) return [];
+        const json = (await res.json()) as { items?: GoogleEventItem[] };
+        return (json.items ?? [])
+          .filter((e) => e.status !== 'cancelled' && e.transparency !== 'transparent')
+          .map(mapEventItem)
+          .filter((e): e is ExternalEvent => e !== null);
+      }),
     );
-    if (!res.ok) throw await apiError(res, 'listEvents');
-    const json = (await res.json()) as {
-      items?: {
-        summary?: string;
-        status?: string;
-        transparency?: string;
-        start?: { dateTime?: string; date?: string };
-        end?: { dateTime?: string; date?: string };
-      }[];
-    };
-    return (json.items ?? [])
-      // Drop cancelled instances and events the owner marked "free" (not busy).
-      .filter((e) => e.status !== 'cancelled' && e.transparency !== 'transparent')
-      .map((e): ExternalEvent | null => {
-        const allDay = !e.start?.dateTime;
-        const startStr = e.start?.dateTime ?? e.start?.date;
-        const endStr = e.end?.dateTime ?? e.end?.date;
-        if (!startStr || !endStr) return null;
-        return {
-          start: new Date(startStr),
-          end: new Date(endStr),
-          title: e.summary?.trim() || 'Busy',
-          allDay,
-        };
-      })
-      .filter((e): e is ExternalEvent => e !== null);
+    return perCalendar.flat();
   },
 
   async createEvent(accessToken, calendarId, event) {
@@ -217,6 +209,46 @@ function eventBody(event: CalendarEventInput) {
     description: event.description,
     start: { dateTime: event.start.toISOString(), timeZone: event.timezone },
     end: { dateTime: event.end.toISOString(), timeZone: event.timezone },
+  };
+}
+
+/**
+ * IDs of every calendar the user can write to (their own + shared editable),
+ * for reads that should span the whole account. Excludes read-only
+ * subscriptions like Holidays/Birthdays (minAccessRole=writer) so they don't
+ * create phantom busy time. Falls back to ["primary"] on any hiccup.
+ */
+async function listCalendarIds(accessToken: string): Promise<string[]> {
+  const res = await fetch(
+    `${API_BASE}/users/me/calendarList?minAccessRole=writer&maxResults=250`,
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  if (!res.ok) return ['primary'];
+  const json = (await res.json()) as { items?: { id?: string; hidden?: boolean }[] };
+  const ids = (json.items ?? [])
+    .filter((c) => c.hidden !== true && typeof c.id === 'string')
+    .map((c) => c.id as string);
+  return ids.length > 0 ? ids : ['primary'];
+}
+
+interface GoogleEventItem {
+  summary?: string;
+  status?: string;
+  transparency?: string;
+  start?: { dateTime?: string; date?: string };
+  end?: { dateTime?: string; date?: string };
+}
+
+function mapEventItem(e: GoogleEventItem): ExternalEvent | null {
+  const allDay = !e.start?.dateTime;
+  const startStr = e.start?.dateTime ?? e.start?.date;
+  const endStr = e.end?.dateTime ?? e.end?.date;
+  if (!startStr || !endStr) return null;
+  return {
+    start: new Date(startStr),
+    end: new Date(endStr),
+    title: e.summary?.trim() || 'Busy',
+    allDay,
   };
 }
 
