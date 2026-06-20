@@ -53,7 +53,8 @@ export function ForwardingNumbersEditor({
     <div className="flex flex-col gap-4">
       {value.length === 0 && (
         <p className="rounded-xl bg-paper px-4 py-3 text-sm text-ink-muted">
-          No transfer lines yet. Add one so the receptionist can hand urgent callers to a real person.
+          No transfer lines yet. Add one so the receptionist can warm-transfer urgent callers to a real
+          person — it rings your line, briefs you on the caller, then connects you.
         </p>
       )}
       {value.map((entry, index) => (

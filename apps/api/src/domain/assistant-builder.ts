@@ -1,5 +1,11 @@
 import type { AgentSettings, Tenant } from '@prisma/client';
-import { hoursToHumanText, isOpenNow, parseBusinessHours, parseForwardingNumbers } from './agent-config';
+import {
+  hoursToHumanText,
+  isOpenNow,
+  parseBusinessHours,
+  parseForwardingNumbers,
+  type ForwardingNumber,
+} from './agent-config';
 import {
   PERSONA_VOICE_LAYER,
   bookingDiscipline,
@@ -93,7 +99,55 @@ interface TransferCallTool {
     number: string;
     message: string;
     description: string;
+    /** Warm transfer: Vapi rings the staff member, the assistant speaks a short
+     *  AI summary of who's calling and why, then bridges the caller in. */
+    transferPlan?: {
+      mode: 'warm-transfer-say-summary';
+      summaryPlan: {
+        enabled: true;
+        messages: Array<{ role: 'system' | 'user'; content: string }>;
+      };
+    };
   }>;
+}
+
+/**
+ * Builds the transferCall tool from the tenant's transfer lines, or null when
+ * none are set. Every line is a *warm* transfer: the staff member hears a
+ * one-line AI summary of the caller's reason before the call is bridged, so
+ * they pick up already knowing who it is — the experience that makes the
+ * receptionist feel like a real front desk, not a switchboard.
+ */
+function buildTransferTool(forwardingNumbers: ForwardingNumber[]): TransferCallTool | null {
+  if (forwardingNumbers.length === 0) return null;
+  return {
+    type: 'transferCall',
+    destinations: forwardingNumbers.map((f) => ({
+      type: 'number' as const,
+      number: f.number,
+      // Spoken to the caller while we ring the staff member.
+      message: `One moment — connecting you to ${f.label}.`,
+      description:
+        f.whenToUse.length > 0 ? `${f.label}. Use when: ${f.whenToUse}` : `Transfer line for ${f.label}.`,
+      transferPlan: {
+        mode: 'warm-transfer-say-summary' as const,
+        summaryPlan: {
+          enabled: true as const,
+          messages: [
+            {
+              role: 'system' as const,
+              content:
+                'You are a receptionist briefing a colleague before handing off a live call. In ONE short sentence, tell them who is calling and why, so they can greet the caller by name. Do not add pleasantries.',
+            },
+            {
+              role: 'user' as const,
+              content: 'Here is the transcript so far:\n\n{{transcript}}\n\nGive the one-line briefing now.',
+            },
+          ],
+        },
+      },
+    })),
+  };
 }
 
 /**
@@ -505,18 +559,8 @@ export function buildTransientAssistant(
   if (options.includeFounderBooking) tools.push(...buildFounderBookingTools());
   if (options.includeScreenControl) tools.push(buildScreenControlTool(), buildCallSummaryTool());
   if (knowledgeTool) tools.push(knowledgeTool);
-  if (forwardingNumbers.length > 0) {
-    tools.push({
-      type: 'transferCall',
-      destinations: forwardingNumbers.map((f) => ({
-        type: 'number' as const,
-        number: f.number,
-        message: `One moment — connecting you to ${f.label}.`,
-        description:
-          f.whenToUse.length > 0 ? `${f.label}. Use when: ${f.whenToUse}` : `Transfer line for ${f.label}.`,
-      })),
-    });
-  }
+  const transferTool = buildTransferTool(forwardingNumbers);
+  if (transferTool) tools.push(transferTool);
 
   // In-browser test: a short, warm opener (the founder is talking to it, not a
   // real caller) — no "calls may be recorded" and no multi-sentence corporate
@@ -678,18 +722,8 @@ export function buildAssistantUpdatePayload(
 
   const tools: Array<TransferCallTool | FunctionTool | QueryTool> = [...buildBookingTools({ multiProvider })];
   if (knowledgeTool) tools.push(knowledgeTool);
-  if (forwardingNumbers.length > 0) {
-    tools.push({
-      type: 'transferCall',
-      destinations: forwardingNumbers.map((f) => ({
-        type: 'number' as const,
-        number: f.number,
-        message: `One moment — connecting you to ${f.label}.`,
-        description:
-          f.whenToUse.length > 0 ? `${f.label}. Use when: ${f.whenToUse}` : `Transfer line for ${f.label}.`,
-      })),
-    });
-  }
+  const transferTool = buildTransferTool(forwardingNumbers);
+  if (transferTool) tools.push(transferTool);
 
   return {
     name: `${tenant.companyName} Receptionist`,

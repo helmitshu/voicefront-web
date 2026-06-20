@@ -461,8 +461,8 @@ export default function SettingsPage() {
 
       <Card>
         <CardHeader
-          title="Transfer lines"
-          description="Where the receptionist can hand off live callers. Numbers are never read aloud."
+          title="Live call transfer"
+          description="When a caller needs a real person, the receptionist rings your line and briefs you on who's calling and why before connecting — a warm handoff, not a cold transfer. Numbers are never read aloud."
         />
         <ForwardingNumbersEditor
           value={draft.forwardingNumbers}
