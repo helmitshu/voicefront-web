@@ -56,6 +56,9 @@ export function verifyMediaToken(token: string): MediaTokenPayload {
 const OAuthStatePayload = z.object({
   tid: z.string().min(1), // tenant id
   prov: z.enum(['GOOGLE', 'MICROSOFT']),
+  /** Relative path to send the browser back to after the callback (e.g.
+   *  '/admin/calendar'). Omitted → the default dashboard settings page. */
+  ret: z.string().optional(),
   typ: z.literal('oauth_state'),
 });
 export type OAuthStatePayload = z.infer<typeof OAuthStatePayload>;
@@ -66,8 +69,17 @@ export type OAuthStatePayload = z.infer<typeof OAuthStatePayload>;
  * arrives as a plain browser redirect with no session) can be trusted and
  * attributed without a cookie.
  */
-export function signOAuthStateToken(input: { tenantId: string; provider: OAuthStatePayload['prov'] }): string {
-  const payload: OAuthStatePayload = { tid: input.tenantId, prov: input.provider, typ: 'oauth_state' };
+export function signOAuthStateToken(input: {
+  tenantId: string;
+  provider: OAuthStatePayload['prov'];
+  ret?: string;
+}): string {
+  const payload: OAuthStatePayload = {
+    tid: input.tenantId,
+    prov: input.provider,
+    typ: 'oauth_state',
+    ...(input.ret ? { ret: input.ret } : {}),
+  };
   return jwt.sign(payload, env.JWT_SECRET, { expiresIn: '15m' });
 }
 

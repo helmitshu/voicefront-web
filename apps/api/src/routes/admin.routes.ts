@@ -47,7 +47,13 @@ import {
   blockFounderTime,
   removeFounderEntry,
   getFounderTimezone,
+  getFounderCalendarStatus,
+  buildFounderCalendarAuthUrl,
+  disconnectFounderCalendar,
+  setFounderCalendarPrefs,
+  getFounderExternalEvents,
 } from '../services/founder.service';
+import type { ProviderId } from '../services/calendar/types';
 import {
   generateAccessCode,
   listAccessCodes,
@@ -902,6 +908,80 @@ adminRouter.delete(
     await removeFounderEntry(req.params.id);
     await recordAdminAction(adminEmail, 'founder.unblock', req.params.id, {});
     res.json({ ok: true });
+  }),
+);
+
+/* --------------- founder calendar sync (Google / Outlook) ---------------- */
+/* Same two-way sync customers get, but bound to the __founder tenant and       */
+/* reached through the admin control plane.                                     */
+
+function parseFounderProvider(raw: string): ProviderId {
+  const up = raw.toUpperCase();
+  if (up === 'GOOGLE' || up === 'MICROSOFT') return up;
+  throw new HttpError(404, 'Unknown calendar provider.', 'UNKNOWN_PROVIDER');
+}
+
+adminRouter.get(
+  '/founder/calendar-sync',
+  requireFullAdmin,
+  asyncHandler(async (_req, res) => {
+    res.json(await getFounderCalendarStatus());
+  }),
+);
+
+adminRouter.get(
+  '/founder/calendar-sync/:provider/connect',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const url = await buildFounderCalendarAuthUrl(parseFounderProvider(req.params.provider));
+    res.json({ url });
+  }),
+);
+
+adminRouter.post(
+  '/founder/calendar-sync/:provider/disconnect',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const adminEmail = getAdminEmail(req);
+    const provider = parseFounderProvider(req.params.provider);
+    await disconnectFounderCalendar(provider);
+    await recordAdminAction(adminEmail, 'founder.calendar.disconnect', provider, {});
+    res.json({ ok: true });
+  }),
+);
+
+adminRouter.patch(
+  '/founder/calendar-sync/:provider',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const provider = parseFounderProvider(req.params.provider);
+    const prefs = z
+      .object({ writeEnabled: z.boolean(), blockBusy: z.boolean() })
+      .partial()
+      .refine((v) => Object.keys(v).length > 0, { message: 'Nothing to update.' })
+      .parse(req.body ?? {});
+    await setFounderCalendarPrefs(provider, prefs);
+    res.json({ ok: true });
+  }),
+);
+
+adminRouter.get(
+  '/founder/external-events',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const { from, to } = z
+      .object({
+        from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+      })
+      .parse(req.query);
+    const fromDate = new Date(`${from}T00:00:00Z`);
+    const toDate = new Date(`${to}T23:59:59Z`);
+    fromDate.setUTCDate(fromDate.getUTCDate() - 1);
+    toDate.setUTCDate(toDate.getUTCDate() + 1);
+    // Best-effort, like the customer side — never fail the calendar load.
+    const events = await getFounderExternalEvents(fromDate, toDate).catch(() => []);
+    res.json({ events });
   }),
 );
 

@@ -605,6 +605,29 @@ export const AdminApi = {
     api<{ entry: FounderEntry }>('/api/admin/founder/block', { method: 'POST', body: input }),
   removeFounderEntry: (id: string) =>
     api<{ ok: true }>(`/api/admin/founder/calendar/${id}`, { method: 'DELETE' }),
+  // Founder calendar sync (Google/Outlook) — bound to the __founder tenant.
+  founderCalendarStatus: () => api<CalendarStatus>('/api/admin/founder/calendar-sync'),
+  founderCalendarConnectUrl: (provider: CalendarProviderId) =>
+    api<{ url: string }>(`/api/admin/founder/calendar-sync/${provider.toLowerCase()}/connect`),
+  founderCalendarDisconnect: (provider: CalendarProviderId) =>
+    api<{ ok: true }>(`/api/admin/founder/calendar-sync/${provider.toLowerCase()}/disconnect`, {
+      method: 'POST',
+    }),
+  founderCalendarPrefs: (
+    provider: CalendarProviderId,
+    prefs: { writeEnabled?: boolean; blockBusy?: boolean },
+  ) =>
+    api<{ ok: true }>(`/api/admin/founder/calendar-sync/${provider.toLowerCase()}`, {
+      method: 'PATCH',
+      body: prefs,
+    }),
+  founderExternalEvents: (range: { from: string; to: string }, signal?: AbortSignal) => {
+    const query = new URLSearchParams({ from: range.from, to: range.to });
+    return api<{ events: ExternalCalendarEvent[] }>(
+      `/api/admin/founder/external-events?${query}`,
+      { signal },
+    );
+  },
   // One-time signup invitation codes.
   accessCodes: (signal?: AbortSignal) =>
     api<{ codes: AccessCodeRow[] }>('/api/admin/access-codes', { signal }),

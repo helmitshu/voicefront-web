@@ -10,6 +10,17 @@ import {
   utcToZonedParts,
   type SlotResult,
 } from './appointment.service';
+import {
+  buildAuthUrl,
+  disconnect as disconnectCalendar,
+  getCalendarStatus,
+  getExternalEvents,
+  updateConnectionPrefs,
+  type CalendarStatus,
+  type ExternalEventDto,
+} from './calendar.service';
+import { signOAuthStateToken } from '../lib/jwt';
+import type { ProviderId } from './calendar/types';
 
 /**
  * The founder's own planning-call calendar. It is just another tenant
@@ -198,4 +209,41 @@ export async function removeFounderEntry(id: string): Promise<void> {
   const { tenant } = await getOrCreateFounderTenant();
   // Status-only cancel never re-validates times, so business hours are unused.
   await updateAppointment(tenant.id, id, { status: 'CANCELLED' }, null);
+}
+
+/* ----------------------- founder calendar sync (Google/Outlook) ----------- */
+/* The founder connects their own Google/Outlook calendar to the __founder     */
+/* tenant — same engine as customer tenants, just reached through admin routes. */
+
+const FOUNDER_CALENDAR_RETURN = '/admin/calendar';
+
+export async function getFounderCalendarStatus(): Promise<CalendarStatus> {
+  const { tenant } = await getOrCreateFounderTenant();
+  return getCalendarStatus(tenant.id);
+}
+
+/** Consent URL whose signed state carries the founder tenant + a return path
+ *  back to the admin calendar (not the customer dashboard settings). */
+export async function buildFounderCalendarAuthUrl(provider: ProviderId): Promise<string> {
+  const { tenant } = await getOrCreateFounderTenant();
+  const state = signOAuthStateToken({ tenantId: tenant.id, provider, ret: FOUNDER_CALENDAR_RETURN });
+  return buildAuthUrl(provider, state);
+}
+
+export async function disconnectFounderCalendar(provider: ProviderId): Promise<void> {
+  const { tenant } = await getOrCreateFounderTenant();
+  await disconnectCalendar(tenant.id, provider);
+}
+
+export async function setFounderCalendarPrefs(
+  provider: ProviderId,
+  prefs: { writeEnabled?: boolean; blockBusy?: boolean },
+): Promise<void> {
+  const { tenant } = await getOrCreateFounderTenant();
+  await updateConnectionPrefs(tenant.id, provider, prefs);
+}
+
+export async function getFounderExternalEvents(from: Date, to: Date): Promise<ExternalEventDto[]> {
+  const { tenant } = await getOrCreateFounderTenant();
+  return getExternalEvents(tenant.id, from, to);
 }

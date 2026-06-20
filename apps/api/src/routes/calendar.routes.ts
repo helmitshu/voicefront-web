@@ -57,8 +57,12 @@ calendarRouter.get(
   '/:provider/callback',
   asyncHandler(async (req, res) => {
     const provider = parseProvider(req.params.provider);
+    // Default return is the dashboard settings; a signed `ret` claim can point
+    // elsewhere (e.g. the founder's /admin/calendar). Only same-site relative
+    // paths are honoured, so the token can never become an open redirect.
+    let returnUrl = SETTINGS_RETURN;
     const back = (status: string) =>
-      res.redirect(`${SETTINGS_RETURN}?calendar=${status}&provider=${provider.toLowerCase()}`);
+      res.redirect(`${returnUrl}?calendar=${status}&provider=${provider.toLowerCase()}`);
 
     const error = typeof req.query.error === 'string' ? req.query.error : null;
     const code = typeof req.query.code === 'string' ? req.query.code : null;
@@ -67,6 +71,9 @@ calendarRouter.get(
 
     try {
       const claims = verifyOAuthStateToken(state);
+      if (claims.ret && claims.ret.startsWith('/') && !claims.ret.startsWith('//')) {
+        returnUrl = `${WEB_APP_URL}${claims.ret}`;
+      }
       if (claims.prov !== provider) return back('error');
       await connectFromCode(claims.tid, provider, code);
       return back('connected');
