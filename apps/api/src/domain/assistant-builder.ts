@@ -53,6 +53,9 @@ export interface TransientAssistant {
   voicemailMessage: string;
   endCallMessage: string;
   maxDurationSeconds: number;
+  /** Ends the call after this many seconds of total silence — cuts dead-air
+   *  robocalls fast without ever interrupting a live caller. */
+  silenceTimeoutSeconds?: number;
   serverMessages: string[];
   /** `summaryPlan.messages`, when set, replaces the provider's default summary
    *  prompt — the sales demo uses it to capture the full call arc, objections
@@ -614,6 +617,13 @@ export function buildTransientAssistant(
     // so "take care now, bye!" is the disposable part that can be safely lost.
     endCallMessage: `Thanks so much for calling ${tenant.companyName} — take care now, bye!`,
     maxDurationSeconds: 900,
+    // End a call after a stretch of total silence. Real callers always speak
+    // within this window, so it never cuts a live conversation — but a robocall
+    // that plays dead air (or a recording the agent can't engage) is hung up in
+    // seconds instead of running the full duration and draining the tenant's
+    // minutes. A behaviour-based guard: it screens on "did anyone speak", never
+    // on who's calling, so it can't refuse a real customer.
+    silenceTimeoutSeconds: 30,
     serverMessages: ['end-of-call-report', 'status-update', 'tool-calls'],
     analysisPlan: {
       summaryPlan: {
@@ -750,6 +760,9 @@ export function buildAssistantUpdatePayload(
     // so "take care now, bye!" is the disposable part that can be safely lost.
     endCallMessage: `Thanks so much for calling ${tenant.companyName} — take care now, bye!`,
     maxDurationSeconds: 900,
+    // Hang up on prolonged silence (dead-air robocalls) without ever cutting a
+    // live caller — see the note on the transient assistant above.
+    silenceTimeoutSeconds: 30,
     serverMessages: ['end-of-call-report', 'status-update', 'tool-calls'],
     analysisPlan: { summaryPlan: { enabled: true } },
     artifactPlan: { recordingEnabled: true },

@@ -8,6 +8,7 @@ import { normalizePhone } from '../lib/phone';
 import { buildTransientAssistant } from '../domain/assistant-builder';
 import { ingestEndOfCallReport } from '../services/calllog.service';
 import { isOverMonthlyLimit } from '../services/usage.service';
+import { screenInboundCaller, recordScreenedCall } from '../services/screening.service';
 import {
   bookAppointment,
   findFreeSlots,
@@ -62,8 +63,17 @@ const EnvelopeSchema = z
 const AssistantRequestSchema = z
   .object({
     type: z.literal('assistant-request'),
+    // The VoiceFront number that was dialed — resolves to the tenant.
     phoneNumber: z.object({ number: z.string().optional() }).passthrough().optional(),
-    call: z.object({ id: z.string().optional() }).passthrough().optional(),
+    // The caller's own number (when not withheld) — used for spam screening.
+    customer: z.object({ number: z.string().optional() }).passthrough().optional(),
+    call: z
+      .object({
+        id: z.string().optional(),
+        customer: z.object({ number: z.string().optional() }).passthrough().optional(),
+      })
+      .passthrough()
+      .optional(),
   })
   .passthrough();
 
@@ -502,6 +512,31 @@ inboundRouter.post(
         res.status(200).json({
           error: 'This receptionist has reached its monthly call limit. Please try again later.',
         });
+        return;
+      }
+
+      // Spam screening. Conservative by design: we only refuse on an explicit
+      // tenant signal — the caller is on this tenant's own block list, or (when
+      // the tenant opted in) the call has no caller ID. Refusing here means the
+      // call never connects and burns zero minutes. The bias is always toward
+      // connecting: a missed spam call is cheap, a refused real customer isn't.
+      const callerNumber =
+        parsed.success
+          ? parsed.data.call?.customer?.number ?? parsed.data.customer?.number ?? null
+          : null;
+      const screen = await screenInboundCaller({
+        tenantId: settings.tenantId,
+        callerNumber,
+        rejectAnonymous: settings.rejectAnonymousCallers,
+      });
+      if (screen.blocked && screen.reason) {
+        console.warn(
+          `[webhook] assistant-request refused — ${screen.reason} caller for tenant ${settings.tenantId}`,
+        );
+        // Best-effort log so the tenant can see what was screened; never block
+        // the response on it.
+        void recordScreenedCall({ tenantId: settings.tenantId, callerNumber, reason: screen.reason });
+        res.status(200).json({ error: 'This number is unable to be connected.' });
         return;
       }
 

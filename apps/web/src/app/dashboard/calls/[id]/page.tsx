@@ -6,10 +6,13 @@ import {
   AgentApi,
   ApiError,
   CallsApi,
+  ScreeningApi,
   mediaUrl,
   type CallDetailDto,
 } from '@/lib/api';
 import { formatCents, formatDateTime, formatDuration, formatPhone } from '@/lib/format';
+import { useToast } from '@/components/ui/Toast';
+import { useAuth } from '@/lib/auth-context';
 import { Card, CardHeader, CallStatusBadge, EmptyState } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
@@ -22,10 +25,29 @@ const CHANNEL_LABEL: Record<string, string> = {
 };
 
 export default function CallDetailPage({ params }: { params: { id: string } }) {
+  const { me } = useAuth();
+  const { toast } = useToast();
+  const canManage = me?.user.role !== 'AGENT';
   const [call, setCall] = useState<CallDetailDto | null>(null);
   const [mediaToken, setMediaToken] = useState<string | null>(null);
   const [personaName, setPersonaName] = useState('Receptionist');
   const [error, setError] = useState<{ status: number; message: string } | null>(null);
+  const [blocking, setBlocking] = useState(false);
+  const [blocked, setBlocked] = useState(false);
+
+  async function blockCaller() {
+    if (!call?.callerNumber) return;
+    setBlocking(true);
+    try {
+      await ScreeningApi.block(call.callerNumber, 'Blocked from call history');
+      setBlocked(true);
+      toast(`${formatPhone(call.callerNumber)} won't be connected again.`, 'success');
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not block that caller.', 'error');
+    } finally {
+      setBlocking(false);
+    }
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -107,6 +129,18 @@ export default function CallDetailPage({ params }: { params: { id: string } }) {
             {formatPhone(call.callerNumber)}
           </h2>
           <CallStatusBadge status={call.status} />
+          {canManage && call.channel === 'phone' && call.callerNumber && (
+            <Button
+              variant="ghost"
+              size="sm"
+              loading={blocking}
+              disabled={blocked}
+              onClick={blockCaller}
+              className="text-ink-muted hover:text-danger"
+            >
+              {blocked ? 'Blocked' : 'Block this caller'}
+            </Button>
+          )}
         </div>
         <p className="mt-1.5 text-sm text-ink-muted">{formatDateTime(call.startedAt)}</p>
       </div>

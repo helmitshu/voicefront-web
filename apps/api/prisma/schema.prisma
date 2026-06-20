@@ -100,6 +100,8 @@ model Tenant {
   waitlist      Waitlist[]
   reactivationLogs ReactivationLog[]
   calendarConnections CalendarConnection[]
+  blockedCallers BlockedCaller[]
+  screenedCalls  ScreenedCallLog[]
 
   @@map("tenants")
 }
@@ -173,6 +175,13 @@ model AgentSettings {
   /// Average revenue per appointment in whole dollars. Powers the ROI dashboard
   /// (estimated revenue the receptionist captured). Owner-editable.
   avgAppointmentValue Int     @default(150) @map("avg_appointment_value")
+
+  /// Spam screening: when true the receptionist refuses calls that arrive with
+  /// no caller ID (withheld / anonymous). OFF by default and strictly opt-in —
+  /// many legitimate customers withhold their number, so we never screen them
+  /// out unless the owner deliberately turns this on. The explicit per-tenant
+  /// block list (BlockedCaller) is always active regardless of this flag.
+  rejectAnonymousCallers Boolean @default(false) @map("reject_anonymous_callers")
 
   // ── SMS notifications ────────────────────────────────────────────────────
   /// Master switch. SMS only fires when the platform has Twilio configured AND
@@ -565,6 +574,48 @@ model SmsOptOut {
   @@unique([phone, tenantId])
   @@index([tenantId])
   @@map("sms_opt_outs")
+}
+
+/// A caller number a tenant explicitly chose to refuse — the zero-false-positive
+/// spam defense. Checked in the assistant-request webhook BEFORE any assistant
+/// is returned, so a blocked caller never connects and burns zero minutes.
+/// Strictly tenant-scoped: one tenant's block never affects another's callers,
+/// and a human always decides what lands here (no automatic blocking), so a real
+/// customer can never be silently screened out.
+model BlockedCaller {
+  id        String   @id @default(cuid())
+  tenantId  String   @map("tenant_id")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// E.164 number to refuse.
+  phone     String
+  /// Optional note shown in the UI ("robocall", "harassment", …).
+  reason    String?
+  /// User id of the owner/manager who added it (audit trail).
+  createdBy String   @map("created_by")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([tenantId, phone])
+  @@index([tenantId])
+  @@map("blocked_callers")
+}
+
+/// One row per call refused at the webhook gate (a blocked number, or — when the
+/// tenant opted in — an anonymous caller). These calls never connect, so they
+/// cost zero minutes and never become a CallLog. This is the ONLY record of
+/// them, so the tenant can see what was screened out and the dashboard can show
+/// "spam calls blocked this month".
+model ScreenedCallLog {
+  id           String   @id @default(cuid())
+  tenantId     String   @map("tenant_id")
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// The caller we refused (null = anonymous / withheld caller ID).
+  callerNumber String?  @map("caller_number")
+  /// Why it was refused: "blocked" (on the list) | "anonymous" (opted-in).
+  reason       String
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("screened_call_logs")
 }
 
 model DemoCall {

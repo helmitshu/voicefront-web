@@ -28,6 +28,7 @@ import { DocumentsEditor } from '@/components/agent/DocumentsEditor';
 import { SmsSettingsCard } from '@/components/agent/SmsSettingsCard';
 import { ReactivationSettingsCard } from '@/components/agent/ReactivationSettingsCard';
 import { CalendarConnectionsCard } from '@/components/agent/CalendarConnectionsCard';
+import { CallScreeningCard } from '@/components/agent/CallScreeningCard';
 import { BusinessHoursEditor } from '@/components/agent/BusinessHoursEditor';
 import {
   ForwardingNumbersEditor,
@@ -48,6 +49,8 @@ interface Draft {
   backgroundSound: string;
   /** Average appointment value as a string while editing; coerced on save. */
   avgAppointmentValue: string;
+  /** Opt-in spam screening: refuse calls with no caller ID. */
+  rejectAnonymousCallers: boolean;
   /** Editable as a string; '' means "no number assigned" (null). */
   inboundPhoneNumber: string;
 }
@@ -65,6 +68,7 @@ function toDraft(settings: AgentSettingsDto): Draft {
     voiceId: settings.voiceId,
     backgroundSound: settings.backgroundSound,
     avgAppointmentValue: String(settings.avgAppointmentValue ?? 0),
+    rejectAnonymousCallers: settings.rejectAnonymousCallers ?? false,
     inboundPhoneNumber: settings.inboundPhoneNumber ?? '',
   };
 }
@@ -169,6 +173,7 @@ export default function SettingsPage() {
       voiceId: draft.voiceId.trim(),
       backgroundSound: draft.backgroundSound,
       avgAppointmentValue: Math.max(0, Math.round(Number(draft.avgAppointmentValue) || 0)),
+      rejectAnonymousCallers: draft.rejectAnonymousCallers,
       inboundPhoneNumber: normalizedNumber.length > 0 ? normalizedNumber : null,
       businessHours: draft.businessHours,
       forwardingNumbers: draft.forwardingNumbers.map((entry) => ({
@@ -517,6 +522,12 @@ export default function SettingsPage() {
           />
         </div>
       </Card>
+
+      <CallScreeningCard
+        rejectAnonymous={draft.rejectAnonymousCallers}
+        onRejectAnonymousChange={(v) => patchDraft({ rejectAnonymousCallers: v })}
+        readOnly={readOnly}
+      />
 
       <CalendarConnectionsCard />
 

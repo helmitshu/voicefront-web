@@ -36,6 +36,8 @@ interface AgentSettingsDto {
   backgroundSound: string;
   /** Average revenue per appointment (whole dollars) — drives the ROI dashboard. */
   avgAppointmentValue: number;
+  /** Spam screening: refuse calls with no caller ID. Opt-in, default false. */
+  rejectAnonymousCallers: boolean;
   /** E.164 number from the provider dashboard; null until assigned. */
   inboundPhoneNumber: string | null;
   /**
@@ -60,6 +62,7 @@ function toDto(settings: AgentSettings): AgentSettingsDto {
     voiceId: settings.voiceId,
     backgroundSound: settings.backgroundSound,
     avgAppointmentValue: settings.avgAppointmentValue,
+    rejectAnonymousCallers: settings.rejectAnonymousCallers,
     inboundPhoneNumber: settings.inboundPhoneNumber,
     assistantId: settings.assistantId,
     updatedAt: settings.updatedAt.toISOString(),
@@ -103,6 +106,7 @@ const UpdateSchema = z
     voiceId: z.string().trim().min(1).max(100),
     backgroundSound: z.enum(BACKGROUND_SOUNDS),
     avgAppointmentValue: z.coerce.number().int().min(0).max(100000),
+    rejectAnonymousCallers: z.boolean(),
     inboundPhoneNumber: z
       .string()
       .trim()
@@ -143,6 +147,7 @@ agentRouter.patch(
     if (patch.voiceId !== undefined) data.voiceId = patch.voiceId;
     if (patch.backgroundSound !== undefined) data.backgroundSound = patch.backgroundSound;
     if (patch.avgAppointmentValue !== undefined) data.avgAppointmentValue = patch.avgAppointmentValue;
+    if (patch.rejectAnonymousCallers !== undefined) data.rejectAnonymousCallers = patch.rejectAnonymousCallers;
     if (patch.inboundPhoneNumber !== undefined) data.inboundPhoneNumber = patch.inboundPhoneNumber;
     if (patch.businessHours !== undefined) {
       data.businessHours = patch.businessHours as unknown as Prisma.InputJsonValue;

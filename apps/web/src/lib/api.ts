@@ -159,6 +159,8 @@ export interface AgentSettingsDto {
   backgroundSound: string;
   /** Average revenue per appointment (whole dollars) — drives the ROI dashboard. */
   avgAppointmentValue: number;
+  /** Spam screening: refuse calls with no caller ID. Opt-in, default false. */
+  rejectAnonymousCallers: boolean;
   inboundPhoneNumber: string | null;
   /** Vapi assistant assigned by the founder; read-only for the customer. */
   assistantId: string | null;
@@ -185,6 +187,7 @@ export type AgentSettingsPatch = Partial<
     | 'voiceId'
     | 'backgroundSound'
     | 'avgAppointmentValue'
+    | 'rejectAnonymousCallers'
     | 'inboundPhoneNumber'
   >
 >;
@@ -928,6 +931,39 @@ export const CallsApi = {
   },
   stats: () => api<{ stats: CallStats; usage: MonthlyUsage }>('/api/calls/stats'),
   detail: (id: string) => api<{ call: CallDetailDto; mediaToken: string | null }>(`/api/calls/${id}`),
+};
+
+/* ------------------------------- screening -------------------------------- */
+
+export interface BlockedCallerDto {
+  id: string;
+  phone: string;
+  reason: string | null;
+  createdAt: string;
+}
+
+export interface ScreenedCallDto {
+  callerNumber: string | null;
+  /** "blocked" (on the list) | "anonymous" (opted-in withheld-id refusal). */
+  reason: string;
+  createdAt: string;
+}
+
+export interface ScreeningOverview {
+  blocked: BlockedCallerDto[];
+  /** Count of calls refused at the gate in the last 30 days. */
+  screenedLast30Days: number;
+  recent: ScreenedCallDto[];
+}
+
+export const ScreeningApi = {
+  overview: (signal?: AbortSignal) => api<ScreeningOverview>('/api/screening', { signal }),
+  block: (phone: string, reason?: string) =>
+    api<{ blocked: BlockedCallerDto }>('/api/screening/block', {
+      method: 'POST',
+      body: { phone, ...(reason ? { reason } : {}) },
+    }),
+  unblock: (id: string) => api<{ ok: true }>(`/api/screening/block/${id}`, { method: 'DELETE' }),
 };
 
 /* -------------------------------- analytics ------------------------------- */
