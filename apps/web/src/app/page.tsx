@@ -16,6 +16,7 @@ import {
 } from '@/lib/api';
 import { VoiceSession, type SimulatorPhase, type TranscriptEntry } from '@/lib/voice-client';
 import { BookCallSection } from '@/components/BookCallSection';
+import { ROICalculator } from '@/components/ROICalculator';
 import { WaveBackground } from '@/components/WaveBackground';
 import { WorkflowConsole } from '@/components/WorkflowConsole';
 
@@ -2020,6 +2021,25 @@ export default function LandingPage() {
           </Reveal>
           <Reveal delay={150} className="mt-12">
             <BookCallSection />
+          </Reveal>
+        </div>
+      </section>
+
+      {/* ----------------------------- ROI calculator ----------------------------- */}
+      <section id="roi" className="border-t border-line/60 px-6 py-24 md:py-32">
+        <div className="mx-auto max-w-6xl">
+          <Reveal className="mx-auto max-w-2xl text-center">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-deep">The math</p>
+            <h2 className="mt-4 font-display text-4xl font-semibold tracking-tight md:text-[44px]">
+              What are missed calls costing you?
+            </h2>
+            <p className="mt-5 text-lg leading-relaxed text-ink-muted">
+              Every unanswered call is a booking that went to whoever picked up. Tell us about your
+              business — the numbers are real Vancouver-area averages, and you can change any of them.
+            </p>
+          </Reveal>
+          <Reveal delay={150} className="mt-12">
+            <ROICalculator />
           </Reveal>
         </div>
       </section>
