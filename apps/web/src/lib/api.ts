@@ -642,6 +642,9 @@ export interface BookingDay {
   open: boolean;
   /** Free "HH:MM" starts in founder-local time. */
   slots: string[];
+  /** Full day grid — every future start with whether it's bookable. Busy hours
+   *  (blocked on the founder's connected calendar) come back available:false. */
+  hours: { time: string; available: boolean }[];
 }
 
 export const BookingApi = {

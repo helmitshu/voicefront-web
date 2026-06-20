@@ -51,6 +51,9 @@ interface DaySlots {
   open: boolean;
   /** Free "HH:MM" starts in founder-local time. */
   slots: string[];
+  /** Full day grid — every future start with whether it's bookable, so the UI
+   *  can show busy hours greyed-out instead of hiding them. */
+  hours: { time: string; available: boolean }[];
 }
 
 /**
@@ -72,7 +75,7 @@ bookingRouter.get(
     for (let i = 0; i < days; i += 1) {
       const date = addDays(today, i);
       const avail = await founderAvailability(date);
-      out.push({ date, dayLabel: avail.dayLabel, open: avail.open, slots: avail.freeSlots });
+      out.push({ date, dayLabel: avail.dayLabel, open: avail.open, slots: avail.freeSlots, hours: avail.slots });
     }
     res.json({ timezone, days: out });
   }),

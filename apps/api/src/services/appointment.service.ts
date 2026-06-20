@@ -128,6 +128,10 @@ export interface SlotResult {
   open: boolean;
   /** "HH:MM" starts, in tenant-local time, that are inside hours and unbooked. */
   freeSlots: string[];
+  /** The full grid for the day: every future start in the window with whether
+   *  it is bookable. Lets the UI show busy hours greyed-out instead of hiding
+   *  them. Past starts are omitted entirely. */
+  slots: { time: string; available: boolean }[];
   dayLabel: string;
 }
 
@@ -153,7 +157,7 @@ export async function findFreeSlots(query: SlotQuery): Promise<SlotResult> {
     day: 'numeric',
   }).format(zonedToUtc(date, '12:00', timezone));
 
-  if (!dayHours.enabled) return { open: false, freeSlots: [], dayLabel };
+  if (!dayHours.enabled) return { open: false, freeSlots: [], slots: [], dayLabel };
 
   const close = dayHours.close > dayHours.open ? dayHours.close : '23:59';
   const windowStart = zonedToUtc(date, dayHours.open, timezone);
@@ -188,20 +192,27 @@ export async function findFreeSlots(query: SlotQuery): Promise<SlotResult> {
   }
 
   const freeSlots: string[] = [];
+  const slots: { time: string; available: boolean }[] = [];
   for (let t = dayHours.open; addMinutes(t, slotMinutes) <= close; t = addMinutes(t, slotMinutes)) {
     const slotStart = zonedToUtc(date, t, timezone);
     const slotEnd = new Date(slotStart.getTime() + slotMinutes * 60_000);
     if (slotStart.getTime() <= now.getTime()) continue; // never offer the past
     // Blocked if the owner's own calendar is busy across this slot, regardless
     // of provider — personal time blocks everyone.
-    if (externalBusy.some((b) => b.start < slotEnd && b.end > slotStart)) continue;
-    // Offerable if at least one candidate provider has nothing overlapping it.
-    const free = candidates.some(
-      (p) => !booked.some((b) => b.providerId === p && b.startsAt < slotEnd && b.endsAt > slotStart),
-    );
+    const externallyBusy = externalBusy.some((b) => b.start < slotEnd && b.end > slotStart);
+    // Offerable if not externally busy AND at least one candidate provider has
+    // nothing overlapping it.
+    const free =
+      !externallyBusy &&
+      candidates.some(
+        (p) => !booked.some((b) => b.providerId === p && b.startsAt < slotEnd && b.endsAt > slotStart),
+      );
+    // Every future slot is surfaced so the UI can grey-out busy hours; only the
+    // free ones go into freeSlots (what callers/voice-agent actually book into).
+    slots.push({ time: t, available: free });
     if (free) freeSlots.push(t);
   }
-  return { open: true, freeSlots, dayLabel };
+  return { open: true, freeSlots, slots, dayLabel };
 }
 
 /**

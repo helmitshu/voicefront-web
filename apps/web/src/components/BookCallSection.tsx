@@ -72,6 +72,15 @@ export function BookCallSection() {
   const activeDay = useMemo(() => days?.find((d) => d.date === activeDate) ?? null, [days, activeDate]);
   const bookableDays = useMemo(() => days?.filter((d) => d.open && d.slots.length > 0) ?? [], [days]);
 
+  // The full hour grid for the selected day. Falls back to deriving an
+  // all-available grid from `slots` if the API hasn't shipped `hours` yet
+  // (web + API deploy independently, so guard the brief version skew).
+  const activeHours = useMemo(() => {
+    if (!activeDay) return [];
+    if (activeDay.hours?.length) return activeDay.hours;
+    return activeDay.slots.map((time) => ({ time, available: true }));
+  }, [activeDay]);
+
   function pickDate(date: string) { setActiveDate(date); setActiveTime(null); setSubmitError(null); }
 
   function pickTime(t: string) {
@@ -173,29 +182,51 @@ export function BookCallSection() {
                 })}
               </div>
 
-              {/* Time slots — flex-wrap so they never clip or leave empty cells */}
+              {/* Time slots — the full day grid. Bookable hours are clickable;
+                  hours blocked on the founder's calendar show greyed-out. */}
               {activeDay && (
                 <div className="mt-4">
-                  <p className="mb-2.5 text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-muted">{activeDay.dayLabel}</p>
+                  <div className="mb-2.5 flex items-center justify-between">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-muted">{activeDay.dayLabel}</p>
+                    {activeHours.some((h) => !h.available) && (
+                      <span className="flex items-center gap-1.5 text-[11px] text-ink-muted">
+                        <span className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: 'repeating-linear-gradient(45deg, #e5e7eb, #e5e7eb 2px, #f3f4f6 2px, #f3f4f6 4px)' }} />
+                        Busy
+                      </span>
+                    )}
+                  </div>
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
-                    {activeDay.slots.map((t) => {
+                    {activeHours.map(({ time: t, available }) => {
                       const selected = t === activeTime;
                       return (
                         <button
                           key={t}
                           type="button"
-                          onClick={() => pickTime(t)}
+                          disabled={!available}
+                          title={available ? undefined : 'Unavailable — the founder is busy at this time'}
+                          onClick={() => available && pickTime(t)}
                           style={{
                             flex: '1 1 96px',
                             minWidth: '96px',
                             borderRadius: '12px',
-                            border: selected ? '1.5px solid var(--color-signal, #0d9488)' : '1.5px solid var(--color-line, #e5e7eb)',
-                            background: selected ? 'var(--color-signal-soft, #ecfdf5)' : '#fff',
-                            color: selected ? 'var(--color-signal-deep, #0f6b5e)' : 'var(--color-ink, #111827)',
+                            border: selected
+                              ? '1.5px solid var(--color-signal, #0d9488)'
+                              : '1.5px solid var(--color-line, #e5e7eb)',
+                            background: !available
+                              ? 'repeating-linear-gradient(45deg, #f3f4f6, #f3f4f6 5px, #eceef1 5px, #eceef1 10px)'
+                              : selected
+                                ? 'var(--color-signal-soft, #ecfdf5)'
+                                : '#fff',
+                            color: !available
+                              ? 'var(--color-ink-muted, #9ca3af)'
+                              : selected
+                                ? 'var(--color-signal-deep, #0f6b5e)'
+                                : 'var(--color-ink, #111827)',
                             padding: '11px 8px',
                             fontSize: '13px',
                             fontWeight: 600,
-                            cursor: 'pointer',
+                            textDecoration: !available ? 'line-through' : 'none',
+                            cursor: available ? 'pointer' : 'not-allowed',
                             transition: 'all 0.15s',
                           }}
                         >
