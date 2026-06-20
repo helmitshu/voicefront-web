@@ -157,6 +157,8 @@ export interface AgentSettingsDto {
   voiceId: string;
   /** Ambient call audio: "office" | "off". */
   backgroundSound: string;
+  /** Average revenue per appointment (whole dollars) — drives the ROI dashboard. */
+  avgAppointmentValue: number;
   inboundPhoneNumber: string | null;
   /** Vapi assistant assigned by the founder; read-only for the customer. */
   assistantId: string | null;
@@ -182,6 +184,7 @@ export type AgentSettingsPatch = Partial<
     | 'voiceProvider'
     | 'voiceId'
     | 'backgroundSound'
+    | 'avgAppointmentValue'
     | 'inboundPhoneNumber'
   >
 >;
@@ -940,6 +943,13 @@ export interface AnalyticsOverview {
   daily: { date: string; calls: number; bookings: number }[];
   byHour: { hour: number; bookings: number }[];
   byWeekday: { weekday: number; bookings: number }[];
+  revenue: {
+    avgAppointmentValue: number;
+    capturedBookings: number;
+    estimatedRevenue: number;
+    afterHoursCalls: number;
+    afterHoursBookings: number;
+  };
 }
 
 export const AnalyticsApi = {

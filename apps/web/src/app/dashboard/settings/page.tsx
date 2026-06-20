@@ -46,6 +46,8 @@ interface Draft {
   voiceProvider: string;
   voiceId: string;
   backgroundSound: string;
+  /** Average appointment value as a string while editing; coerced on save. */
+  avgAppointmentValue: string;
   /** Editable as a string; '' means "no number assigned" (null). */
   inboundPhoneNumber: string;
 }
@@ -62,6 +64,7 @@ function toDraft(settings: AgentSettingsDto): Draft {
     voiceProvider: settings.voiceProvider,
     voiceId: settings.voiceId,
     backgroundSound: settings.backgroundSound,
+    avgAppointmentValue: String(settings.avgAppointmentValue ?? 0),
     inboundPhoneNumber: settings.inboundPhoneNumber ?? '',
   };
 }
@@ -165,6 +168,7 @@ export default function SettingsPage() {
       voiceProvider: draft.voiceProvider,
       voiceId: draft.voiceId.trim(),
       backgroundSound: draft.backgroundSound,
+      avgAppointmentValue: Math.max(0, Math.round(Number(draft.avgAppointmentValue) || 0)),
       inboundPhoneNumber: normalizedNumber.length > 0 ? normalizedNumber : null,
       businessHours: draft.businessHours,
       forwardingNumbers: draft.forwardingNumbers.map((entry) => ({
@@ -457,6 +461,25 @@ export default function SettingsPage() {
           disabled={readOnly}
           onChange={(businessHours) => patchDraft({ businessHours })}
         />
+      </Card>
+
+      <Card>
+        <CardHeader
+          title="Average appointment value"
+          description="What a typical booking is worth to you. Powers the “Revenue captured” figure on your Analytics dashboard — only you see it."
+        />
+        <div className="max-w-[220px]">
+          <Input
+            label="Average value (USD)"
+            type="number"
+            inputMode="numeric"
+            min={0}
+            value={draft.avgAppointmentValue}
+            disabled={readOnly}
+            onChange={(e) => patchDraft({ avgAppointmentValue: e.target.value })}
+            hint="A rough estimate is fine — e.g. 150."
+          />
+        </div>
       </Card>
 
       <Card>

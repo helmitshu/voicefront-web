@@ -170,6 +170,10 @@ model AgentSettings {
   /// someone. Ignored for single-provider (or no-provider) businesses.
   offerProviderChoice Boolean @default(false) @map("offer_provider_choice")
 
+  /// Average revenue per appointment in whole dollars. Powers the ROI dashboard
+  /// (estimated revenue the receptionist captured). Owner-editable.
+  avgAppointmentValue Int     @default(150) @map("avg_appointment_value")
+
   // ── SMS notifications ────────────────────────────────────────────────────
   /// Master switch. SMS only fires when the platform has Twilio configured AND
   /// this is true. Tenants opt in — default off so nobody gets surprise texts.

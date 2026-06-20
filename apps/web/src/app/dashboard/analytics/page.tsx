@@ -82,11 +82,74 @@ export default function AnalyticsPage() {
   );
 }
 
+function money(n: number): string {
+  return `$${Math.round(n).toLocaleString('en-US')}`;
+}
+
 function Overview({ data }: { data: AnalyticsOverview }) {
   const empty = data.totalCalls === 0 && data.totalBookings === 0;
+  // Defensive default in case a new web build briefly hits an older API.
+  const r = data.revenue ?? {
+    avgAppointmentValue: 0,
+    capturedBookings: 0,
+    estimatedRevenue: 0,
+    afterHoursCalls: 0,
+    afterHoursBookings: 0,
+  };
 
   return (
     <div className="flex flex-col gap-6">
+      {/* Revenue captured — the headline ROI number */}
+      <div className="overflow-hidden rounded-3xl border border-signal/20 bg-gradient-to-br from-signal-soft/60 via-white to-white p-6 shadow-card sm:p-8">
+        <div className="flex flex-wrap items-end justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.12em] text-signal-deep">
+              Revenue your receptionist captured
+            </p>
+            {r.avgAppointmentValue > 0 ? (
+              <p className="mt-2 font-display text-[44px] font-bold leading-none tracking-tight text-ink">
+                {money(r.estimatedRevenue)}
+              </p>
+            ) : (
+              <p className="mt-2 max-w-md text-sm text-ink-muted">
+                Set your average appointment value in{' '}
+                <a href="/dashboard/settings" className="font-semibold text-signal underline">
+                  Settings
+                </a>{' '}
+                to see the revenue your receptionist captured.
+              </p>
+            )}
+            <p className="mt-2 text-[13px] text-ink-muted">
+              {r.avgAppointmentValue > 0 ? (
+                <>
+                  {r.capturedBookings} appointment{r.capturedBookings === 1 ? '' : 's'} booked by the
+                  receptionist × {money(r.avgAppointmentValue)} avg · last {data.rangeDays} days
+                </>
+              ) : (
+                <>
+                  {r.capturedBookings} appointment{r.capturedBookings === 1 ? '' : 's'} booked by the
+                  receptionist · last {data.rangeDays} days
+                </>
+              )}
+            </p>
+          </div>
+          <div className="flex gap-6">
+            <div>
+              <p className="font-display text-2xl font-semibold text-ink">{r.afterHoursCalls}</p>
+              <p className="mt-0.5 max-w-[7rem] text-[12px] leading-snug text-ink-muted">
+                calls caught after hours
+              </p>
+            </div>
+            <div>
+              <p className="font-display text-2xl font-semibold text-ink">{r.afterHoursBookings}</p>
+              <p className="mt-0.5 max-w-[7rem] text-[12px] leading-snug text-ink-muted">
+                booked while you were closed
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* Headline stats */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard

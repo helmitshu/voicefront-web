@@ -1,5 +1,6 @@
 import { prisma } from '../lib/prisma';
 import { utcToZonedParts } from './appointment.service';
+import { isOpenNow, parseBusinessHours } from '../domain/agent-config';
 
 /**
  * Tenant analytics — aggregated from CallLog + Appointment over a trailing
@@ -28,6 +29,19 @@ export interface AnalyticsOverview {
   byHour: { hour: number; bookings: number }[];
   /** Bookings grouped by local weekday (0=Sun .. 6=Sat). */
   byWeekday: { weekday: number; bookings: number }[];
+  /** ROI: dollar value the receptionist captured + after-hours catch. */
+  revenue: {
+    /** Owner-set average revenue per appointment, whole dollars. */
+    avgAppointmentValue: number;
+    /** Voice-agent bookings that are confirmed or completed (not cancelled). */
+    capturedBookings: number;
+    /** capturedBookings × avgAppointmentValue. */
+    estimatedRevenue: number;
+    /** Calls the agent handled outside business hours (would-be voicemails). */
+    afterHoursCalls: number;
+    /** Voice bookings made while the business was closed. */
+    afterHoursBookings: number;
+  };
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -43,7 +57,7 @@ export async function getAnalyticsOverview(
 ): Promise<AnalyticsOverview> {
   const since = new Date(Date.now() - rangeDays * DAY_MS);
 
-  const [calls, bookings] = await Promise.all([
+  const [calls, bookings, settings] = await Promise.all([
     prisma.callLog.findMany({
       where: { tenantId, startedAt: { gte: since } },
       select: { startedAt: true },
@@ -54,7 +68,20 @@ export async function getAnalyticsOverview(
       select: { createdAt: true, startsAt: true, timezone: true, status: true, source: true },
       take: 10000,
     }),
+    prisma.agentSettings.findUnique({
+      where: { tenantId },
+      select: { businessHours: true, timezone: true, avgAppointmentValue: true },
+    }),
   ]);
+
+  // ROI inputs: average ticket + a closed/open classifier for "after-hours" catch.
+  const avgAppointmentValue = settings?.avgAppointmentValue ?? 0;
+  const hours = parseBusinessHours(settings?.businessHours);
+  const tz = settings?.timezone ?? 'UTC';
+  const isAfterHours = (at: Date) => !isOpenNow(hours, tz, at);
+  let afterHoursCalls = 0;
+  let afterHoursBookings = 0;
+  let capturedBookings = 0;
 
   // ── Seed the daily series so empty days render as zero, not gaps ──────────
   const dayBuckets = new Map<string, { calls: number; bookings: number }>();
@@ -65,6 +92,7 @@ export async function getAnalyticsOverview(
   for (const c of calls) {
     const bucket = dayBuckets.get(utcDayKey(c.startedAt));
     if (bucket) bucket.calls += 1;
+    if (isAfterHours(c.startedAt)) afterHoursCalls += 1;
   }
 
   const bookingsBySource = { voice: 0, manual: 0 };
@@ -76,8 +104,12 @@ export async function getAnalyticsOverview(
     const bucket = dayBuckets.get(utcDayKey(b.createdAt));
     if (bucket) bucket.bookings += 1;
 
-    if (b.source === 'VOICE_AGENT') bookingsBySource.voice += 1;
-    else bookingsBySource.manual += 1;
+    if (b.source === 'VOICE_AGENT') {
+      bookingsBySource.voice += 1;
+      // Captured = voice bookings that stuck (confirmed/completed, not cancelled).
+      if (b.status === 'CONFIRMED' || b.status === 'COMPLETED') capturedBookings += 1;
+      if (isAfterHours(b.createdAt)) afterHoursBookings += 1;
+    } else bookingsBySource.manual += 1;
 
     if (b.status === 'CONFIRMED') bookingsByStatus.confirmed += 1;
     else if (b.status === 'COMPLETED') bookingsByStatus.completed += 1;
@@ -114,5 +146,12 @@ export async function getAnalyticsOverview(
     daily,
     byHour,
     byWeekday,
+    revenue: {
+      avgAppointmentValue,
+      capturedBookings,
+      estimatedRevenue: capturedBookings * avgAppointmentValue,
+      afterHoursCalls,
+      afterHoursBookings,
+    },
   };
 }

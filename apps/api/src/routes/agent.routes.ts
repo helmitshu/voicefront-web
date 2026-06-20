@@ -34,6 +34,8 @@ interface AgentSettingsDto {
   voiceId: string;
   /** Ambient call audio: "office" | "off". */
   backgroundSound: string;
+  /** Average revenue per appointment (whole dollars) — drives the ROI dashboard. */
+  avgAppointmentValue: number;
   /** E.164 number from the provider dashboard; null until assigned. */
   inboundPhoneNumber: string | null;
   /**
@@ -57,6 +59,7 @@ function toDto(settings: AgentSettings): AgentSettingsDto {
     voiceProvider: settings.voiceProvider,
     voiceId: settings.voiceId,
     backgroundSound: settings.backgroundSound,
+    avgAppointmentValue: settings.avgAppointmentValue,
     inboundPhoneNumber: settings.inboundPhoneNumber,
     assistantId: settings.assistantId,
     updatedAt: settings.updatedAt.toISOString(),
@@ -99,6 +102,7 @@ const UpdateSchema = z
     voiceProvider: z.enum(VOICE_PROVIDERS),
     voiceId: z.string().trim().min(1).max(100),
     backgroundSound: z.enum(BACKGROUND_SOUNDS),
+    avgAppointmentValue: z.coerce.number().int().min(0).max(100000),
     inboundPhoneNumber: z
       .string()
       .trim()
@@ -138,6 +142,7 @@ agentRouter.patch(
     if (patch.voiceProvider !== undefined) data.voiceProvider = patch.voiceProvider;
     if (patch.voiceId !== undefined) data.voiceId = patch.voiceId;
     if (patch.backgroundSound !== undefined) data.backgroundSound = patch.backgroundSound;
+    if (patch.avgAppointmentValue !== undefined) data.avgAppointmentValue = patch.avgAppointmentValue;
     if (patch.inboundPhoneNumber !== undefined) data.inboundPhoneNumber = patch.inboundPhoneNumber;
     if (patch.businessHours !== undefined) {
       data.businessHours = patch.businessHours as unknown as Prisma.InputJsonValue;
