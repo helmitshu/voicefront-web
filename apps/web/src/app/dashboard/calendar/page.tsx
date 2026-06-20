@@ -9,6 +9,7 @@ import {
   ProvidersApi,
   type AppointmentDto,
   type AvailabilityResult,
+  type ExternalCalendarEvent,
   type ProviderDto,
   type ServiceDto,
 } from '@/lib/api';
@@ -117,6 +118,7 @@ export default function CalendarPage() {
   const [cursor, setCursor] = useState({ year: now.getFullYear(), month: now.getMonth() });
   const [selected, setSelected] = useState(todayKey);
   const [appointments, setAppointments] = useState<AppointmentDto[] | null>(null);
+  const [externalEvents, setExternalEvents] = useState<ExternalCalendarEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -187,6 +189,11 @@ export default function CalendarPage() {
         if (err instanceof DOMException && err.name === 'AbortError') return;
         setError(err instanceof ApiError ? err.message : 'Could not load the calendar.');
       });
+    // External (Google/Outlook) events overlay — best-effort, never blocks the
+    // page or surfaces an error if no calendar is connected.
+    AppointmentsApi.external({ from, to }, controller.signal)
+      .then(({ events }) => setExternalEvents(events))
+      .catch(() => setExternalEvents([]));
     return () => controller.abort();
   }, [grid, reloadKey]);
 
@@ -201,7 +208,19 @@ export default function CalendarPage() {
     return map;
   }, [appointments]);
 
+  const byDateExternal = useMemo(() => {
+    const map = new Map<string, ExternalCalendarEvent[]>();
+    for (const event of externalEvents) {
+      const list = map.get(event.local.date) ?? [];
+      list.push(event);
+      map.set(event.local.date, list);
+    }
+    for (const list of map.values()) list.sort((a, b) => a.local.time.localeCompare(b.local.time));
+    return map;
+  }, [externalEvents]);
+
   const dayAppointments = byDate.get(selected) ?? [];
+  const dayExternal = byDateExternal.get(selected) ?? [];
   const selectedLabel = new Date(`${selected}T12:00:00Z`).toLocaleDateString('en-US', {
     timeZone: 'UTC',
     weekday: 'long',
@@ -372,6 +391,7 @@ export default function CalendarPage() {
           <div className="grid grid-cols-7">
             {grid.map((cell) => {
               const entries = byDate.get(cell.key) ?? [];
+              const cellExternal = byDateExternal.get(cell.key) ?? [];
               const isToday = cell.key === todayKey;
               const isSelected = cell.key === selected;
               return (
@@ -404,6 +424,23 @@ export default function CalendarPage() {
                   ))}
                   {entries.length > 3 && (
                     <span className="px-1.5 text-[11px] font-medium text-ink-muted">+{entries.length - 3} more</span>
+                  )}
+                  {/* External (Google/Outlook) events — dashed/striped so they read
+                      as "from your own calendar", not bookable appointments. */}
+                  {cellExternal.slice(0, 2).map((event, i) => (
+                    <span
+                      key={`ext-${i}`}
+                      title={`${event.title} · from ${event.provider === 'GOOGLE' ? 'Google' : 'Outlook'} Calendar`}
+                      className="flex items-center gap-1 truncate rounded-md border border-dashed border-violet-300 bg-violet-50/70 px-1.5 py-0.5 text-[11px] font-medium text-violet-700"
+                    >
+                      <svg viewBox="0 0 24 24" className="h-2.5 w-2.5 shrink-0" fill="none" stroke="currentColor" strokeWidth="2.4">
+                        <rect x="3" y="4.5" width="18" height="16" rx="2" /><path d="M3 9h18M8 3v3M16 3v3" strokeLinecap="round" />
+                      </svg>
+                      <span className="truncate">{event.allDay ? '' : `${to12h(event.local.time)} `}{event.title}</span>
+                    </span>
+                  ))}
+                  {cellExternal.length > 2 && (
+                    <span className="px-1.5 text-[11px] font-medium text-violet-500/80">+{cellExternal.length - 2} more</span>
                   )}
                 </button>
               );
@@ -564,6 +601,40 @@ export default function CalendarPage() {
               </div>
             ) : (
               <ul className="flex flex-col divide-y divide-line/60">{dayAppointments.map(renderAppointment)}</ul>
+            )}
+
+            {/* Read-only overlay of the owner's own connected calendar. */}
+            {dayExternal.length > 0 && (
+              <div className="mt-5 border-t border-line/60 pt-4">
+                <div className="mb-2.5 flex items-center gap-1.5">
+                  <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-violet-600" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="3" y="4.5" width="18" height="16" rx="2" /><path d="M3 9h18M8 3v3M16 3v3" strokeLinecap="round" />
+                  </svg>
+                  <p className="text-[12px] font-semibold uppercase tracking-[0.08em] text-violet-600">From your calendar</p>
+                </div>
+                <ul className="flex flex-col gap-2">
+                  {dayExternal.map((event, i) => (
+                    <li
+                      key={`ext-${i}`}
+                      className="flex items-start gap-2.5 rounded-lg border border-dashed border-violet-200 bg-violet-50/50 px-3 py-2"
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="font-mono text-xs font-medium text-violet-700">
+                          {event.allDay ? 'All day' : to12h(event.local.time)}
+                        </p>
+                        <p className="truncate text-sm font-semibold text-ink">{event.title}</p>
+                        <p className="mt-0.5 text-[11px] text-ink-muted">
+                          {event.provider === 'GOOGLE' ? 'Google Calendar' : 'Outlook'}
+                          {event.accountEmail ? ` · ${event.accountEmail}` : ''}
+                        </p>
+                      </div>
+                      <span className="mt-0.5 shrink-0 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-600">
+                        Busy
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
           </Card>
         </div>

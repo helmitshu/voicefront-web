@@ -335,6 +335,19 @@ export interface AppointmentDto {
   createdAt: string;
 }
 
+/** An event read from a connected external calendar (Google / Outlook). */
+export interface ExternalCalendarEvent {
+  provider: 'GOOGLE' | 'MICROSOFT';
+  accountEmail: string | null;
+  /** ISO start/end in UTC. */
+  start: string;
+  end: string;
+  title: string;
+  allDay: boolean;
+  /** Wall-clock parts in the business timezone, for bucketing onto a day. */
+  local: { date: string; time: string };
+}
+
 export interface AvailabilityResult {
   open: boolean;
   freeSlots: string[];
@@ -672,6 +685,12 @@ export const AppointmentsApi = {
   list: (range: { from: string; to: string }, signal?: AbortSignal) => {
     const query = new URLSearchParams({ from: range.from, to: range.to });
     return api<{ appointments: AppointmentDto[] }>(`/api/appointments?${query}`, { signal });
+  },
+  /** Events pulled from the tenant's connected (Google/Outlook) calendars, for
+   *  overlaying onto the in-app calendar. Best-effort — empty if none connected. */
+  external: (range: { from: string; to: string }, signal?: AbortSignal) => {
+    const query = new URLSearchParams({ from: range.from, to: range.to });
+    return api<{ events: ExternalCalendarEvent[] }>(`/api/appointments/external?${query}`, { signal });
   },
   availability: (date: string) =>
     api<{ availability: AvailabilityResult }>(`/api/appointments/availability?date=${date}`),

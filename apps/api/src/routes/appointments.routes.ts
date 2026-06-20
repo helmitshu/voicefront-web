@@ -85,6 +85,25 @@ appointmentsRouter.get(
 );
 
 appointmentsRouter.get(
+  '/external',
+  asyncHandler(async (req, res) => {
+    const auth = getAuth(req);
+    const { from, to } = ListQuerySchema.parse(req.query);
+    const fromDate = new Date(`${from}T00:00:00Z`);
+    const toDate = new Date(`${to}T23:59:59Z`);
+    fromDate.setUTCDate(fromDate.getUTCDate() - 1);
+    toDate.setUTCDate(toDate.getUTCDate() + 1);
+    if (Number.isNaN(fromDate.getTime()) || Number.isNaN(toDate.getTime()) || fromDate > toDate) {
+      throw new HttpError(400, 'Invalid date range.', 'BAD_RANGE');
+    }
+    // Best-effort: a calendar hiccup returns [] rather than failing the page.
+    const { getExternalEvents } = await import('../services/calendar.service');
+    const events = await getExternalEvents(auth.tenantId, fromDate, toDate).catch(() => []);
+    res.json({ events });
+  }),
+);
+
+appointmentsRouter.get(
   '/availability',
   asyncHandler(async (req, res) => {
     const auth = getAuth(req);

@@ -5,6 +5,7 @@ import {
   type BusyInterval,
   type CalendarEventInput,
   type CalendarProvider,
+  type ExternalEvent,
   type OAuthTokens,
 } from './types';
 
@@ -134,6 +135,46 @@ export const googleProvider: CalendarProvider = {
     // so looking up by the sent calendarId misses. Flatten all returned calendars.
     const busy = Object.values(json.calendars ?? {}).flatMap((c) => c.busy ?? []);
     return busy.map((b): BusyInterval => ({ start: new Date(b.start), end: new Date(b.end) }));
+  },
+
+  async listEvents(accessToken, calendarId, from, to) {
+    const params = new URLSearchParams({
+      timeMin: from.toISOString(),
+      timeMax: to.toISOString(),
+      singleEvents: 'true', // expand recurring series into individual instances
+      orderBy: 'startTime',
+      maxResults: '250',
+    });
+    const res = await fetch(
+      `${API_BASE}/calendars/${encodeURIComponent(calendarId)}/events?${params.toString()}`,
+      { headers: { Authorization: `Bearer ${accessToken}` } },
+    );
+    if (!res.ok) throw await apiError(res, 'listEvents');
+    const json = (await res.json()) as {
+      items?: {
+        summary?: string;
+        status?: string;
+        transparency?: string;
+        start?: { dateTime?: string; date?: string };
+        end?: { dateTime?: string; date?: string };
+      }[];
+    };
+    return (json.items ?? [])
+      // Drop cancelled instances and events the owner marked "free" (not busy).
+      .filter((e) => e.status !== 'cancelled' && e.transparency !== 'transparent')
+      .map((e): ExternalEvent | null => {
+        const allDay = !e.start?.dateTime;
+        const startStr = e.start?.dateTime ?? e.start?.date;
+        const endStr = e.end?.dateTime ?? e.end?.date;
+        if (!startStr || !endStr) return null;
+        return {
+          start: new Date(startStr),
+          end: new Date(endStr),
+          title: e.summary?.trim() || 'Busy',
+          allDay,
+        };
+      })
+      .filter((e): e is ExternalEvent => e !== null);
   },
 
   async createEvent(accessToken, calendarId, event) {

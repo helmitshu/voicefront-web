@@ -21,6 +21,16 @@ export interface BusyInterval {
   end: Date;
 }
 
+/** A real event read back from a connected calendar, for display overlay. */
+export interface ExternalEvent {
+  start: Date;
+  end: Date;
+  /** Event title/subject. May be empty when the provider hides it. */
+  title: string;
+  /** All-day events have date-only bounds; the UI renders them spanning the day. */
+  allDay: boolean;
+}
+
 export interface CalendarEventInput {
   summary: string;
   description?: string;
@@ -42,6 +52,8 @@ export interface CalendarProvider {
   refresh(refreshToken: string): Promise<OAuthTokens>;
   /** Busy intervals on the given calendar within [from, to]. */
   getBusy(accessToken: string, calendarId: string, from: Date, to: Date): Promise<BusyInterval[]>;
+  /** Actual events (with titles) on the calendar within [from, to], for display. */
+  listEvents(accessToken: string, calendarId: string, from: Date, to: Date): Promise<ExternalEvent[]>;
   /** Create an event; returns the provider's event id. */
   createEvent(accessToken: string, calendarId: string, event: CalendarEventInput): Promise<string>;
   /** Update an existing event in place. */

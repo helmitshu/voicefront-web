@@ -159,6 +159,68 @@ export async function isWindowBusyExternally(tenantId: string, start: Date, end:
   return busy.some((b) => b.start < end && b.end > start);
 }
 
+/** An external event tagged with which connected calendar it came from. */
+export interface ExternalEventDto {
+  provider: ProviderId;
+  accountEmail: string | null;
+  start: string;
+  end: string;
+  title: string;
+  allDay: boolean;
+  /** Wall-clock parts in the tenant's timezone, so the UI buckets it onto the
+   *  same day the rest of the calendar is painted in. */
+  local: { date: string; time: string };
+}
+
+/**
+ * Actual events (with titles) across every blockBusy-enabled connection within
+ * [from, to], for overlaying the owner's real calendar onto the in-app one.
+ * Best-effort and identical failure handling to getExternalBusy — a broken
+ * connection is recorded and skipped, never failing the whole calendar load.
+ */
+export async function getExternalEvents(
+  tenantId: string,
+  from: Date,
+  to: Date,
+): Promise<ExternalEventDto[]> {
+  const conns = await prisma.calendarConnection.findMany({ where: { tenantId, blockBusy: true } });
+  if (conns.length === 0) return [];
+
+  // Bucket events onto days in the tenant's own timezone (same helper the rest
+  // of the calendar uses) so they line up with in-app appointments.
+  const settings = await prisma.agentSettings.findUnique({
+    where: { tenantId },
+    select: { timezone: true },
+  });
+  const tz = settings?.timezone ?? 'UTC';
+  const { utcToZonedParts } = await import('./appointment.service');
+
+  const results = await Promise.all(
+    conns.map(async (conn): Promise<ExternalEventDto[]> => {
+      try {
+        const token = await validAccessToken(conn);
+        const events = await getProvider(conn.provider).listEvents(token, conn.calendarId, from, to);
+        return events.map((e) => {
+          const local = utcToZonedParts(e.start, tz);
+          return {
+            provider: conn.provider,
+            accountEmail: conn.accountEmail,
+            start: e.start.toISOString(),
+            end: e.end.toISOString(),
+            title: e.title,
+            allDay: e.allDay,
+            local: { date: local.date, time: local.time },
+          };
+        });
+      } catch (err) {
+        await recordError(conn.id, err);
+        return [];
+      }
+    }),
+  );
+  return results.flat().sort((a, b) => a.start.localeCompare(b.start));
+}
+
 /* ----------------------------- outbound (mirror) -------------------------- */
 
 type EventIdMap = Record<string, string>;

@@ -5,6 +5,7 @@ import {
   type BusyInterval,
   type CalendarEventInput,
   type CalendarProvider,
+  type ExternalEvent,
   type OAuthTokens,
 } from './types';
 
@@ -145,6 +146,35 @@ export const microsoftProvider: CalendarProvider = {
         // Graph returns naive UTC under the Prefer header — append Z to parse.
         start: new Date(`${e.start.dateTime}Z`),
         end: new Date(`${e.end.dateTime}Z`),
+      }));
+  },
+
+  // Microsoft v1 targets the user's default calendar; calendarId is unused.
+  async listEvents(accessToken, _calendarId, from, to) {
+    const url =
+      `${GRAPH_BASE}/me/calendarView?startDateTime=${from.toISOString()}&endDateTime=${to.toISOString()}` +
+      `&$select=subject,start,end,showAs,isCancelled,isAllDay&$orderby=start/dateTime&$top=250`;
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${accessToken}`, Prefer: 'outlook.timezone="UTC"' },
+    });
+    if (!res.ok) throw await apiError(res, 'calendarView');
+    const json = (await res.json()) as {
+      value?: {
+        subject?: string;
+        start: { dateTime: string };
+        end: { dateTime: string };
+        showAs?: string;
+        isCancelled?: boolean;
+        isAllDay?: boolean;
+      }[];
+    };
+    return (json.value ?? [])
+      .filter((e) => !e.isCancelled && e.showAs !== 'free')
+      .map((e): ExternalEvent => ({
+        start: new Date(`${e.start.dateTime}Z`),
+        end: new Date(`${e.end.dateTime}Z`),
+        title: e.subject?.trim() || 'Busy',
+        allDay: !!e.isAllDay,
       }));
   },
 
