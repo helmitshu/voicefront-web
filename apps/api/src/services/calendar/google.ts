@@ -130,7 +130,9 @@ export const googleProvider: CalendarProvider = {
     const json = (await res.json()) as {
       calendars?: Record<string, { busy?: { start: string; end: string }[] }>;
     };
-    const busy = json.calendars?.[calendarId]?.busy ?? [];
+    // Google resolves "primary" to the user's actual email in the response key,
+    // so looking up by the sent calendarId misses. Flatten all returned calendars.
+    const busy = Object.values(json.calendars ?? {}).flatMap((c) => c.busy ?? []);
     return busy.map((b): BusyInterval => ({ start: new Date(b.start), end: new Date(b.end) }));
   },
 
