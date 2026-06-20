@@ -173,17 +173,20 @@ export interface ExternalEventDto {
 }
 
 /**
- * Actual events (with titles) across every blockBusy-enabled connection within
- * [from, to], for overlaying the owner's real calendar onto the in-app one.
- * Best-effort and identical failure handling to getExternalBusy — a broken
- * connection is recorded and skipped, never failing the whole calendar load.
+ * Actual events (with titles) across every connected calendar within [from, to],
+ * for overlaying the owner's real calendar onto the in-app one. Best-effort and
+ * identical failure handling to getExternalBusy — a broken connection is
+ * recorded and skipped, never failing the whole calendar load.
  */
 export async function getExternalEvents(
   tenantId: string,
   from: Date,
   to: Date,
 ): Promise<ExternalEventDto[]> {
-  const conns = await prisma.calendarConnection.findMany({ where: { tenantId, blockBusy: true } });
+  // Display overlay reads from EVERY connected calendar — unlike getExternalBusy
+  // (which gates on blockBusy), seeing your events shouldn't depend on whether
+  // you also chose to block bookings against them.
+  const conns = await prisma.calendarConnection.findMany({ where: { tenantId } });
   if (conns.length === 0) return [];
 
   // Bucket events onto days in the tenant's own timezone (same helper the rest

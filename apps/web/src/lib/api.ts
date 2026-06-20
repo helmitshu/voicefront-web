@@ -351,6 +351,10 @@ export interface ExternalCalendarEvent {
 export interface AvailabilityResult {
   open: boolean;
   freeSlots: string[];
+  /** Full day grid — every future start in the business window with whether it's
+   *  bookable. Busy entries fold in both in-app bookings and external (Google/
+   *  Outlook) busy time. Powers the day schedule table. */
+  slots: { time: string; available: boolean }[];
   dayLabel: string;
 }
 

@@ -126,7 +126,7 @@ export default function AdminCalendarPage() {
         setAvailability(availability);
         setForm((f) => ({ ...f, time: availability.freeSlots[0] ?? '' }));
       })
-      .catch(() => setAvailability({ open: false, freeSlots: [], dayLabel: date }));
+      .catch(() => setAvailability({ open: false, freeSlots: [], slots: [], dayLabel: date }));
   }, []);
 
   function openForm() {

@@ -13,7 +13,6 @@ import {
   type ProviderDto,
   type ServiceDto,
 } from '@/lib/api';
-import { formatPhone } from '@/lib/format';
 import { Card, Badge, EmptyState } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input, Select } from '@/components/ui/Field';
@@ -47,35 +46,6 @@ function to12h(time: string): string {
   return `${display}:${m} ${suffix}`;
 }
 
-/** Per-provider group label with an initials avatar (premium touch). */
-function GroupHeader({ label, count }: { label: string; count: number }) {
-  const unassigned = label === 'Unassigned';
-  const initials = unassigned
-    ? '–'
-    : label
-        .replace(/^(Dr|Mr|Mrs|Ms|Miss|Prof|Hygienist)\.?\s+/i, '')
-        .split(/\s+/)
-        .filter(Boolean)
-        .slice(0, 2)
-        .map((w) => w[0]?.toUpperCase() ?? '')
-        .join('');
-  return (
-    <div className="mb-1.5 flex items-center gap-2">
-      <span
-        aria-hidden
-        className={`flex h-6 w-6 items-center justify-center rounded-full text-[10px] font-semibold ${
-          unassigned
-            ? 'bg-paper text-ink-muted ring-1 ring-inset ring-ink/10'
-            : 'bg-gradient-to-br from-signal to-signal-deep text-white shadow-pop'
-        }`}
-      >
-        {initials}
-      </span>
-      <p className="text-[13px] font-semibold text-ink">{label}</p>
-      <span className="text-xs text-ink-muted">· {count}</span>
-    </div>
-  );
-}
 
 interface GridDay {
   key: string;
@@ -119,6 +89,7 @@ export default function CalendarPage() {
   const [selected, setSelected] = useState(todayKey);
   const [appointments, setAppointments] = useState<AppointmentDto[] | null>(null);
   const [externalEvents, setExternalEvents] = useState<ExternalCalendarEvent[]>([]);
+  const [dayGrid, setDayGrid] = useState<{ time: string; available: boolean }[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -163,15 +134,6 @@ export default function CalendarPage() {
     () => (form.serviceId ? activeServices.find((s) => s.id === form.serviceId) ?? null : null),
     [form.serviceId, activeServices],
   );
-  const providerLabel = useCallback(
-    (id: string | null) => {
-      if (!id) return 'Unassigned';
-      const p = (providersInfo?.providers ?? []).find((x) => x.id === id);
-      return p ? (p.title ? `${p.title} ${p.name}` : p.name) : 'Unassigned';
-    },
-    [providersInfo],
-  );
-
   const grid = useMemo(() => buildGrid(cursor.year, cursor.month), [cursor]);
   const monthLabel = new Date(cursor.year, cursor.month, 1).toLocaleDateString('en-US', {
     month: 'long',
@@ -228,6 +190,53 @@ export default function CalendarPage() {
     day: 'numeric',
   });
 
+  // Day schedule table — fetch the full slot grid for the selected day. Busy
+  // slots already fold in both bookings and external (Google/Outlook) busy time
+  // because the server subtracts the connected calendars when building it.
+  useEffect(() => {
+    let alive = true;
+    setDayGrid(null);
+    AppointmentsApi.availability(selected)
+      .then(({ availability }) => {
+        if (alive) setDayGrid(availability.slots ?? []);
+      })
+      .catch(() => {
+        if (alive) setDayGrid([]);
+      });
+    return () => {
+      alive = false;
+    };
+  }, [selected, reloadKey]);
+
+  // Merge the grid + bookings + external events into one ordered list of rows.
+  // Every time that has *something* gets a row, plus the remaining open slots.
+  const daySchedule = useMemo(() => {
+    const apptByTime = new Map<string, AppointmentDto>();
+    for (const a of dayAppointments) if (!apptByTime.has(a.local.time)) apptByTime.set(a.local.time, a);
+    const extByTime = new Map<string, ExternalCalendarEvent[]>();
+    for (const e of dayExternal) {
+      const list = extByTime.get(e.local.time) ?? [];
+      list.push(e);
+      extByTime.set(e.local.time, list);
+    }
+    const freeByTime = new Map<string, boolean>();
+    for (const s of dayGrid ?? []) freeByTime.set(s.time, s.available);
+
+    const times = new Set<string>([
+      ...(dayGrid ?? []).map((s) => s.time),
+      ...dayAppointments.map((a) => a.local.time),
+      ...dayExternal.map((e) => e.local.time),
+    ]);
+    return [...times]
+      .sort((a, b) => a.localeCompare(b))
+      .map((time) => ({
+        time,
+        appointment: apptByTime.get(time) ?? null,
+        external: extByTime.get(time) ?? [],
+        free: freeByTime.get(time) ?? false,
+      }));
+  }, [dayGrid, dayAppointments, dayExternal]);
+
   const loadAvailability = useCallback((date: string) => {
     setAvailability(null);
     AppointmentsApi.availability(date)
@@ -235,7 +244,7 @@ export default function CalendarPage() {
         setAvailability(availability);
         setForm((f) => ({ ...f, time: availability.freeSlots[0] ?? '' }));
       })
-      .catch(() => setAvailability({ open: false, freeSlots: [], dayLabel: date }));
+      .catch(() => setAvailability({ open: false, freeSlots: [], slots: [], dayLabel: date }));
   }, []);
 
   function openForm() {
@@ -292,39 +301,6 @@ export default function CalendarPage() {
       setCancellingId(null);
     }
   }
-
-  const renderAppointment = (appointment: AppointmentDto) => (
-    <li key={appointment.id} className="flex flex-col gap-1.5 py-3 first:pt-0 last:pb-0">
-      <div className="flex items-center justify-between gap-3">
-        <p className="font-mono text-sm font-medium text-ink">{to12h(appointment.local.time)}</p>
-        <Badge tone={STATUS_META[appointment.status].tone} dot>
-          {STATUS_META[appointment.status].label}
-        </Badge>
-      </div>
-      <p className="text-sm font-semibold text-ink">{appointment.customerName}</p>
-      {appointment.customerPhone && (
-        <p className="font-mono text-xs text-ink-muted">{formatPhone(appointment.customerPhone)}</p>
-      )}
-      {appointment.reason && <p className="text-xs leading-relaxed text-ink-muted">{appointment.reason}</p>}
-      <div className="mt-1 flex items-center justify-between gap-2">
-        <span className="text-[11px] font-medium uppercase tracking-[0.08em] text-ink-muted/70">
-          {appointment.source === 'VOICE_AGENT' ? 'Booked by receptionist' : 'Booked manually'}
-        </span>
-        {!readOnly && appointment.status === 'CONFIRMED' && (
-          <Button
-            variant="ghost"
-            size="sm"
-            loading={cancellingId === appointment.id}
-            onClick={() => cancelAppointment(appointment.id)}
-          >
-            Cancel
-          </Button>
-        )}
-      </div>
-    </li>
-  );
-
-  const unassignedToday = dayAppointments.filter((a) => !a.providerId);
 
   if (error) {
     return (
@@ -569,72 +545,107 @@ export default function CalendarPage() {
               </div>
             )}
 
-            {dayAppointments.length === 0 && !formOpen ? (
-              <p className="rounded-xl border border-dashed border-line bg-paper/60 px-4 py-6 text-center text-sm text-ink-muted">
-                Nothing booked this day.
-              </p>
-            ) : multiProvider ? (
-              <div className="flex flex-col gap-5">
-                {activeProviders.map((p) => {
-                  const appts = dayAppointments.filter((a) => a.providerId === p.id);
-                  return (
-                    <section key={p.id}>
-                      <GroupHeader label={providerLabel(p.id)} count={appts.length} />
-                      {appts.length === 0 ? (
-                        <p className="rounded-lg border border-dashed border-line/70 bg-paper/40 px-3 py-2 text-xs text-ink-muted/80">
-                          Open — no appointments
-                        </p>
-                      ) : (
-                        <ul className="flex flex-col divide-y divide-line/60">{appts.map(renderAppointment)}</ul>
-                      )}
-                    </section>
-                  );
-                })}
-                {unassignedToday.length > 0 && (
-                  <section>
-                    <GroupHeader label="Unassigned" count={unassignedToday.length} />
-                    <ul className="flex flex-col divide-y divide-line/60">
-                      {unassignedToday.map(renderAppointment)}
-                    </ul>
-                  </section>
-                )}
-              </div>
-            ) : (
-              <ul className="flex flex-col divide-y divide-line/60">{dayAppointments.map(renderAppointment)}</ul>
-            )}
+            {/* Day schedule — the table of times for the selected day. Each row
+                shows what occupies that slot: an in-app booking, an event from
+                your connected Google/Outlook calendar, or an open slot. */}
+            {!formOpen && (
+              <>
+                {/* All-day external events sit above the timed grid. */}
+                {dayExternal.filter((e) => e.allDay).map((event, i) => (
+                  <div
+                    key={`allday-${i}`}
+                    className="mb-2 flex items-center justify-between gap-2 rounded-lg border border-dashed border-violet-200 bg-violet-50/50 px-3 py-2"
+                  >
+                    <p className="truncate text-sm font-semibold text-violet-800">{event.title}</p>
+                    <span className="shrink-0 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-600">
+                      All day
+                    </span>
+                  </div>
+                ))}
 
-            {/* Read-only overlay of the owner's own connected calendar. */}
-            {dayExternal.length > 0 && (
-              <div className="mt-5 border-t border-line/60 pt-4">
-                <div className="mb-2.5 flex items-center gap-1.5">
-                  <svg viewBox="0 0 24 24" className="h-3.5 w-3.5 text-violet-600" fill="none" stroke="currentColor" strokeWidth="2">
-                    <rect x="3" y="4.5" width="18" height="16" rx="2" /><path d="M3 9h18M8 3v3M16 3v3" strokeLinecap="round" />
-                  </svg>
-                  <p className="text-[12px] font-semibold uppercase tracking-[0.08em] text-violet-600">From your calendar</p>
-                </div>
-                <ul className="flex flex-col gap-2">
-                  {dayExternal.map((event, i) => (
-                    <li
-                      key={`ext-${i}`}
-                      className="flex items-start gap-2.5 rounded-lg border border-dashed border-violet-200 bg-violet-50/50 px-3 py-2"
-                    >
-                      <div className="min-w-0 flex-1">
-                        <p className="font-mono text-xs font-medium text-violet-700">
-                          {event.allDay ? 'All day' : to12h(event.local.time)}
-                        </p>
-                        <p className="truncate text-sm font-semibold text-ink">{event.title}</p>
-                        <p className="mt-0.5 text-[11px] text-ink-muted">
-                          {event.provider === 'GOOGLE' ? 'Google Calendar' : 'Outlook'}
-                          {event.accountEmail ? ` · ${event.accountEmail}` : ''}
-                        </p>
-                      </div>
-                      <span className="mt-0.5 shrink-0 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-600">
-                        Busy
-                      </span>
-                    </li>
-                  ))}
-                </ul>
-              </div>
+                {dayGrid === null ? (
+                  <div className="flex items-center gap-2 py-6 text-xs text-ink-muted">
+                    <Spinner className="h-3.5 w-3.5" /> Loading schedule…
+                  </div>
+                ) : daySchedule.length === 0 ? (
+                  <p className="rounded-xl border border-dashed border-line bg-paper/60 px-4 py-6 text-center text-sm text-ink-muted">
+                    Nothing scheduled — this day is wide open.
+                  </p>
+                ) : (
+                  <div className="overflow-hidden rounded-xl border border-line/70">
+                    <table className="w-full border-collapse text-sm">
+                      <tbody>
+                        {daySchedule.map((row) => {
+                          const ext = row.external.filter((e) => !e.allDay);
+                          const rowBg = row.appointment
+                            ? 'bg-signal-soft/20'
+                            : ext.length > 0
+                              ? 'bg-violet-50/40'
+                              : !row.free
+                                ? 'bg-paper/50'
+                                : '';
+                          return (
+                            <tr key={row.time} className={`border-b border-line/40 last:border-0 ${rowBg}`}>
+                              <td className="w-[78px] whitespace-nowrap border-r border-line/40 px-2.5 py-2 align-top font-mono text-[11px] font-medium text-ink-muted">
+                                {to12h(row.time)}
+                              </td>
+                              <td className="px-3 py-2">
+                                {row.appointment ? (
+                                  <div className="flex items-center justify-between gap-2">
+                                    <div className="min-w-0">
+                                      <p className="truncate text-sm font-semibold text-ink">
+                                        {row.appointment.customerName}
+                                      </p>
+                                      {row.appointment.reason && (
+                                        <p className="truncate text-xs text-ink-muted">{row.appointment.reason}</p>
+                                      )}
+                                    </div>
+                                    <div className="flex shrink-0 items-center gap-1.5">
+                                      <Badge tone={STATUS_META[row.appointment.status].tone} dot>
+                                        {STATUS_META[row.appointment.status].label}
+                                      </Badge>
+                                      {!readOnly && row.appointment.status === 'CONFIRMED' && (
+                                        <Button
+                                          variant="ghost"
+                                          size="sm"
+                                          loading={cancellingId === row.appointment.id}
+                                          onClick={() => cancelAppointment(row.appointment!.id)}
+                                        >
+                                          Cancel
+                                        </Button>
+                                      )}
+                                    </div>
+                                  </div>
+                                ) : ext.length > 0 ? (
+                                  <div className="flex flex-col gap-1">
+                                    {ext.map((e, i) => (
+                                      <div key={i} className="flex items-center justify-between gap-2">
+                                        <div className="min-w-0">
+                                          <p className="truncate text-sm font-semibold text-violet-800">{e.title}</p>
+                                          <p className="truncate text-[11px] text-ink-muted">
+                                            {e.provider === 'GOOGLE' ? 'Google Calendar' : 'Outlook'}
+                                          </p>
+                                        </div>
+                                        <span className="shrink-0 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-600">
+                                          Busy
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                ) : row.free ? (
+                                  <span className="text-xs text-ink-muted/60">Open</span>
+                                ) : (
+                                  <span className="text-xs text-ink-muted/60">Busy</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </>
             )}
           </Card>
         </div>
