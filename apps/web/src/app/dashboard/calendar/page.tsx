@@ -3,12 +3,15 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useAuth } from '@/lib/auth-context';
 import { useToast } from '@/components/ui/Toast';
+import Link from 'next/link';
 import {
   ApiError,
   AppointmentsApi,
+  CalendarApi,
   ProvidersApi,
   type AppointmentDto,
   type AvailabilityResult,
+  type CalendarStatus,
   type ExternalCalendarEvent,
   type ProviderDto,
   type ServiceDto,
@@ -90,6 +93,7 @@ export default function CalendarPage() {
   const [appointments, setAppointments] = useState<AppointmentDto[] | null>(null);
   const [externalEvents, setExternalEvents] = useState<ExternalCalendarEvent[]>([]);
   const [dayGrid, setDayGrid] = useState<{ time: string; available: boolean }[] | null>(null);
+  const [calStatus, setCalStatus] = useState<CalendarStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -119,7 +123,12 @@ export default function CalendarPage() {
         setProvidersInfo({ enabled: d.config.enabled, providers: d.providers, services: d.services }),
       )
       .catch(() => setProvidersInfo({ enabled: false, providers: [], services: [] }));
-  }, []);
+    // Connection state powers the banner that explains why external events do
+    // (or don't) show up on this calendar.
+    CalendarApi.status()
+      .then(setCalStatus)
+      .catch(() => setCalStatus(null));
+  }, [reloadKey]);
 
   const activeProviders = useMemo(
     () => (providersInfo?.providers ?? []).filter((p) => p.active),
@@ -353,6 +362,52 @@ export default function CalendarPage() {
           </Button>
         </div>
       </div>
+
+      {/* Calendar-sync status — makes it obvious whether external events should
+          appear here, and points to Settings to fix a missing/broken connection. */}
+      {calStatus &&
+        (() => {
+          const conns = calStatus.connections;
+          const errored = conns.find((c) => c.lastError);
+          if (errored) {
+            return (
+              <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                Your {errored.provider === 'GOOGLE' ? 'Google' : 'Outlook'} calendar needs reconnecting —{' '}
+                {errored.lastError}{' '}
+                <Link href="/dashboard/settings" className="font-semibold underline">
+                  Reconnect in Settings →
+                </Link>
+              </div>
+            );
+          }
+          if (conns.length === 0 && calStatus.availableProviders.length > 0) {
+            return (
+              <div className="rounded-xl border border-line bg-paper/60 px-4 py-3 text-sm text-ink-muted">
+                Connect your Google or Outlook calendar to see your own events and busy times on this calendar.{' '}
+                <Link href="/dashboard/settings" className="font-semibold text-signal underline">
+                  Connect in Settings →
+                </Link>
+              </div>
+            );
+          }
+          if (conns.length > 0) {
+            const accounts = conns
+              .map((c) => c.accountEmail || (c.provider === 'GOOGLE' ? 'Google Calendar' : 'Outlook'))
+              .join(', ');
+            return (
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-xl border border-violet-200 bg-violet-50/60 px-4 py-2.5 text-[13px] text-violet-800">
+                <span className="inline-block h-2 w-2 rounded-full bg-violet-500" />
+                <span className="font-medium">Synced with {accounts}.</span>
+                <span className="text-violet-700/80">
+                  {externalEvents.length === 0
+                    ? 'No events found this month — events show as violet rows when you have them.'
+                    : `${externalEvents.length} event${externalEvents.length === 1 ? '' : 's'} this month show in violet.`}
+                </span>
+              </div>
+            );
+          }
+          return null;
+        })()}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_340px]">
         {/* Month grid */}
