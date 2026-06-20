@@ -16,6 +16,10 @@ export const SETTING_KEYS = [
   'VAPI_PRIVATE_KEY',
   'VAPI_WEBHOOK_SECRET',
   'PUBLIC_API_URL',
+  'GOOGLE_OAUTH_CLIENT_ID',
+  'GOOGLE_OAUTH_CLIENT_SECRET',
+  'MICROSOFT_OAUTH_CLIENT_ID',
+  'MICROSOFT_OAUTH_CLIENT_SECRET',
 ] as const;
 export type SettingKey = (typeof SETTING_KEYS)[number];
 
@@ -50,6 +54,32 @@ export const SETTING_META: Record<
       'The public https address of this server (your ngrok URL in local dev). Needed so booking tools work on browser test calls.',
     secret: false,
     placeholder: 'https://your-subdomain.ngrok.io',
+  },
+  GOOGLE_OAUTH_CLIENT_ID: {
+    label: 'Google OAuth client ID',
+    description:
+      'From your Google Cloud OAuth 2.0 client (Web application). Lets customers connect their Google Calendar for two-way sync. Set the authorized redirect URI to <API URL>/api/calendar/google/callback.',
+    secret: false,
+    placeholder: 'e.g. 1234-abcd.apps.googleusercontent.com',
+  },
+  GOOGLE_OAUTH_CLIENT_SECRET: {
+    label: 'Google OAuth client secret',
+    description: 'The client secret paired with the Google OAuth client ID above. Keep this secret.',
+    secret: true,
+    placeholder: 'paste your Google client secret',
+  },
+  MICROSOFT_OAUTH_CLIENT_ID: {
+    label: 'Microsoft OAuth client ID',
+    description:
+      'Application (client) ID from your Azure app registration. Lets customers connect Outlook / Microsoft 365 calendars. Set the redirect URI to <API URL>/api/calendar/microsoft/callback.',
+    secret: false,
+    placeholder: 'e.g. 00000000-0000-0000-0000-000000000000',
+  },
+  MICROSOFT_OAUTH_CLIENT_SECRET: {
+    label: 'Microsoft OAuth client secret',
+    description: 'A client secret value from your Azure app registration (Certificates & secrets). Keep this secret.',
+    secret: true,
+    placeholder: 'paste your Microsoft client secret',
   },
 };
 
@@ -99,6 +129,14 @@ function envFallback(key: SettingKey): string | null {
       return env.VAPI_WEBHOOK_SECRET;
     case 'PUBLIC_API_URL':
       return publicApiUrl;
+    case 'GOOGLE_OAUTH_CLIENT_ID':
+      return env.GOOGLE_OAUTH_CLIENT_ID ?? null;
+    case 'GOOGLE_OAUTH_CLIENT_SECRET':
+      return env.GOOGLE_OAUTH_CLIENT_SECRET ?? null;
+    case 'MICROSOFT_OAUTH_CLIENT_ID':
+      return env.MICROSOFT_OAUTH_CLIENT_ID ?? null;
+    case 'MICROSOFT_OAUTH_CLIENT_SECRET':
+      return env.MICROSOFT_OAUTH_CLIENT_SECRET ?? null;
   }
 }
 
@@ -147,6 +185,10 @@ const VALIDATORS: Record<SettingKey, (value: string) => string | null> = {
       return 'That is not a valid URL.';
     }
   },
+  GOOGLE_OAUTH_CLIENT_ID: (v) => (v.length >= 8 ? null : 'That does not look like a Google client ID.'),
+  GOOGLE_OAUTH_CLIENT_SECRET: (v) => (v.length >= 8 ? null : 'That looks too short to be a client secret.'),
+  MICROSOFT_OAUTH_CLIENT_ID: (v) => (v.length >= 8 ? null : 'That does not look like a Microsoft client ID.'),
+  MICROSOFT_OAUTH_CLIENT_SECRET: (v) => (v.length >= 8 ? null : 'That looks too short to be a client secret.'),
 };
 
 export async function setSetting(key: SettingKey, rawValue: string, adminEmail: string): Promise<void> {

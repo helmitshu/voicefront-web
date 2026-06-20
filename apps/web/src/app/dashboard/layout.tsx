@@ -23,6 +23,17 @@ const NAV = [
     ),
   },
   {
+    href: '/dashboard/analytics',
+    label: 'Analytics',
+    exact: false,
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-[18px] w-[18px]">
+        <path d="M3 17V3M3 17h14" strokeLinecap="round" />
+        <path d="M6.5 13.5l3-3.5 2.5 2 3.5-5" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
     href: '/dashboard/calendar',
     label: 'Calendar',
     exact: false,
@@ -31,6 +42,29 @@ const NAV = [
         <rect x="3" y="4" width="14" height="13" rx="2" />
         <path d="M3 8.5h14M7 2.5v3M13 2.5v3" strokeLinecap="round" />
         <path d="M6.5 12h2M11.5 12h2M6.5 14.5h2" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    href: '/dashboard/waitlist',
+    label: 'Waitlist',
+    exact: false,
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-[18px] w-[18px]">
+        <circle cx="10" cy="10" r="7.5" />
+        <path d="M10 5.5V10l3 1.8" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
+    href: '/dashboard/providers',
+    label: 'Providers',
+    exact: false,
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-[18px] w-[18px]">
+        <circle cx="7" cy="6.5" r="2.5" />
+        <circle cx="13.5" cy="7.5" r="2" />
+        <path d="M2.5 16c0-2.5 2-4 4.5-4s4.5 1.5 4.5 4M12 12c2.2 0 4 1.4 4 3.5" strokeLinecap="round" />
       </svg>
     ),
   },

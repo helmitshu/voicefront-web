@@ -11,11 +11,16 @@ import { isOverMonthlyLimit } from '../services/usage.service';
 import {
   bookAppointment,
   findFreeSlots,
+  findUpcomingAppointments,
   to12h,
+  updateAppointment,
   utcToZonedParts,
+  type AppointmentMatch,
 } from '../services/appointment.service';
 import { getOrCreateDemoTenant, captureDemoCall, setDemoScreen, setDemoSummary } from '../services/demo.service';
 import { founderAvailability, bookFounderCall } from '../services/founder.service';
+import { resolveBookingContext } from '../services/providers.service';
+import { sendBookingConfirmation } from '../services/sms.service';
 
 /**
  * Provider webhook. Two jobs:
@@ -118,6 +123,8 @@ const ToolCallsSchema = z
     call: z
       .object({
         id: z.string().optional(),
+        // The caller's own number — used to find their existing appointment.
+        customer: z.object({ number: z.string().optional() }).passthrough().optional(),
         assistant: z.object({ metadata: MetadataSchema.optional() }).passthrough().optional(),
       })
       .passthrough()
@@ -127,14 +134,55 @@ const ToolCallsSchema = z
   .passthrough();
 type ToolCallsMessage = z.infer<typeof ToolCallsSchema>;
 
-const AvailabilityArgsSchema = z.object({ date: z.string() });
+const AvailabilityArgsSchema = z.object({
+  date: z.string(),
+  providerName: z.string().optional(),
+  serviceName: z.string().optional(),
+});
 const BookingArgsSchema = z.object({
   customerName: z.string(),
   customerPhone: z.string().optional(),
   reason: z.string().optional(),
   date: z.string(),
   time: z.string(),
+  providerName: z.string().optional(),
+  serviceName: z.string().optional(),
 });
+const FindAppointmentArgsSchema = z.object({
+  customerPhone: z.string().optional(),
+  customerName: z.string().optional(),
+  date: z.string().optional(),
+});
+const RescheduleArgsSchema = z.object({
+  customerPhone: z.string().optional(),
+  customerName: z.string().optional(),
+  currentDate: z.string().optional(),
+  date: z.string(),
+  time: z.string(),
+});
+const CancelArgsSchema = z.object({
+  customerPhone: z.string().optional(),
+  customerName: z.string().optional(),
+  date: z.string().optional(),
+});
+
+/** Long-form weekday + date label, spoken back to the caller. */
+function formatDay(date: Date, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  }).format(date);
+}
+
+/** A short, speakable list of candidate appointments for disambiguation. */
+function describeMatches(matches: AppointmentMatch[], max = 3): string {
+  return matches
+    .slice(0, max)
+    .map((m) => `${formatDay(m.startsAt, m.timezone)} at ${to12h(m.local.time)}`)
+    .join('; ');
+}
 
 function parseToolArguments(raw: unknown): unknown {
   if (typeof raw !== 'string') return raw ?? {};
@@ -164,9 +212,17 @@ async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolC
     tenantId = settings?.tenantId ?? null;
   }
   const calls = message.toolCallList ?? message.toolCalls ?? [];
+  // The caller's own number, used to find the appointment they want to change.
+  const callerNumber = message.call?.customer?.number ?? null;
   const settings = tenantId
-    ? await prisma.agentSettings.findUnique({ where: { tenantId } })
+    ? await prisma.agentSettings.findUnique({
+        where: { tenantId },
+        include: { tenant: { select: { multiProviderEnabled: true } } },
+      })
     : null;
+  // Multi-provider routing only engages when the operator enabled it for this
+  // tenant; otherwise the calendar is a single shared resource (the simple case).
+  const multiProvider = settings?.tenant?.multiProviderEnabled ?? false;
 
   const results: Array<{ toolCallId: string; result: string }> = [];
   for (const call of calls) {
@@ -229,26 +285,36 @@ async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolC
       } else if (!settings || !tenantId) {
         result = "I'm sorry, I can't reach the calendar right now. Let me take a message instead.";
       } else if (name === 'checkAvailability') {
-        const { date } = AvailabilityArgsSchema.parse(args);
+        const a = AvailabilityArgsSchema.parse(args);
+        const ctx = multiProvider
+          ? await resolveBookingContext(tenantId, { providerName: a.providerName, serviceName: a.serviceName })
+          : null;
         const slots = await findFreeSlots({
           tenantId,
           timezone: settings.timezone,
           businessHours: settings.businessHours,
-          date,
+          date: a.date,
           demoSessionId,
+          providerId: ctx?.providerId ?? null,
+          providerIds: ctx?.candidateProviderIds,
+          slotMinutes: ctx?.durationMinutes ?? undefined,
         });
+        const aside = ctx?.note ? `${ctx.note} ` : '';
         if (!slots.open) {
-          result = `The office is closed on ${slots.dayLabel}. Offer the next business day instead.`;
+          result = `${aside}The office is closed on ${slots.dayLabel}. Offer the next business day instead.`;
         } else if (slots.freeSlots.length === 0) {
-          result = `${slots.dayLabel} is fully booked. Offer another day.`;
+          result = `${aside}${slots.dayLabel} is fully booked. Offer another day.`;
         } else {
           // Return the full list (incl. afternoons) so the agent can match a
           // caller's requested time of day instead of only seeing mornings.
           const spoken = slots.freeSlots.map(to12h).join(', ');
-          result = `All open times on ${slots.dayLabel}: ${spoken}. Offer the ones closest to what the caller asked for (about three).`;
+          result = `${aside}All open times on ${slots.dayLabel}: ${spoken}. Offer the ones closest to what the caller asked for (about three).`;
         }
       } else if (name === 'bookAppointment') {
         const booking = BookingArgsSchema.parse(args);
+        const ctx = multiProvider
+          ? await resolveBookingContext(tenantId, { providerName: booking.providerName, serviceName: booking.serviceName })
+          : null;
         const appointment = await bookAppointment({
           tenantId,
           timezone: settings.timezone,
@@ -261,7 +327,12 @@ async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolC
           source: 'VOICE_AGENT',
           externalCallId: message.call?.id ?? null,
           demoSessionId,
+          providerId: ctx?.providerId ?? null,
+          candidateProviderIds: ctx?.candidateProviderIds,
+          serviceId: ctx?.serviceId ?? null,
+          durationMinutes: ctx?.durationMinutes ?? undefined,
         });
+        void sendBookingConfirmation(appointment.id).catch(() => {});
         const local = utcToZonedParts(appointment.startsAt, appointment.timezone);
         const dayLabel = new Intl.DateTimeFormat('en-US', {
           timeZone: appointment.timezone,
@@ -269,7 +340,73 @@ async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolC
           month: 'long',
           day: 'numeric',
         }).format(appointment.startsAt);
-        result = `Booked: ${appointment.customerName} on ${dayLabel} at ${to12h(local.time)}. Confirm this with the caller.`;
+        const aside = ctx?.note ? `${ctx.note} ` : '';
+        result = `${aside}Booked: ${appointment.customerName} on ${dayLabel} at ${to12h(local.time)}. Confirm this with the caller.`;
+      } else if (name === 'findAppointment') {
+        const a = FindAppointmentArgsSchema.parse(args);
+        const matches = await findUpcomingAppointments({
+          tenantId,
+          timezone: settings.timezone,
+          phone: a.customerPhone ?? callerNumber,
+          name: a.customerName ?? null,
+          date: a.date ?? null,
+          demoSessionId,
+        });
+        if (matches.length === 0) {
+          result =
+            "I'm not finding an upcoming appointment under that name or number. Could you double-check the name or phone number it's booked under?";
+        } else if (matches.length === 1) {
+          const m = matches[0];
+          result = `I found it — ${m.customerName} on ${formatDay(m.startsAt, m.timezone)} at ${to12h(m.local.time)}${m.reason ? ` for ${m.reason}` : ''}. Would you like to reschedule or cancel it?`;
+        } else {
+          result = `I see a few upcoming appointments: ${describeMatches(matches)}. Which one did you mean?`;
+        }
+      } else if (name === 'rescheduleAppointment') {
+        const a = RescheduleArgsSchema.parse(args);
+        const matches = await findUpcomingAppointments({
+          tenantId,
+          timezone: settings.timezone,
+          phone: a.customerPhone ?? callerNumber,
+          name: a.customerName ?? null,
+          date: a.currentDate ?? null,
+          demoSessionId,
+        });
+        if (matches.length === 0) {
+          result =
+            "I couldn't find that appointment to move. Could you confirm the name or phone number it's booked under?";
+        } else if (matches.length > 1) {
+          result = `There's more than one upcoming appointment (${describeMatches(matches)}). Which one should I move?`;
+        } else {
+          const updated = await updateAppointment(
+            tenantId,
+            matches[0].id,
+            { date: a.date, time: a.time },
+            settings.businessHours,
+          );
+          const moved = utcToZonedParts(updated.startsAt, updated.timezone);
+          result = `All set — I moved it to ${formatDay(updated.startsAt, updated.timezone)} at ${to12h(moved.time)}. Confirm that back to the caller.`;
+        }
+      } else if (name === 'cancelAppointment') {
+        const a = CancelArgsSchema.parse(args);
+        const matches = await findUpcomingAppointments({
+          tenantId,
+          timezone: settings.timezone,
+          phone: a.customerPhone ?? callerNumber,
+          name: a.customerName ?? null,
+          date: a.date ?? null,
+          demoSessionId,
+        });
+        if (matches.length === 0) {
+          result =
+            "I'm not finding an upcoming appointment to cancel under that name or number. Could you confirm the details?";
+        } else if (matches.length > 1) {
+          result = `There's more than one upcoming appointment (${describeMatches(matches)}). Which one should I cancel?`;
+        } else {
+          const m = matches[0];
+          // Status-only cancel; no time validation, so business hours are unused.
+          await updateAppointment(tenantId, m.id, { status: 'CANCELLED' }, null);
+          result = `Done — I've cancelled the appointment on ${formatDay(m.startsAt, m.timezone)} at ${to12h(m.local.time)}. Is there anything else I can help with?`;
+        }
       } else {
         result = `Unknown tool ${name || '(unnamed)'}.`;
       }
@@ -380,18 +517,36 @@ inboundRouter.post(
 
       // Fallback: no dedicated assistant yet — build a transient one inline so
       // the receptionist still answers (e.g. before provisioning completes).
-      const [publicApiUrl, webhookSecret, documents] = await Promise.all([
+      const multiProviderTenant = settings.tenant.multiProviderEnabled;
+      const [publicApiUrl, webhookSecret, documents, providers, services] = await Promise.all([
         getSettingValue('PUBLIC_API_URL'),
         getSettingValue('VAPI_WEBHOOK_SECRET'),
         prisma.document.findMany({
           where: { tenantId: settings.tenantId, status: { not: 'failed' } },
           select: { vapiFileId: true },
         }),
+        multiProviderTenant
+          ? prisma.provider.findMany({
+              where: { tenantId: settings.tenantId, active: true },
+              orderBy: { name: 'asc' },
+              select: { name: true, title: true },
+            })
+          : Promise.resolve([] as Array<{ name: string; title: string | null }>),
+        multiProviderTenant
+          ? prisma.service.findMany({
+              where: { tenantId: settings.tenantId, active: true },
+              orderBy: { name: 'asc' },
+              select: { name: true, durationMinutes: true },
+            })
+          : Promise.resolve([] as Array<{ name: string; durationMinutes: number }>),
       ]);
       const assistant = buildTransientAssistant(settings.tenant, settings, 'phone', new Date(), {
         serverUrl: publicApiUrl ? `${publicApiUrl}/api/vapi/inbound` : undefined,
         serverSecret: webhookSecret ?? undefined,
         knowledgeFileIds: documents.map((d) => d.vapiFileId),
+        ...(multiProviderTenant && providers.length > 1
+          ? { providers, services, offerProviderChoice: settings.offerProviderChoice }
+          : {}),
       });
       res.status(200).json({ assistant });
       return;

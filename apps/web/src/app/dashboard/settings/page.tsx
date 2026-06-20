@@ -25,6 +25,9 @@ import { Input, Select, Textarea } from '@/components/ui/Field';
 import { Spinner } from '@/components/ui/Spinner';
 import { VoicePreviewButton } from '@/components/agent/VoicePreviewButton';
 import { DocumentsEditor } from '@/components/agent/DocumentsEditor';
+import { SmsSettingsCard } from '@/components/agent/SmsSettingsCard';
+import { ReactivationSettingsCard } from '@/components/agent/ReactivationSettingsCard';
+import { CalendarConnectionsCard } from '@/components/agent/CalendarConnectionsCard';
 import { BusinessHoursEditor } from '@/components/agent/BusinessHoursEditor';
 import {
   ForwardingNumbersEditor,
@@ -491,6 +494,12 @@ export default function SettingsPage() {
           />
         </div>
       </Card>
+
+      <CalendarConnectionsCard />
+
+      <SmsSettingsCard />
+
+      <ReactivationSettingsCard />
 
       {/* Floating save dock */}
       {!readOnly && (

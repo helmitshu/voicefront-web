@@ -8,6 +8,9 @@
     "build": "prisma generate && tsc -p tsconfig.json",
     "start": "prisma db push --skip-generate && node dist/index.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "vitest run -c vitest.integration.config.ts",
     "generate": "prisma generate",
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
@@ -26,6 +29,8 @@
     "helmet": "^7.2.0",
     "jsonwebtoken": "^9.0.2",
     "prisma": "^6.7.0",
+    "node-cron": "^3.0.3",
+    "twilio": "^5.5.1",
     "zod": "^3.24.2"
   },
   "devDependencies": {
@@ -34,7 +39,9 @@
     "@types/express": "^4.17.21",
     "@types/jsonwebtoken": "^9.0.8",
     "@types/node": "^20.17.19",
+    "@types/node-cron": "^3.0.11",
     "tsx": "^4.19.3",
-    "typescript": "^5.7.3"
+    "typescript": "^5.7.3",
+    "vitest": "^2.1.8"
   }
 }

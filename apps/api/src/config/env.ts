@@ -34,6 +34,25 @@ const EnvSchema = z.object({
   RAILWAY_PUBLIC_DOMAIN: z.string().optional(),
   MEDIA_TOKEN_TTL_SECONDS: z.coerce.number().int().positive().default(300),
   /**
+   * Twilio credentials for outbound SMS (confirmations + reminders).
+   * All three must be set for SMS to be active. Optional — when unset the SMS
+   * feature is silently disabled and no messages are sent.
+   */
+  TWILIO_ACCOUNT_SID: z.string().optional(),
+  TWILIO_AUTH_TOKEN: z.string().optional(),
+  TWILIO_FROM_NUMBER: z.string().optional(),
+  /**
+   * OAuth client credentials for two-way calendar sync. Operator-provisioned
+   * (one Google Cloud OAuth app, one Azure app registration); customers then
+   * self-connect their own calendar. Optional — when a provider's pair is unset
+   * that provider's "Connect" option is simply hidden. Can also be set live in
+   * the admin panel (PlatformSetting), which overrides these.
+   */
+  GOOGLE_OAUTH_CLIENT_ID: z.string().optional(),
+  GOOGLE_OAUTH_CLIENT_SECRET: z.string().optional(),
+  MICROSOFT_OAUTH_CLIENT_ID: z.string().optional(),
+  MICROSOFT_OAUTH_CLIENT_SECRET: z.string().optional(),
+  /**
    * Comma-separated emails granted the founder admin panel (/admin).
    * These accounts see and control every workspace on the platform.
    */

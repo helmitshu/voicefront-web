@@ -53,6 +53,33 @@ export function verifyMediaToken(token: string): MediaTokenPayload {
   return parsed.data;
 }
 
+const OAuthStatePayload = z.object({
+  tid: z.string().min(1), // tenant id
+  prov: z.enum(['GOOGLE', 'MICROSOFT']),
+  typ: z.literal('oauth_state'),
+});
+export type OAuthStatePayload = z.infer<typeof OAuthStatePayload>;
+
+/**
+ * Short-lived, signed `state` for the calendar OAuth round-trip. Carries the
+ * tenant + provider through the provider's consent screen so the callback (which
+ * arrives as a plain browser redirect with no session) can be trusted and
+ * attributed without a cookie.
+ */
+export function signOAuthStateToken(input: { tenantId: string; provider: OAuthStatePayload['prov'] }): string {
+  const payload: OAuthStatePayload = { tid: input.tenantId, prov: input.provider, typ: 'oauth_state' };
+  return jwt.sign(payload, env.JWT_SECRET, { expiresIn: '15m' });
+}
+
+export function verifyOAuthStateToken(token: string): OAuthStatePayload {
+  const decoded = decodeOrThrow(token);
+  const parsed = OAuthStatePayload.safeParse(decoded);
+  if (!parsed.success) {
+    throw new HttpError(400, 'This connection link has expired. Please try connecting again.', 'INVALID_STATE');
+  }
+  return parsed.data;
+}
+
 function decodeOrThrow(token: string): unknown {
   try {
     return jwt.verify(token, env.JWT_SECRET);

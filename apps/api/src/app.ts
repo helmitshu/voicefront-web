@@ -15,6 +15,12 @@ import { inboundRouter } from './routes/inbound.routes';
 import { documentsRouter } from './routes/documents.routes';
 import { demoRouter } from './routes/demo.routes';
 import { bookingRouter } from './routes/booking.routes';
+import { providersRouter } from './routes/providers.routes';
+import { smsRouter } from './routes/sms.routes';
+import { analyticsRouter } from './routes/analytics.routes';
+import { waitlistRouter } from './routes/waitlist.routes';
+import { reactivationRouter } from './routes/reactivation.routes';
+import { calendarRouter } from './routes/calendar.routes';
 
 export function createApp(): express.Express {
   const app = express();
@@ -34,6 +40,7 @@ export function createApp(): express.Express {
     }),
   );
   app.use(express.json({ limit: '1mb' }));
+  app.use(express.urlencoded({ extended: false })); // for Twilio webhook form-posts
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, service: 'voicefront-api' });
@@ -45,6 +52,12 @@ export function createApp(): express.Express {
   app.use('/api/agent', agentRouter);
   app.use('/api/documents', documentsRouter);
   app.use('/api/appointments', appointmentsRouter);
+  app.use('/api/providers', providersRouter);
+  app.use('/api/sms', smsRouter);
+  app.use('/api/analytics', analyticsRouter);
+  app.use('/api/waitlist', waitlistRouter);
+  app.use('/api/reactivation', reactivationRouter);
+  app.use('/api/calendar', calendarRouter);
   app.use('/api/calls', callsRouter);
   app.use('/api/voice', voiceRouter);
   app.use('/api/media', mediaRouter);

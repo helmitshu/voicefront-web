@@ -330,6 +330,8 @@ export interface AppointmentDto {
   status: AppointmentStatus;
   source: 'VOICE_AGENT' | 'MANUAL';
   notes: string | null;
+  /** Provider this appointment is with; null for single-resource/unassigned. */
+  providerId: string | null;
   createdAt: string;
 }
 
@@ -416,6 +418,10 @@ export interface AdminTenantDetail {
   monthlyMinuteLimit: number;
   usage: MonthlyUsage;
   blocked: boolean;
+  /** Operator entitlement: multi-provider booking on/off for this customer. */
+  multiProviderEnabled: boolean;
+  /** Whether the customer may flip multiProviderEnabled themselves. */
+  multiProviderSelfManage: boolean;
   createdAt: string;
   receptionistActive: boolean;
   settings: {
@@ -484,6 +490,8 @@ export const AdminApi = {
       markupBps: number;
       monthlyMinuteLimit: number;
       blocked: boolean;
+      multiProviderEnabled: boolean;
+      multiProviderSelfManage: boolean;
     }>,
   ) => api<{ ok: true }>(`/api/admin/tenants/${id}`, { method: 'PATCH', body: patch }),
   /** Create a whole workspace (tenant + owner login). Returns a one-time owner password. */
@@ -671,6 +679,10 @@ export const AppointmentsApi = {
     date: string;
     time: string;
     durationMinutes?: number;
+    /** Multi-provider only: book a specific provider (omit for first-available). */
+    providerId?: string | null;
+    /** Multi-provider only: the service type (sets the length). */
+    serviceId?: string | null;
   }) => api<{ appointment: AppointmentDto }>('/api/appointments', { method: 'POST', body: input }),
   update: (
     id: string,
@@ -682,6 +694,174 @@ export const AppointmentsApi = {
       notes: string | null;
     }>,
   ) => api<{ appointment: AppointmentDto }>(`/api/appointments/${id}`, { method: 'PATCH', body: patch }),
+};
+
+/* ----------------------------- providers/services ----------------------------- */
+
+export interface ProviderDto {
+  id: string;
+  name: string;
+  title: string | null;
+  active: boolean;
+  /** Services this provider can perform; empty = any service. */
+  serviceIds: string[];
+}
+export interface ServiceDto {
+  id: string;
+  name: string;
+  durationMinutes: number;
+  description: string | null;
+  active: boolean;
+  /** Providers qualified for this service; empty = any provider. */
+  providerIds: string[];
+}
+export interface ProvidersConfig {
+  /** Operator entitlement: is multi-provider mode on for this tenant. */
+  enabled: boolean;
+  /** Whether the customer may flip `enabled` from their dashboard. */
+  selfManage: boolean;
+  /** Proactively offer the provider list vs. book first-available. */
+  offerProviderChoice: boolean;
+}
+export interface ProvidersResponse {
+  providers: ProviderDto[];
+  services: ServiceDto[];
+  config: ProvidersConfig;
+}
+
+export type ProviderInput = { name: string; title?: string | null; active?: boolean; serviceIds?: string[] };
+export type ServiceInput = {
+  name: string;
+  durationMinutes: number;
+  description?: string | null;
+  active?: boolean;
+  providerIds?: string[];
+};
+
+export const ProvidersApi = {
+  list: (signal?: AbortSignal) => api<ProvidersResponse>('/api/providers', { signal }),
+  setConfig: (patch: Partial<Pick<ProvidersConfig, 'enabled' | 'offerProviderChoice'>>) =>
+    api<{ ok: true }>('/api/providers/config', { method: 'PATCH', body: patch }),
+  createProvider: (input: ProviderInput) =>
+    api<{ provider: ProviderDto }>('/api/providers', { method: 'POST', body: input }),
+  updateProvider: (id: string, patch: Partial<ProviderInput>) =>
+    api<{ provider: ProviderDto }>(`/api/providers/${id}`, { method: 'PATCH', body: patch }),
+  deleteProvider: (id: string) => api<{ ok: true }>(`/api/providers/${id}`, { method: 'DELETE' }),
+  createService: (input: ServiceInput) =>
+    api<{ service: ServiceDto }>('/api/providers/services', { method: 'POST', body: input }),
+  updateService: (id: string, patch: Partial<ServiceInput>) =>
+    api<{ service: ServiceDto }>(`/api/providers/services/${id}`, { method: 'PATCH', body: patch }),
+  deleteService: (id: string) => api<{ ok: true }>(`/api/providers/services/${id}`, { method: 'DELETE' }),
+};
+
+/* ---------------------------------- SMS ---------------------------------- */
+
+export interface SmsSettings {
+  enabled: boolean;
+  confirmation: boolean;
+  reminder24h: boolean;
+  reminder1h: boolean;
+  waitlist: boolean;
+  confirmationTemplate: string;
+  reminder24hTemplate: string;
+  reminder1hTemplate: string;
+  waitlistTemplate: string;
+}
+
+export interface SmsSettingsResponse {
+  /** True when the platform operator has configured Twilio credentials. */
+  available: boolean;
+  settings: SmsSettings;
+}
+
+export const SmsApi = {
+  getSettings: () => api<SmsSettingsResponse>('/api/sms/settings'),
+  updateSettings: (patch: Partial<SmsSettings>) =>
+    api<{ ok: true }>('/api/sms/settings', { method: 'PATCH', body: patch }),
+};
+
+/* -------------------------------- waitlist -------------------------------- */
+
+export type WaitlistStatus = 'WAITING' | 'NOTIFIED' | 'CONVERTED' | 'CANCELLED';
+
+export interface WaitlistEntry {
+  id: string;
+  customerName: string;
+  customerPhone: string;
+  providerId: string | null;
+  serviceId: string | null;
+  note: string | null;
+  status: WaitlistStatus;
+  notifiedAt: string | null;
+  createdAt: string;
+}
+
+export const WaitlistApi = {
+  list: (status?: WaitlistStatus, signal?: AbortSignal) => {
+    const qs = status ? `?status=${status}` : '';
+    return api<{ waitlist: WaitlistEntry[] }>(`/api/waitlist${qs}`, { signal });
+  },
+  create: (input: {
+    customerName: string;
+    customerPhone: string;
+    providerId?: string | null;
+    serviceId?: string | null;
+    note?: string | null;
+  }) => api<{ entry: WaitlistEntry }>('/api/waitlist', { method: 'POST', body: input }),
+  setStatus: (id: string, status: WaitlistStatus) =>
+    api<{ entry: WaitlistEntry }>(`/api/waitlist/${id}`, { method: 'PATCH', body: { status } }),
+  remove: (id: string) => api<void>(`/api/waitlist/${id}`, { method: 'DELETE' }),
+};
+
+/* ------------------------------ reactivation ------------------------------ */
+
+export interface ReactivationSettings {
+  enabled: boolean;
+  inactivityDays: number;
+  template: string;
+}
+
+export interface ReactivationSettingsResponse {
+  /** True when the platform operator has configured Twilio credentials. */
+  available: boolean;
+  /** How many lapsed customers would be texted on the next run. */
+  eligibleCount: number;
+  settings: ReactivationSettings;
+}
+
+export const ReactivationApi = {
+  getSettings: () => api<ReactivationSettingsResponse>('/api/reactivation/settings'),
+  updateSettings: (patch: Partial<ReactivationSettings>) =>
+    api<{ ok: true }>('/api/reactivation/settings', { method: 'PATCH', body: patch }),
+};
+
+/* ----------------------------- calendar sync ------------------------------ */
+
+export type CalendarProviderId = 'GOOGLE' | 'MICROSOFT';
+
+export interface CalendarConnectionDto {
+  provider: CalendarProviderId;
+  accountEmail: string | null;
+  writeEnabled: boolean;
+  blockBusy: boolean;
+  lastError: string | null;
+  connectedAt: string;
+}
+
+export interface CalendarStatus {
+  /** Providers the operator has configured OAuth credentials for. */
+  availableProviders: CalendarProviderId[];
+  connections: CalendarConnectionDto[];
+}
+
+export const CalendarApi = {
+  status: () => api<CalendarStatus>('/api/calendar/status'),
+  connectUrl: (provider: CalendarProviderId) =>
+    api<{ url: string }>(`/api/calendar/${provider.toLowerCase()}/connect`),
+  disconnect: (provider: CalendarProviderId) =>
+    api<{ ok: true }>(`/api/calendar/${provider.toLowerCase()}/disconnect`, { method: 'POST' }),
+  setPrefs: (provider: CalendarProviderId, prefs: { writeEnabled?: boolean; blockBusy?: boolean }) =>
+    api<{ ok: true }>(`/api/calendar/${provider.toLowerCase()}`, { method: 'PATCH', body: prefs }),
 };
 
 export const CallsApi = {
@@ -696,6 +876,26 @@ export const CallsApi = {
   },
   stats: () => api<{ stats: CallStats; usage: MonthlyUsage }>('/api/calls/stats'),
   detail: (id: string) => api<{ call: CallDetailDto; mediaToken: string | null }>(`/api/calls/${id}`),
+};
+
+/* -------------------------------- analytics ------------------------------- */
+
+export interface AnalyticsOverview {
+  rangeDays: number;
+  totalCalls: number;
+  totalBookings: number;
+  bookingsBySource: { voice: number; manual: number };
+  bookingsByStatus: { confirmed: number; completed: number; cancelled: number; noShow: number };
+  noShowRate: number;
+  conversionRate: number;
+  daily: { date: string; calls: number; bookings: number }[];
+  byHour: { hour: number; bookings: number }[];
+  byWeekday: { weekday: number; bookings: number }[];
+}
+
+export const AnalyticsApi = {
+  overview: (days = 30, signal?: AbortSignal) =>
+    api<{ overview: AnalyticsOverview }>(`/api/analytics/overview?days=${days}`, { signal }),
 };
 
 /* ---------------------------- public demo (no auth) ---------------------- */

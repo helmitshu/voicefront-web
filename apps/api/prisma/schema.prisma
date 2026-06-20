@@ -45,6 +45,22 @@ enum AppointmentSource {
   MANUAL
 }
 
+enum CalendarProvider {
+  GOOGLE
+  MICROSOFT
+}
+
+enum WaitlistStatus {
+  /// Still waiting for a slot to open.
+  WAITING
+  /// We texted them about an opening; awaiting their move.
+  NOTIFIED
+  /// They booked (manually marked, or a later booking matched).
+  CONVERTED
+  /// Removed by staff or aged out.
+  CANCELLED
+}
+
 model Tenant {
   id                 String             @id @default(cuid())
   companyName        String             @map("company_name")
@@ -63,6 +79,13 @@ model Tenant {
   /// answering until the month rolls over (or the operator raises the cap for
   /// a higher tier). Enforced per call in the assistant-request webhook.
   monthlyMinuteLimit Int                @default(500) @map("monthly_minute_limit")
+  /// Operator entitlement: when true the receptionist books across multiple
+  /// Providers/Services; when false it's a single shared calendar (the simple
+  /// case) regardless of any Providers defined. Set by the platform admin.
+  multiProviderEnabled  Boolean         @default(false) @map("multi_provider_enabled")
+  /// When true, the customer may flip `multiProviderEnabled` themselves from
+  /// their dashboard; otherwise only the platform admin controls it.
+  multiProviderSelfManage Boolean       @default(false) @map("multi_provider_self_manage")
   createdAt          DateTime           @default(now()) @map("created_at")
   updatedAt          DateTime           @updatedAt @map("updated_at")
 
@@ -72,6 +95,11 @@ model Tenant {
   callLogs      CallLog[]
   appointments  Appointment[]
   documents     Document[]
+  providers     Provider[]
+  services      Service[]
+  waitlist      Waitlist[]
+  reactivationLogs ReactivationLog[]
+  calendarConnections CalendarConnection[]
 
   @@map("tenants")
 }
@@ -136,15 +164,105 @@ model AgentSettings {
   /// provider's backgroundSound field. Subtle office ambience makes the
   /// receptionist sound like a real front desk.
   backgroundSound    String   @default("office") @map("background_sound")
+  /// When true, the receptionist proactively offers the list of providers and
+  /// asks the caller to pick one. Default false = book the first available
+  /// qualified provider and only honor a specific request if the caller names
+  /// someone. Ignored for single-provider (or no-provider) businesses.
+  offerProviderChoice Boolean @default(false) @map("offer_provider_choice")
+
+  // ── SMS notifications ────────────────────────────────────────────────────
+  /// Master switch. SMS only fires when the platform has Twilio configured AND
+  /// this is true. Tenants opt in — default off so nobody gets surprise texts.
+  smsEnabled              Boolean  @default(false) @map("sms_enabled")
+  /// Send a confirmation SMS immediately after a booking is made.
+  smsConfirmation         Boolean  @default(true)  @map("sms_confirmation")
+  /// Send a reminder SMS 24 hours before the appointment.
+  smsReminder24h          Boolean  @default(true)  @map("sms_reminder_24h")
+  /// Send a reminder SMS 1 hour before the appointment.
+  smsReminder1h           Boolean  @default(false) @map("sms_reminder_1h")
+  /// Custom confirmation message. Null = use platform default.
+  /// Variables: {customerName} {businessName} {date} {time}
+  smsConfirmationTemplate String?  @db.Text @map("sms_confirmation_template")
+  /// Custom 24-hour reminder message. Null = use platform default.
+  smsReminder24hTemplate  String?  @db.Text @map("sms_reminder_24h_template")
+  /// Custom 1-hour reminder message. Null = use platform default.
+  smsReminder1hTemplate   String?  @db.Text @map("sms_reminder_1h_template")
+  /// Text the next person on the waitlist when a slot opens (a cancellation).
+  smsWaitlist             Boolean  @default(true)  @map("sms_waitlist")
+  /// Custom waitlist-opening message. Null = use platform default.
+  smsWaitlistTemplate     String?  @db.Text @map("sms_waitlist_template")
+
+  // ── Reactivation / recall campaign ───────────────────────────────────────
+  /// When true, a daily job texts lapsed customers an invite to rebook.
+  reactivationEnabled        Boolean @default(false) @map("reactivation_enabled")
+  /// A customer is "lapsed" once this many days pass since their last visit.
+  reactivationInactivityDays Int     @default(180)   @map("reactivation_inactivity_days")
+  /// Custom recall message. Null = use platform default.
+  reactivationTemplate       String? @db.Text @map("reactivation_template")
+
   updatedAt          DateTime @updatedAt @map("updated_at")
 
   @@map("agent_settings")
+}
+
+/// A bookable person or resource within a tenant (a dentist, a stylist, a
+/// crew, a chair). A tenant with zero Providers is treated as a single shared
+/// resource (the solo case) — appointments carry a null providerId and overlap
+/// against each other, exactly as before this model existed. With Providers
+/// defined, availability and the double-booking guard are scoped per provider.
+model Provider {
+  id           String        @id @default(cuid())
+  tenantId     String        @map("tenant_id")
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name         String
+  /// Optional spoken title/role ("Dr.", "Senior Stylist") — cosmetic only.
+  title        String?
+  active       Boolean       @default(true)
+  /// Services this provider is qualified to perform. Empty = can do any service.
+  services     Service[]     @relation("ProviderServices")
+  appointments Appointment[]
+  waitlist     Waitlist[]
+  createdAt    DateTime      @default(now()) @map("created_at")
+  updatedAt    DateTime      @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@map("providers")
+}
+
+/// A bookable service type with its own duration (and the providers qualified
+/// to perform it). Drives slot length and narrows the eligible providers when a
+/// caller names a service. A tenant with zero Services uses the default slot
+/// length and lets any provider take any booking.
+model Service {
+  id              String        @id @default(cuid())
+  tenantId        String        @map("tenant_id")
+  tenant          Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name            String
+  durationMinutes Int           @default(30) @map("duration_minutes")
+  description     String?       @db.Text
+  active          Boolean       @default(true)
+  /// Providers qualified for this service. Empty = any active provider.
+  providers       Provider[]    @relation("ProviderServices")
+  appointments    Appointment[]
+  waitlist        Waitlist[]
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  @@index([tenantId])
+  @@map("services")
 }
 
 model Appointment {
   id            String            @id @default(cuid())
   tenantId      String            @map("tenant_id")
   tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// The provider this appointment is with. Null = unassigned / single-resource
+  /// business (the solo case). Overlap is checked within the same providerId.
+  providerId    String?           @map("provider_id")
+  provider      Provider?         @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  /// The service booked, when the tenant defines services. Sets the duration.
+  serviceId     String?           @map("service_id")
+  service       Service?          @relation(fields: [serviceId], references: [id], onDelete: SetNull)
   customerName  String            @map("customer_name")
   customerPhone String?           @map("customer_phone")
   /// Why the customer is coming in — spoken by the caller, shown on the calendar.
@@ -164,12 +282,97 @@ model Appointment {
   /// Set only for the public landing-page demo: isolates each visitor's
   /// throwaway bookings under the shared demo tenant. Null for real bookings.
   demoSessionId String?           @map("demo_session_id")
+  // ── SMS sent timestamps (null = not yet sent) ────────────────────────────
+  confirmationSentAt DateTime?     @map("confirmation_sent_at")
+  reminder24hSentAt  DateTime?     @map("reminder_24h_sent_at")
+  reminder1hSentAt   DateTime?     @map("reminder_1h_sent_at")
   createdAt     DateTime          @default(now()) @map("created_at")
   updatedAt     DateTime          @updatedAt @map("updated_at")
 
   @@index([tenantId, startsAt])
+  @@index([providerId])
   @@index([demoSessionId])
   @@map("appointments")
+}
+
+/// Someone who wanted an appointment when nothing suitable was open. When a
+/// CONFIRMED appointment is cancelled, a slot opens — the oldest WAITING entry
+/// that matches (same provider, or any) is texted that a spot is available and
+/// flipped to NOTIFIED. Staff add entries by hand from the dashboard; the voice
+/// agent can populate it later. Requires a phone number — the whole point is to
+/// reach back out.
+model Waitlist {
+  id            String         @id @default(cuid())
+  tenantId      String         @map("tenant_id")
+  tenant        Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerName  String         @map("customer_name")
+  customerPhone String         @map("customer_phone")
+  /// Optional: they want a specific provider. Null = any provider is fine.
+  providerId    String?        @map("provider_id")
+  provider      Provider?      @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  /// Optional: the service they want (sets duration when they eventually book).
+  serviceId     String?        @map("service_id")
+  service       Service?       @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  /// Free-text of what they're after ("any morning next week", "after 5pm").
+  note          String?        @db.Text
+  status        WaitlistStatus @default(WAITING)
+  /// When we last texted them about an opening.
+  notifiedAt    DateTime?      @map("notified_at")
+  createdAt     DateTime       @default(now()) @map("created_at")
+  updatedAt     DateTime       @updatedAt @map("updated_at")
+
+  @@index([tenantId, status])
+  @@index([providerId])
+  @@map("waitlist")
+}
+
+/// One row per recall (reactivation) text sent. The daily scan checks this to
+/// avoid re-texting a lapsed customer within their inactivity window, so a
+/// customer hears from us at most once per lapse — never on a loop.
+model ReactivationLog {
+  id        String   @id @default(cuid())
+  tenantId  String   @map("tenant_id")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// E.164 phone the recall text went to.
+  phone     String
+  sentAt    DateTime @default(now()) @map("sent_at")
+
+  @@index([tenantId, phone, sentAt])
+  @@map("reactivation_logs")
+}
+
+/// A tenant's connected external calendar (Google or Microsoft). OAuth tokens
+/// are encrypted at rest. One row per provider per tenant — a tenant may link
+/// both. Drives two-way sync: VoiceFront bookings are mirrored OUT to the
+/// calendar (writeEnabled), and the calendar's busy blocks are read back to
+/// suppress availability (blockBusy) so the agent never books over personal
+/// time the owner put on their own calendar.
+model CalendarConnection {
+  id              String           @id @default(cuid())
+  tenantId        String           @map("tenant_id")
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  provider        CalendarProvider
+  /// AES-256-GCM encrypted OAuth tokens (see lib/secret-box).
+  accessTokenEnc  String           @db.Text @map("access_token_enc")
+  refreshTokenEnc String           @db.Text @map("refresh_token_enc")
+  /// When the current access token expires; refreshed on use just before.
+  expiresAt       DateTime         @map("expires_at")
+  /// The connected account (for display + as the Graph/Calendar user context).
+  accountEmail    String?          @map("account_email")
+  /// Which calendar to write to / read busy from. "primary" by default.
+  calendarId      String           @default("primary") @map("calendar_id")
+  /// Mirror VoiceFront bookings into this calendar (outbound).
+  writeEnabled    Boolean          @default(true) @map("write_enabled")
+  /// Block availability using this calendar's busy times (inbound).
+  blockBusy       Boolean          @default(true) @map("block_busy")
+  /// Last error surfaced during a sync attempt (e.g. revoked access), for the UI.
+  lastError       String?          @db.Text @map("last_error")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  @@unique([tenantId, provider])
+  @@index([tenantId])
+  @@map("calendar_connections")
 }
 
 /// A business document the tenant uploaded to power the voice agent's
@@ -342,6 +545,22 @@ model DemoLead {
   @@index([demoSessionId])
   @@index([createdAt(sort: Desc)])
   @@map("demo_leads")
+}
+
+/// Phones that replied STOP to a tenant's SMS. Checked before every outbound
+/// SMS to that tenant — once opted out, no more texts until they reply START.
+/// Twilio auto-handles the STOP/START reply flow; we mirror it here so our
+/// cron job doesn't retry opted-out numbers before Twilio's webhook fires.
+model SmsOptOut {
+  id        String   @id @default(cuid())
+  /// E.164 phone number that opted out.
+  phone     String
+  tenantId  String   @map("tenant_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@unique([phone, tenantId])
+  @@index([tenantId])
+  @@map("sms_opt_outs")
 }
 
 model DemoCall {
