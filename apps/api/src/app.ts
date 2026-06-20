@@ -20,6 +20,7 @@ import { smsRouter } from './routes/sms.routes';
 import { analyticsRouter } from './routes/analytics.routes';
 import { waitlistRouter } from './routes/waitlist.routes';
 import { reactivationRouter } from './routes/reactivation.routes';
+import { calendarRouter } from './routes/calendar.routes';
 
 export function createApp(): express.Express {
   const app = express();
@@ -56,6 +57,7 @@ export function createApp(): express.Express {
   app.use('/api/analytics', analyticsRouter);
   app.use('/api/waitlist', waitlistRouter);
   app.use('/api/reactivation', reactivationRouter);
+  app.use('/api/calendar', calendarRouter);
   app.use('/api/calls', callsRouter);
   app.use('/api/voice', voiceRouter);
   app.use('/api/media', mediaRouter);

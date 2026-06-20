@@ -45,6 +45,11 @@ enum AppointmentSource {
   MANUAL
 }
 
+enum CalendarProvider {
+  GOOGLE
+  MICROSOFT
+}
+
 enum WaitlistStatus {
   /// Still waiting for a slot to open.
   WAITING
@@ -94,6 +99,7 @@ model Tenant {
   services      Service[]
   waitlist      Waitlist[]
   reactivationLogs ReactivationLog[]
+  calendarConnections CalendarConnection[]
 
   @@map("tenants")
 }
@@ -333,6 +339,40 @@ model ReactivationLog {
 
   @@index([tenantId, phone, sentAt])
   @@map("reactivation_logs")
+}
+
+/// A tenant's connected external calendar (Google or Microsoft). OAuth tokens
+/// are encrypted at rest. One row per provider per tenant — a tenant may link
+/// both. Drives two-way sync: VoiceFront bookings are mirrored OUT to the
+/// calendar (writeEnabled), and the calendar's busy blocks are read back to
+/// suppress availability (blockBusy) so the agent never books over personal
+/// time the owner put on their own calendar.
+model CalendarConnection {
+  id              String           @id @default(cuid())
+  tenantId        String           @map("tenant_id")
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  provider        CalendarProvider
+  /// AES-256-GCM encrypted OAuth tokens (see lib/secret-box).
+  accessTokenEnc  String           @db.Text @map("access_token_enc")
+  refreshTokenEnc String           @db.Text @map("refresh_token_enc")
+  /// When the current access token expires; refreshed on use just before.
+  expiresAt       DateTime         @map("expires_at")
+  /// The connected account (for display + as the Graph/Calendar user context).
+  accountEmail    String?          @map("account_email")
+  /// Which calendar to write to / read busy from. "primary" by default.
+  calendarId      String           @default("primary") @map("calendar_id")
+  /// Mirror VoiceFront bookings into this calendar (outbound).
+  writeEnabled    Boolean          @default(true) @map("write_enabled")
+  /// Block availability using this calendar's busy times (inbound).
+  blockBusy       Boolean          @default(true) @map("block_busy")
+  /// Last error surfaced during a sync attempt (e.g. revoked access), for the UI.
+  lastError       String?          @db.Text @map("last_error")
+  createdAt       DateTime         @default(now()) @map("created_at")
+  updatedAt       DateTime         @updatedAt @map("updated_at")
+
+  @@unique([tenantId, provider])
+  @@index([tenantId])
+  @@map("calendar_connections")
 }
 
 /// A business document the tenant uploaded to power the voice agent's

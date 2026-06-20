@@ -174,11 +174,27 @@ export async function findFreeSlots(query: SlotQuery): Promise<SlotResult> {
   // the single shared resource (null) for solo/no-provider businesses.
   const candidates = candidateProviders(query.providerId, query.providerIds);
 
+  // Two-way sync (inbound): busy blocks the owner put on their own connected
+  // calendar suppress availability across the board. Best-effort and skipped for
+  // demo sessions; an external hiccup must never take booking offline.
+  let externalBusy: Array<{ start: Date; end: Date }> = [];
+  if (!query.demoSessionId) {
+    try {
+      const { getExternalBusy } = await import('./calendar.service');
+      externalBusy = await getExternalBusy(tenantId, windowStart, windowEnd);
+    } catch {
+      externalBusy = [];
+    }
+  }
+
   const freeSlots: string[] = [];
   for (let t = dayHours.open; addMinutes(t, slotMinutes) <= close; t = addMinutes(t, slotMinutes)) {
     const slotStart = zonedToUtc(date, t, timezone);
     const slotEnd = new Date(slotStart.getTime() + slotMinutes * 60_000);
     if (slotStart.getTime() <= now.getTime()) continue; // never offer the past
+    // Blocked if the owner's own calendar is busy across this slot, regardless
+    // of provider — personal time blocks everyone.
+    if (externalBusy.some((b) => b.start < slotEnd && b.end > slotStart)) continue;
     // Offerable if at least one candidate provider has nothing overlapping it.
     const free = candidates.some(
       (p) => !booked.some((b) => b.providerId === p && b.startsAt < slotEnd && b.endsAt > slotStart),
@@ -338,7 +354,7 @@ export async function bookAppointment(input: BookingInput): Promise<Appointment>
   // Serialize bookings so two concurrent calls can't double-book: the advisory
   // lock holds for the transaction, then we assign the first candidate provider
   // who's actually free at this slot (or the shared resource when there are none).
-  return prisma.$transaction(async (tx) => {
+  const appointment = await prisma.$transaction(async (tx) => {
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKeyFor(tenantId, demoSessionId)}))`;
     let chosen: string | null | undefined;
     for (const providerId of candidates) {
@@ -367,6 +383,15 @@ export async function bookAppointment(input: BookingInput): Promise<Appointment>
       },
     });
   });
+
+  // Mirror the new booking into any connected external calendars. Fire-and-
+  // forget; dynamic import keeps the graph acyclic and never blocks the booking.
+  if (!demoSessionId) {
+    void import('./calendar.service')
+      .then((m) => m.mirrorUpsert(appointment.id))
+      .catch((err) => console.error('[calendar] mirror create failed', err));
+  }
+  return appointment;
 }
 
 export type AppointmentPatch = Partial<{
@@ -453,6 +478,20 @@ export async function updateAppointment(
     void import('./waitlist.service')
       .then((m) => m.notifyWaitlistForOpening(updated))
       .catch((err) => console.error('[waitlist] opening notification failed', err));
+  }
+
+  // Keep mirrored external-calendar events in step: drop them on cancel, and
+  // push the new time on a reschedule. Fire-and-forget, never blocks the edit.
+  if (!updated.demoSessionId) {
+    if (becomesCancelled) {
+      void import('./calendar.service')
+        .then((m) => m.mirrorDelete(updated.id))
+        .catch((err) => console.error('[calendar] mirror delete failed', err));
+    } else if (finalStatus === 'CONFIRMED' && timeChanged) {
+      void import('./calendar.service')
+        .then((m) => m.mirrorUpsert(updated.id))
+        .catch((err) => console.error('[calendar] mirror update failed', err));
+    }
   }
 
   return updated;

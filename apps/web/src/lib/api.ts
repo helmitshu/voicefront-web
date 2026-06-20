@@ -835,6 +835,35 @@ export const ReactivationApi = {
     api<{ ok: true }>('/api/reactivation/settings', { method: 'PATCH', body: patch }),
 };
 
+/* ----------------------------- calendar sync ------------------------------ */
+
+export type CalendarProviderId = 'GOOGLE' | 'MICROSOFT';
+
+export interface CalendarConnectionDto {
+  provider: CalendarProviderId;
+  accountEmail: string | null;
+  writeEnabled: boolean;
+  blockBusy: boolean;
+  lastError: string | null;
+  connectedAt: string;
+}
+
+export interface CalendarStatus {
+  /** Providers the operator has configured OAuth credentials for. */
+  availableProviders: CalendarProviderId[];
+  connections: CalendarConnectionDto[];
+}
+
+export const CalendarApi = {
+  status: () => api<CalendarStatus>('/api/calendar/status'),
+  connectUrl: (provider: CalendarProviderId) =>
+    api<{ url: string }>(`/api/calendar/${provider.toLowerCase()}/connect`),
+  disconnect: (provider: CalendarProviderId) =>
+    api<{ ok: true }>(`/api/calendar/${provider.toLowerCase()}/disconnect`, { method: 'POST' }),
+  setPrefs: (provider: CalendarProviderId, prefs: { writeEnabled?: boolean; blockBusy?: boolean }) =>
+    api<{ ok: true }>(`/api/calendar/${provider.toLowerCase()}`, { method: 'PATCH', body: prefs }),
+};
+
 export const CallsApi = {
   list: (params: { page?: number; perPage?: number; search?: string; sinceDays?: number }, signal?: AbortSignal) => {
     const query = new URLSearchParams();
