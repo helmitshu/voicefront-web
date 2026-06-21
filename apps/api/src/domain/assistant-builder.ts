@@ -12,6 +12,7 @@ import {
   composeSystemPrompt,
   providerDiscipline,
   ENDING_THE_CALL,
+  wrapUpGuidance,
   type ProviderInfo,
   type ServiceInfo,
 } from './prompt-templates';
@@ -553,6 +554,8 @@ export function buildTransientAssistant(
         providers: options.providers,
         services: options.services,
         offerProviderChoice: options.offerProviderChoice,
+        maxCallDurationSeconds: settings.maxCallDurationSeconds,
+        wrapUpMessage: settings.wrapUpMessage,
       }),
       ...(knowledgeTool ? ['', KNOWLEDGE_PROMPT] : []),
     ].join('\n');
@@ -616,14 +619,17 @@ export function buildTransientAssistant(
     // Front-load the meaningful goodbye; Vapi tends to clip the tail on hangup,
     // so "take care now, bye!" is the disposable part that can be safely lost.
     endCallMessage: `Thanks so much for calling ${tenant.companyName} — take care now, bye!`,
-    maxDurationSeconds: 900,
+    // Owner-tunable hard ceiling (a safety backstop — normal calls end long
+    // before it). Defaulted and floored in the API so it can't be set low
+    // enough to cut a real booking short.
+    maxDurationSeconds: settings.maxCallDurationSeconds,
     // End a call after a stretch of total silence. Real callers always speak
     // within this window, so it never cuts a live conversation — but a robocall
     // that plays dead air (or a recording the agent can't engage) is hung up in
     // seconds instead of running the full duration and draining the tenant's
     // minutes. A behaviour-based guard: it screens on "did anyone speak", never
-    // on who's calling, so it can't refuse a real customer.
-    silenceTimeoutSeconds: 30,
+    // on who's calling, so it can't refuse a real customer. Owner-tunable.
+    silenceTimeoutSeconds: settings.silenceTimeoutSeconds,
     serverMessages: ['end-of-call-report', 'status-update', 'tool-calls'],
     analysisPlan: {
       summaryPlan: {
@@ -726,6 +732,8 @@ export function buildAssistantUpdatePayload(
     ...(multiProvider
       ? [providerDiscipline(options.providers!, options.services ?? [], options.offerProviderChoice ?? false), '']
       : []),
+    wrapUpGuidance(settings.maxCallDurationSeconds, settings.wrapUpMessage),
+    '',
     ENDING_THE_CALL,
     ...(knowledgeTool ? ['', KNOWLEDGE_PROMPT] : []),
   ].join('\n');
@@ -759,10 +767,11 @@ export function buildAssistantUpdatePayload(
     // Front-load the meaningful goodbye; Vapi tends to clip the tail on hangup,
     // so "take care now, bye!" is the disposable part that can be safely lost.
     endCallMessage: `Thanks so much for calling ${tenant.companyName} — take care now, bye!`,
-    maxDurationSeconds: 900,
+    // Owner-tunable hard ceiling (safety backstop) — see the transient note.
+    maxDurationSeconds: settings.maxCallDurationSeconds,
     // Hang up on prolonged silence (dead-air robocalls) without ever cutting a
-    // live caller — see the note on the transient assistant above.
-    silenceTimeoutSeconds: 30,
+    // live caller — see the note on the transient assistant above. Owner-tunable.
+    silenceTimeoutSeconds: settings.silenceTimeoutSeconds,
     serverMessages: ['end-of-call-report', 'status-update', 'tool-calls'],
     analysisPlan: { summaryPlan: { enabled: true } },
     artifactPlan: { recordingEnabled: true },

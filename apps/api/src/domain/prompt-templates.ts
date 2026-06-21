@@ -110,6 +110,10 @@ export interface ComposeContext {
   services?: ServiceInfo[];
   /** When true, proactively offer the provider list; else book first-available. */
   offerProviderChoice?: boolean;
+  /** Hard call-length ceiling (seconds) — drives the wrap-up guidance copy. */
+  maxCallDurationSeconds?: number;
+  /** Owner's custom closing line; null/omitted = the built-in default. */
+  wrapUpMessage?: string | null;
 }
 
 /**
@@ -212,6 +216,28 @@ export function bookingDiscipline(tz: string): string {
   ].join('\n');
 }
 
+/** Default closing line when the owner hasn't written their own. */
+export const DEFAULT_WRAP_UP_MESSAGE =
+  "I want to make sure I've got you fully taken care of before we wrap up — is there anything else you need from me right now?";
+
+/**
+ * Soft, behavioural wrap-up guidance. The model can't see elapsed call seconds,
+ * so this is a conciseness-and-closing instruction (keep long calls from
+ * sprawling, close warmly) rather than a stopwatch trigger — the hard
+ * maxCallDurationSeconds cap is the actual enforcement. Shared so the transient
+ * and persistent builders stay in lockstep.
+ */
+export function wrapUpGuidance(maxCallDurationSeconds: number, wrapUpMessage: string | null): string {
+  const minutes = Math.max(1, Math.round(maxCallDurationSeconds / 60));
+  const closing = (wrapUpMessage ?? '').trim() || DEFAULT_WRAP_UP_MESSAGE;
+  return [
+    'KEEPING CALLS ON TRACK:',
+    `- Keep the conversation focused on what the caller actually needs. Calls have a maximum length of about ${minutes} minute${minutes === 1 ? '' : 's'}; the vast majority finish well before that.`,
+    '- If a call is running long, gently steer toward a conclusion — confirm the booking, or offer to take a message and have the team follow up. Do not open new topics late in a long call.',
+    `- As you move to close, do it warmly, for example: "${closing}"`,
+  ].join('\n');
+}
+
 /** Shared end-of-call rule: one warm goodbye, then hang up — no goodbye loops. */
 export const ENDING_THE_CALL = [
   'ENDING THE CALL:',
@@ -263,6 +289,10 @@ export function composeSystemPrompt(ctx: ComposeContext): string {
 
   if (ctx.providers && ctx.providers.length > 1) {
     sections.push(providerDiscipline(ctx.providers, ctx.services ?? [], ctx.offerProviderChoice ?? false));
+  }
+
+  if (ctx.maxCallDurationSeconds) {
+    sections.push(wrapUpGuidance(ctx.maxCallDurationSeconds, ctx.wrapUpMessage ?? null));
   }
 
   sections.push(ENDING_THE_CALL);

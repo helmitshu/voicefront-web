@@ -183,6 +183,19 @@ model AgentSettings {
   /// block list (BlockedCaller) is always active regardless of this flag.
   rejectAnonymousCallers Boolean @default(false) @map("reject_anonymous_callers")
 
+  // ── Call length & timing ─────────────────────────────────────────────────
+  /// Hard ceiling on a single call's length, in seconds. A safety backstop, not
+  /// a target — normal calls end naturally long before this. Owner-editable with
+  /// a sane floor so it can never be set low enough to cut a real booking short.
+  maxCallDurationSeconds Int    @default(600) @map("max_call_duration_seconds")
+  /// End the call after this many seconds of total silence (dead-air robocalls).
+  /// Floored well above a natural pause so it never hangs up on a live caller.
+  silenceTimeoutSeconds  Int    @default(30)  @map("silence_timeout_seconds")
+  /// Optional custom closing line the receptionist uses to wrap up gracefully as
+  /// a call runs long. Null = a sensible built-in default. Soft/behavioural —
+  /// steers the agent to a warm close, never an abrupt cut.
+  wrapUpMessage          String? @db.Text @map("wrap_up_message")
+
   // ── SMS notifications ────────────────────────────────────────────────────
   /// Master switch. SMS only fires when the platform has Twilio configured AND
   /// this is true. Tenants opt in — default off so nobody gets surprise texts.

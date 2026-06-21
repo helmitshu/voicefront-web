@@ -38,6 +38,12 @@ interface AgentSettingsDto {
   avgAppointmentValue: number;
   /** Spam screening: refuse calls with no caller ID. Opt-in, default false. */
   rejectAnonymousCallers: boolean;
+  /** Hard call-length ceiling in seconds (safety backstop). */
+  maxCallDurationSeconds: number;
+  /** Hang up after this many seconds of total silence (dead air). */
+  silenceTimeoutSeconds: number;
+  /** Custom closing line for graceful wrap-up; null = built-in default. */
+  wrapUpMessage: string | null;
   /** E.164 number from the provider dashboard; null until assigned. */
   inboundPhoneNumber: string | null;
   /**
@@ -63,6 +69,9 @@ function toDto(settings: AgentSettings): AgentSettingsDto {
     backgroundSound: settings.backgroundSound,
     avgAppointmentValue: settings.avgAppointmentValue,
     rejectAnonymousCallers: settings.rejectAnonymousCallers,
+    maxCallDurationSeconds: settings.maxCallDurationSeconds,
+    silenceTimeoutSeconds: settings.silenceTimeoutSeconds,
+    wrapUpMessage: settings.wrapUpMessage,
     inboundPhoneNumber: settings.inboundPhoneNumber,
     assistantId: settings.assistantId,
     updatedAt: settings.updatedAt.toISOString(),
@@ -107,6 +116,17 @@ const UpdateSchema = z
     backgroundSound: z.enum(BACKGROUND_SOUNDS),
     avgAppointmentValue: z.coerce.number().int().min(0).max(100000),
     rejectAnonymousCallers: z.boolean(),
+    // Floored at 3 min so a real booking can never be cut short; capped at 30 min.
+    maxCallDurationSeconds: z.coerce.number().int().min(180).max(1800),
+    // Floored at 15s so a caller who just paused is never hung up on.
+    silenceTimeoutSeconds: z.coerce.number().int().min(15).max(120),
+    // Empty string clears it back to the built-in default (stored as null).
+    wrapUpMessage: z
+      .string()
+      .trim()
+      .max(300)
+      .transform((v) => (v.length > 0 ? v : null))
+      .nullable(),
     inboundPhoneNumber: z
       .string()
       .trim()
@@ -148,6 +168,9 @@ agentRouter.patch(
     if (patch.backgroundSound !== undefined) data.backgroundSound = patch.backgroundSound;
     if (patch.avgAppointmentValue !== undefined) data.avgAppointmentValue = patch.avgAppointmentValue;
     if (patch.rejectAnonymousCallers !== undefined) data.rejectAnonymousCallers = patch.rejectAnonymousCallers;
+    if (patch.maxCallDurationSeconds !== undefined) data.maxCallDurationSeconds = patch.maxCallDurationSeconds;
+    if (patch.silenceTimeoutSeconds !== undefined) data.silenceTimeoutSeconds = patch.silenceTimeoutSeconds;
+    if (patch.wrapUpMessage !== undefined) data.wrapUpMessage = patch.wrapUpMessage;
     if (patch.inboundPhoneNumber !== undefined) data.inboundPhoneNumber = patch.inboundPhoneNumber;
     if (patch.businessHours !== undefined) {
       data.businessHours = patch.businessHours as unknown as Prisma.InputJsonValue;

@@ -161,6 +161,12 @@ export interface AgentSettingsDto {
   avgAppointmentValue: number;
   /** Spam screening: refuse calls with no caller ID. Opt-in, default false. */
   rejectAnonymousCallers: boolean;
+  /** Hard call-length ceiling in seconds (safety backstop). */
+  maxCallDurationSeconds: number;
+  /** Hang up after this many seconds of total silence (dead air). */
+  silenceTimeoutSeconds: number;
+  /** Custom closing line for graceful wrap-up; null = built-in default. */
+  wrapUpMessage: string | null;
   inboundPhoneNumber: string | null;
   /** Vapi assistant assigned by the founder; read-only for the customer. */
   assistantId: string | null;
@@ -188,6 +194,9 @@ export type AgentSettingsPatch = Partial<
     | 'backgroundSound'
     | 'avgAppointmentValue'
     | 'rejectAnonymousCallers'
+    | 'maxCallDurationSeconds'
+    | 'silenceTimeoutSeconds'
+    | 'wrapUpMessage'
     | 'inboundPhoneNumber'
   >
 >;

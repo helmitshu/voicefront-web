@@ -51,6 +51,12 @@ interface Draft {
   avgAppointmentValue: string;
   /** Opt-in spam screening: refuse calls with no caller ID. */
   rejectAnonymousCallers: boolean;
+  /** Max call length shown/edited in whole minutes; stored as seconds. */
+  maxCallMinutes: string;
+  /** Silence-hangup threshold in seconds (string while editing). */
+  silenceTimeoutSeconds: string;
+  /** Custom wrap-up line; '' means "use the built-in default" (null). */
+  wrapUpMessage: string;
   /** Editable as a string; '' means "no number assigned" (null). */
   inboundPhoneNumber: string;
 }
@@ -69,8 +75,18 @@ function toDraft(settings: AgentSettingsDto): Draft {
     backgroundSound: settings.backgroundSound,
     avgAppointmentValue: String(settings.avgAppointmentValue ?? 0),
     rejectAnonymousCallers: settings.rejectAnonymousCallers ?? false,
+    maxCallMinutes: String(Math.round((settings.maxCallDurationSeconds ?? 600) / 60)),
+    silenceTimeoutSeconds: String(settings.silenceTimeoutSeconds ?? 30),
+    wrapUpMessage: settings.wrapUpMessage ?? '',
     inboundPhoneNumber: settings.inboundPhoneNumber ?? '',
   };
+}
+
+/** Clamp a numeric draft value to a range, falling back when blank/invalid. */
+function clampNumber(value: string, min: number, max: number, fallback: number): number {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
 }
 
 const E164_REGEX = /^\+[1-9]\d{6,14}$/;
@@ -174,6 +190,9 @@ export default function SettingsPage() {
       backgroundSound: draft.backgroundSound,
       avgAppointmentValue: Math.max(0, Math.round(Number(draft.avgAppointmentValue) || 0)),
       rejectAnonymousCallers: draft.rejectAnonymousCallers,
+      maxCallDurationSeconds: clampNumber(draft.maxCallMinutes, 3, 30, 10) * 60,
+      silenceTimeoutSeconds: clampNumber(draft.silenceTimeoutSeconds, 15, 120, 30),
+      wrapUpMessage: draft.wrapUpMessage.trim() || null,
       inboundPhoneNumber: normalizedNumber.length > 0 ? normalizedNumber : null,
       businessHours: draft.businessHours,
       forwardingNumbers: draft.forwardingNumbers.map((entry) => ({
@@ -498,6 +517,48 @@ export default function SettingsPage() {
           errors={forwardingErrors}
           onChange={(forwardingNumbers) => patchDraft({ forwardingNumbers })}
         />
+      </Card>
+
+      <Card>
+        <CardHeader
+          title="Call length & timing"
+          description="Safety limits that protect your minutes from stuck or silent calls — and how your receptionist wraps up a long call. The defaults suit almost everyone; raise them only if your calls genuinely run long."
+        />
+        <div className="grid gap-5 sm:grid-cols-2">
+          <Input
+            label="Maximum call length (minutes)"
+            type="number"
+            inputMode="numeric"
+            min={3}
+            max={30}
+            value={draft.maxCallMinutes}
+            disabled={readOnly}
+            onChange={(e) => patchDraft({ maxCallMinutes: e.target.value })}
+            hint="A safety ceiling, not a target — normal calls end well before this. Between 3 and 30 minutes."
+          />
+          <Input
+            label="Hang up after silence (seconds)"
+            type="number"
+            inputMode="numeric"
+            min={15}
+            max={120}
+            value={draft.silenceTimeoutSeconds}
+            disabled={readOnly}
+            onChange={(e) => patchDraft({ silenceTimeoutSeconds: e.target.value })}
+            hint="Ends dead-air robocalls. Kept at 15s or more so a caller who just paused is never cut off."
+          />
+        </div>
+        <div className="mt-5">
+          <Textarea
+            label="Wrap-up message"
+            rows={3}
+            value={draft.wrapUpMessage}
+            disabled={readOnly}
+            onChange={(e) => patchDraft({ wrapUpMessage: e.target.value })}
+            placeholder="I want to make sure I've got you fully taken care of before we wrap up — is there anything else you need from me right now?"
+            hint="How the receptionist gracefully steers a long call to a close, in your words. Leave blank to use the default above."
+          />
+        </div>
       </Card>
 
       <Card>
