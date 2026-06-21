@@ -679,7 +679,15 @@ export const AdminApi = {
   updateLead: (id: string, patch: { status?: string; notes?: string; email?: string | null }) =>
     api<{ lead: LeadRow }>(`/api/admin/leads/${id}`, { method: 'PATCH', body: patch }),
   deleteLead: (id: string) => api<{ ok: true }>(`/api/admin/leads/${id}`, { method: 'DELETE' }),
+  leadEmail: (id: string) => api<{ email: OutreachEmailDto }>(`/api/admin/leads/${id}/email`),
 };
+
+/** A rendered outreach email for a lead: subject + HTML + plain-text fallback. */
+export interface OutreachEmailDto {
+  subject: string;
+  html: string;
+  text: string;
+}
 
 export interface LeadRow {
   id: string;

@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { AdminApi, ApiError, type LeadListResult, type LeadRow } from '@/lib/api';
+import { AdminApi, ApiError, type LeadListResult, type LeadRow, type OutreachEmailDto } from '@/lib/api';
 import { useToast } from '@/components/ui/Toast';
 import { Card, CardHeader, EmptyState } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -30,6 +30,11 @@ export default function LeadsPage() {
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [rowBusy, setRowBusy] = useState<string | null>(null);
+
+  // Email preview modal
+  const [previewLead, setPreviewLead] = useState<LeadRow | null>(null);
+  const [previewEmail, setPreviewEmail] = useState<OutreachEmailDto | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   const load = useCallback(
     (signal?: AbortSignal) => {
@@ -132,6 +137,43 @@ export default function LeadsPage() {
       toast(err instanceof ApiError ? err.message : 'Could not delete.', 'error');
     } finally {
       setRowBusy(null);
+    }
+  }
+
+  async function openEmail(lead: LeadRow) {
+    setPreviewLead(lead);
+    setPreviewEmail(null);
+    setPreviewLoading(true);
+    try {
+      const { email } = await AdminApi.leadEmail(lead.id);
+      setPreviewEmail(email);
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not generate the email.', 'error');
+      setPreviewLead(null);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  async function copy(text: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast(`${label} copied.`, 'success');
+    } catch {
+      toast('Could not copy — your browser blocked clipboard access.', 'error');
+    }
+  }
+
+  async function markEmailed() {
+    if (!previewLead) return;
+    try {
+      await AdminApi.updateLead(previewLead.id, { status: 'emailed' });
+      setPreviewLead(null);
+      setPreviewEmail(null);
+      load();
+      toast('Marked as emailed.', 'success');
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not update.', 'error');
     }
   }
 
@@ -312,6 +354,11 @@ export default function LeadsPage() {
                   )}
                 </div>
                 <div className="flex items-center gap-2">
+                  {lead.email && (
+                    <Button size="sm" variant="secondary" onClick={() => openEmail(lead)}>
+                      Email
+                    </Button>
+                  )}
                   <Select
                     aria-label="Status"
                     value={lead.status}
@@ -363,6 +410,85 @@ export default function LeadsPage() {
         Reminder: when you email these leads, US CAN-SPAM requires an accurate from/subject, a real physical
         mailing address, and a working unsubscribe you honor. Only email published business addresses.
       </p>
+
+      {/* Email preview modal */}
+      {previewLead && (
+        <div
+          className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/40 p-4 backdrop-blur-sm sm:p-8"
+          onClick={() => setPreviewLead(null)}
+        >
+          <div
+            className="my-auto w-full max-w-2xl overflow-hidden rounded-2xl border border-line/70 bg-white shadow-lift"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 border-b border-line/60 px-5 py-3.5">
+              <div className="min-w-0">
+                <p className="text-xs font-semibold uppercase tracking-[0.1em] text-ink-muted">Outreach email</p>
+                <p className="truncate text-sm font-semibold text-ink">{previewLead.businessName}</p>
+              </div>
+              <button
+                type="button"
+                aria-label="Close"
+                onClick={() => setPreviewLead(null)}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-ink-muted hover:bg-paper hover:text-ink"
+              >
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-4 w-4">
+                  <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+                </svg>
+              </button>
+            </div>
+
+            {previewLoading || !previewEmail ? (
+              <div className="flex h-48 items-center justify-center">
+                <Spinner className="h-6 w-6 text-signal" />
+              </div>
+            ) : (
+              <div className="flex flex-col gap-3 p-5">
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">To</p>
+                  <p className="text-sm text-ink">{previewLead.email}</p>
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Subject</p>
+                  <p className="text-sm font-medium text-ink">{previewEmail.subject}</p>
+                </div>
+                <div>
+                  <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-ink-muted">Preview</p>
+                  <iframe
+                    title="Email preview"
+                    srcDoc={previewEmail.html}
+                    sandbox=""
+                    className="h-[420px] w-full rounded-xl border border-line/70 bg-paper"
+                  />
+                </div>
+                <div className="flex flex-wrap items-center gap-2 border-t border-line/60 pt-4">
+                  <Button size="sm" onClick={() => copy(previewEmail.html, 'HTML')}>
+                    Copy HTML
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => copy(previewEmail.text, 'Plain text')}>
+                    Copy text
+                  </Button>
+                  <a
+                    href={`mailto:${previewLead.email}?subject=${encodeURIComponent(previewEmail.subject)}&body=${encodeURIComponent(previewEmail.text)}`}
+                    className="rounded-full border border-line bg-white px-3.5 py-1.5 text-[13px] font-semibold text-ink shadow-input transition-colors hover:border-ink-muted/40"
+                  >
+                    Open in mail app
+                  </a>
+                  <div className="ml-auto">
+                    <Button size="sm" variant="ghost" onClick={markEmailed}>
+                      Mark as emailed
+                    </Button>
+                  </div>
+                </div>
+                <p className="text-[11.5px] leading-relaxed text-ink-muted/80">
+                  The styled version (money card + button) only renders when sent as HTML — “Open in mail app”
+                  carries the plain-text version. One-click sending of the full HTML is the next step.
+                </p>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

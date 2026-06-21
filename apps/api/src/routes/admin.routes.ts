@@ -77,6 +77,7 @@ import {
   sourceLeads,
   updateLead,
 } from '../services/leadgen.service';
+import { buildOutreachEmail } from '../services/outreach.service';
 import { getMonthlyUsage } from '../services/usage.service';
 import {
   addNumber,
@@ -1289,5 +1290,15 @@ adminRouter.delete(
   asyncHandler(async (req, res) => {
     await deleteLead(req.params.id);
     res.json({ ok: true });
+  }),
+);
+
+adminRouter.get(
+  '/leads/:id/email',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const lead = await prisma.lead.findUnique({ where: { id: req.params.id } });
+    if (!lead) throw new HttpError(404, 'Lead not found.', 'LEAD_NOT_FOUND');
+    res.json({ email: buildOutreachEmail(lead) });
   }),
 );
