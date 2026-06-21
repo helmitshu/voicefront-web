@@ -1603,14 +1603,41 @@ export default function LandingPage() {
 
   // Mobile nav menu (the desktop links are hidden under md).
   const [menuOpen, setMenuOpen] = useState(false);
+  // Order mirrors the on-page scroll order so the nav reads as a table of
+  // contents; "Savings" points at the ROI calculator, which was previously
+  // unreachable from the nav.
   const navLinks = [
-    ...(showDemo ? [{ href: '#demo', label: 'Demo' }] : []),
     { href: '#how', label: 'How it works' },
+    ...(showDemo ? [{ href: '#demo', label: 'Demo' }] : []),
     { href: '#industries', label: 'Industries' },
-    { href: '#book', label: 'Book a call' },
+    { href: '#roi', label: 'Savings' },
     { href: '#pricing', label: 'Pricing' },
+    { href: '#book', label: 'Book a call' },
     { href: '#faq', label: 'FAQ' },
   ];
+
+  // Scroll-spy: highlight the nav link for whatever section is centered in the
+  // viewport, so visitors always know where they are in a long page.
+  const [activeId, setActiveId] = useState('');
+  useEffect(() => {
+    const ids = ['how', 'demo', 'industries', 'roi', 'pricing', 'book', 'faq'];
+    const els = ids
+      .map((id) => document.getElementById(id))
+      .filter((el): el is HTMLElement => el !== null);
+    if (els.length === 0) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        const onscreen = entries
+          .filter((e) => e.isIntersecting)
+          .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top);
+        if (onscreen[0]) setActiveId(onscreen[0].target.id);
+      },
+      // A section becomes "active" once it crosses the middle of the viewport.
+      { rootMargin: '-45% 0px -50% 0px' },
+    );
+    els.forEach((el) => obs.observe(el));
+    return () => obs.disconnect();
+  }, [showDemo]);
 
   return (
     <div className="relative text-ink">
@@ -1641,11 +1668,27 @@ export default function LandingPage() {
             <Logo />
           </Link>
           <div className="hidden items-center gap-7 text-sm font-medium text-ink-muted md:flex">
-            {navLinks.map((l) => (
-              <a key={l.href} href={l.href} className="transition-colors hover:text-ink">
-                {l.label}
-              </a>
-            ))}
+            {navLinks.map((l) => {
+              const active = activeId === l.href.slice(1);
+              return (
+                <a
+                  key={l.href}
+                  href={l.href}
+                  aria-current={active ? 'true' : undefined}
+                  className={`relative transition-colors ${
+                    active ? 'text-signal-deep' : 'hover:text-ink'
+                  }`}
+                >
+                  {l.label}
+                  <span
+                    aria-hidden
+                    className={`absolute -bottom-1.5 left-0 h-0.5 rounded-full bg-signal transition-all duration-300 ${
+                      active ? 'w-full opacity-100' : 'w-0 opacity-0'
+                    }`}
+                  />
+                </a>
+              );
+            })}
           </div>
           <div className="flex items-center gap-3">
             {!authed && (
@@ -2141,26 +2184,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ------------------------------- book a call ------------------------------ */}
-      <section id="book" className="border-t border-line/60 bg-surface/50 px-6 py-24 md:py-32">
-        <div className="mx-auto max-w-6xl">
-          <Reveal className="mx-auto max-w-2xl text-center">
-            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-deep">Talk to a human</p>
-            <h2 className="mt-4 font-display text-4xl font-semibold tracking-tight md:text-[44px]">
-              Rather just book a call?
-            </h2>
-            <p className="mt-5 text-lg leading-relaxed text-ink-muted">
-              Skip the demo and grab a time that suits you. Pick a slot on our real calendar, tell us a
-              little about your business, and we&apos;ll walk you through exactly how VoiceFront would fit —
-              no account needed.
-            </p>
-          </Reveal>
-          <Reveal delay={150} className="mt-12">
-            <BookCallSection />
-          </Reveal>
-        </div>
-      </section>
-
       {/* ----------------------------- ROI calculator ----------------------------- */}
       <section id="roi" className="border-t border-line/60 px-6 py-24 md:py-32">
         <div className="mx-auto max-w-6xl">
@@ -2248,6 +2271,26 @@ export default function LandingPage() {
               </Reveal>
             </div>
           </div>
+        </div>
+      </section>
+
+      {/* ------------------------------- book a call ------------------------------ */}
+      <section id="book" className="border-t border-line/60 bg-surface/50 px-6 py-24 md:py-32">
+        <div className="mx-auto max-w-6xl">
+          <Reveal className="mx-auto max-w-2xl text-center">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-deep">Talk to a human</p>
+            <h2 className="mt-4 font-display text-4xl font-semibold tracking-tight md:text-[44px]">
+              Rather just book a call?
+            </h2>
+            <p className="mt-5 text-lg leading-relaxed text-ink-muted">
+              Prefer a real conversation? Grab a time that suits you — pick a slot on our real calendar,
+              tell us a little about your business, and we&apos;ll walk you through exactly how VoiceFront
+              would fit. No account needed.
+            </p>
+          </Reveal>
+          <Reveal delay={150} className="mt-12">
+            <BookCallSection />
+          </Reveal>
         </div>
       </section>
 
