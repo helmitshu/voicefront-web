@@ -650,7 +650,68 @@ export const AdminApi = {
     api<{ code: AccessCodeRow }>('/api/admin/access-codes', { method: 'POST', body: input }),
   revokeAccessCode: (id: string) =>
     api<{ ok: true }>(`/api/admin/access-codes/${id}`, { method: 'DELETE' }),
+
+  // Lead generation (founder outbound prospecting).
+  leads: (
+    params: { status?: string; hasEmail?: boolean; q?: string; page?: number } = {},
+    signal?: AbortSignal,
+  ) => {
+    const query = new URLSearchParams();
+    if (params.status) query.set('status', params.status);
+    if (params.hasEmail !== undefined) query.set('hasEmail', String(params.hasEmail));
+    if (params.q) query.set('q', params.q);
+    if (params.page) query.set('page', String(params.page));
+    const qs = query.toString();
+    return api<LeadListResult>(`/api/admin/leads${qs ? `?${qs}` : ''}`, { signal });
+  },
+  sourceLeads: (input: { trade: string; city: string; limit?: number }) =>
+    api<{ sourced: number; created: number; updated: number }>('/api/admin/leads/source', {
+      method: 'POST',
+      body: input,
+    }),
+  scrapeLeadEmails: (limit?: number) =>
+    api<{ scanned: number; found: number }>('/api/admin/leads/scrape-emails', {
+      method: 'POST',
+      body: limit ? { limit } : {},
+    }),
+  scrapeLeadEmail: (id: string) =>
+    api<{ email: string | null }>(`/api/admin/leads/${id}/scrape-email`, { method: 'POST' }),
+  updateLead: (id: string, patch: { status?: string; notes?: string; email?: string | null }) =>
+    api<{ lead: LeadRow }>(`/api/admin/leads/${id}`, { method: 'PATCH', body: patch }),
+  deleteLead: (id: string) => api<{ ok: true }>(`/api/admin/leads/${id}`, { method: 'DELETE' }),
 };
+
+export interface LeadRow {
+  id: string;
+  businessName: string;
+  trade: string;
+  city: string;
+  phone: string | null;
+  website: string | null;
+  address: string | null;
+  email: string | null;
+  emailSource: string | null;
+  rating: number | null;
+  reviewCount: number | null;
+  status: string;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+export interface LeadStats {
+  total: number;
+  withEmail: number;
+  withPhone: number;
+  byStatus: Record<string, number>;
+}
+export interface LeadListResult {
+  leads: LeadRow[];
+  total: number;
+  page: number;
+  perPage: number;
+  totalPages: number;
+  stats: LeadStats;
+}
 
 /** A one-time signup invitation code issued by the founder. */
 export interface AccessCodeRow {

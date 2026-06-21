@@ -68,6 +68,15 @@ import {
   syncAssistantForTenant,
   validateAssistant,
 } from '../services/vapi.service';
+import {
+  deleteLead,
+  getLeadStats,
+  listLeads,
+  scrapeEmailForLead,
+  scrapeEmails,
+  sourceLeads,
+  updateLead,
+} from '../services/leadgen.service';
 import { getMonthlyUsage } from '../services/usage.service';
 import {
   addNumber,
@@ -1181,5 +1190,104 @@ adminRouter.post(
 
     await recordAdminAction(adminEmail, 'number.create', created.number, { vapiPhoneId: created.id });
     res.status(201).json({ number: toPoolEntry(pooled) });
+  }),
+);
+
+/* ------------------------------ lead generation --------------------------- */
+
+const SourceLeadsSchema = z.object({
+  trade: z.string().trim().min(2).max(80),
+  city: z.string().trim().min(2).max(80),
+  limit: z.coerce.number().int().min(1).max(60).optional(),
+});
+
+adminRouter.post(
+  '/leads/source',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const adminEmail = getAdminEmail(req);
+    const body = SourceLeadsSchema.parse(req.body);
+    const result = await sourceLeads(body);
+    await recordAdminAction(adminEmail, 'leads.source', `${body.trade} / ${body.city}`, {
+      sourced: result.sourced,
+      created: result.created,
+      updated: result.updated,
+    });
+    res.json(result);
+  }),
+);
+
+const ScrapeSchema = z.object({ limit: z.coerce.number().int().min(1).max(100).optional() });
+
+adminRouter.post(
+  '/leads/scrape-emails',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const adminEmail = getAdminEmail(req);
+    const body = ScrapeSchema.parse(req.body ?? {});
+    const result = await scrapeEmails(body);
+    await recordAdminAction(adminEmail, 'leads.scrapeEmails', null, { scanned: result.scanned, found: result.found });
+    res.json(result);
+  }),
+);
+
+adminRouter.post(
+  '/leads/:id/scrape-email',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const email = await scrapeEmailForLead(req.params.id);
+    res.json({ email });
+  }),
+);
+
+const ListLeadsSchema = z.object({
+  status: z.string().trim().max(40).optional(),
+  hasEmail: z.enum(['true', 'false']).optional(),
+  q: z.string().trim().max(120).optional(),
+  page: z.coerce.number().int().min(1).optional(),
+  perPage: z.coerce.number().int().min(1).max(200).optional(),
+});
+
+adminRouter.get(
+  '/leads',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const query = ListLeadsSchema.parse(req.query);
+    const [result, stats] = await Promise.all([
+      listLeads({
+        status: query.status,
+        hasEmail: query.hasEmail === undefined ? undefined : query.hasEmail === 'true',
+        q: query.q,
+        page: query.page,
+        perPage: query.perPage,
+      }),
+      getLeadStats(),
+    ]);
+    res.json({ ...result, stats });
+  }),
+);
+
+const UpdateLeadSchema = z.object({
+  status: z.string().trim().max(40).optional(),
+  notes: z.string().trim().max(2000).optional(),
+  email: z.string().trim().email().nullable().optional(),
+});
+
+adminRouter.patch(
+  '/leads/:id',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const body = UpdateLeadSchema.parse(req.body);
+    const lead = await updateLead(req.params.id, body);
+    res.json({ lead });
+  }),
+);
+
+adminRouter.delete(
+  '/leads/:id',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    await deleteLead(req.params.id);
+    res.json({ ok: true });
   }),
 );

@@ -446,6 +446,40 @@ model PooledNumber {
   @@map("pooled_numbers")
 }
 
+/// A prospecting lead the founder sourced for outbound sales (platform-level,
+/// not tied to a customer tenant). Populated by the lead-gen pipeline: Google
+/// Places supplies the business + phone + website; a best-effort website scrape
+/// fills in a published business email. Drives the cold-outreach funnel.
+model Lead {
+  id           String   @id @default(cuid())
+  /// Google Places place id — the dedupe key so re-sourcing never duplicates.
+  placeId      String?  @unique @map("place_id")
+  businessName String   @map("business_name")
+  /// The trade + city this lead was sourced for (e.g. "HVAC", "Phoenix, AZ").
+  trade        String
+  city         String
+  phone        String?
+  website      String?
+  address      String?
+  /// Published business email found by scraping the website. Null until found.
+  email        String?
+  /// How the email was obtained: "website" (scraped) | "manual". Null = none.
+  emailSource  String?  @map("email_source")
+  /// Google rating + review count — quality signals for prioritising outreach.
+  rating       Float?
+  reviewCount  Int?     @map("review_count")
+  /// Funnel stage: new | emailed | opened | clicked | replied | demoed | won |
+  /// dead | unsubscribed. Plain string so stages can evolve without migrations.
+  status       String   @default("new")
+  notes        String?  @db.Text
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([trade, city])
+  @@map("leads")
+}
+
 /// Operator-editable runtime configuration (API keys, public URLs).
 /// Values are AES-256-GCM encrypted; env vars act as fallback defaults.
 model PlatformSetting {

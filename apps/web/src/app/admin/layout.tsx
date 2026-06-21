@@ -29,6 +29,18 @@ const NAV = [
     ),
   },
   {
+    href: '/admin/leads',
+    label: 'Leads',
+    exact: false,
+    fullAdminOnly: true,
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-[18px] w-[18px]">
+        <circle cx="9" cy="9" r="5.5" />
+        <path d="M13 13l4 4" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
     href: '/admin/access-codes',
     label: 'Access codes',
     exact: false,

@@ -20,6 +20,7 @@ export const SETTING_KEYS = [
   'GOOGLE_OAUTH_CLIENT_SECRET',
   'MICROSOFT_OAUTH_CLIENT_ID',
   'MICROSOFT_OAUTH_CLIENT_SECRET',
+  'GOOGLE_PLACES_API_KEY',
 ] as const;
 export type SettingKey = (typeof SETTING_KEYS)[number];
 
@@ -81,6 +82,13 @@ export const SETTING_META: Record<
     secret: true,
     placeholder: 'paste your Microsoft client secret',
   },
+  GOOGLE_PLACES_API_KEY: {
+    label: 'Google Places API key',
+    description:
+      'From Google Cloud → APIs & Services. Enable “Places API (New)”, create an API key, and paste it here. Powers the lead-sourcing pipeline (Leads tab). Free tier covers thousands of lookups, then a few cents each.',
+    secret: true,
+    placeholder: 'paste your Google Places API key',
+  },
 };
 
 function isSettingKey(key: string): key is SettingKey {
@@ -137,6 +145,8 @@ function envFallback(key: SettingKey): string | null {
       return env.MICROSOFT_OAUTH_CLIENT_ID ?? null;
     case 'MICROSOFT_OAUTH_CLIENT_SECRET':
       return env.MICROSOFT_OAUTH_CLIENT_SECRET ?? null;
+    case 'GOOGLE_PLACES_API_KEY':
+      return process.env.GOOGLE_PLACES_API_KEY ?? null;
   }
 }
 
@@ -189,6 +199,7 @@ const VALIDATORS: Record<SettingKey, (value: string) => string | null> = {
   GOOGLE_OAUTH_CLIENT_SECRET: (v) => (v.length >= 8 ? null : 'That looks too short to be a client secret.'),
   MICROSOFT_OAUTH_CLIENT_ID: (v) => (v.length >= 8 ? null : 'That does not look like a Microsoft client ID.'),
   MICROSOFT_OAUTH_CLIENT_SECRET: (v) => (v.length >= 8 ? null : 'That looks too short to be a client secret.'),
+  GOOGLE_PLACES_API_KEY: (v) => (v.length >= 20 ? null : 'That looks too short to be a Google API key.'),
 };
 
 export async function setSetting(key: SettingKey, rawValue: string, adminEmail: string): Promise<void> {
