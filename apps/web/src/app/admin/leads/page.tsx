@@ -37,6 +37,13 @@ export default function LeadsPage() {
   const [sourcing, setSourcing] = useState(false);
   const [scraping, setScraping] = useState(false);
 
+  // Test send (to your own addresses, not the leads)
+  const [testEmails, setTestEmails] = useState('');
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<
+    { sent: number; total: number; results: { to: string; ok: boolean; error?: string }[] } | null
+  >(null);
+
   // Filters
   const [statusFilter, setStatusFilter] = useState('');
   const [emailFilter, setEmailFilter] = useState('');
@@ -142,6 +149,25 @@ export default function LeadsPage() {
       toast(err instanceof ApiError ? err.message : 'Email scrape failed.', 'error');
     } finally {
       setScraping(false);
+    }
+  }
+
+  async function runTest() {
+    const recipients = testEmails.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
+    if (recipients.length === 0) {
+      toast('Add at least one email address to send the test to.', 'error');
+      return;
+    }
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const r = await AdminApi.testEmail(recipients);
+      setTestResult(r);
+      toast(`Test sent to ${r.sent} of ${r.total}.`, r.sent > 0 ? 'success' : 'error');
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Test send failed.', 'error');
+    } finally {
+      setTesting(false);
     }
   }
 
@@ -332,6 +358,46 @@ export default function LeadsPage() {
             Best-effort: fetches each website and pulls a published business email. Many small sites list none.
           </p>
         </div>
+      </Card>
+
+      {/* Test send */}
+      <Card>
+        <CardHeader
+          title="Send a test email"
+          description="Sends the outreach email (using a sample HVAC lead) to addresses you list below — never to a real lead. Use it to check rendering and deliverability. Set the Resend key + “from” email under Keys & config first."
+        />
+        <textarea
+          value={testEmails}
+          onChange={(e) => setTestEmails(e.target.value)}
+          rows={2}
+          placeholder="you@gmail.com, teammate@gmail.com"
+          className="w-full rounded-xl border border-line bg-paper/60 px-3 py-2 text-sm text-ink shadow-input outline-none focus:border-signal/60 focus:ring-2 focus:ring-signal/20"
+        />
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <Button size="sm" loading={testing} onClick={runTest}>
+            Send test
+          </Button>
+          {testResult && (
+            <p className="text-[12.5px] font-medium text-ink-muted">
+              Sent {testResult.sent} of {testResult.total}.
+            </p>
+          )}
+        </div>
+        {testResult && testResult.results.some((r) => !r.ok) && (
+          <ul className="mt-2 flex flex-col gap-1">
+            {testResult.results
+              .filter((r) => !r.ok)
+              .map((r) => (
+                <li key={r.to} className="text-[12px] text-danger">
+                  {r.to}: {r.error}
+                </li>
+              ))}
+          </ul>
+        )}
+        <p className="mt-3 text-[11.5px] leading-relaxed text-ink-muted/80">
+          Testing without a domain? Set the “from” email to <span className="font-mono">onboarding@resend.dev</span> —
+          Resend will only deliver to your own Resend signup email until you verify a domain.
+        </p>
       </Card>
 
       {/* Stats */}

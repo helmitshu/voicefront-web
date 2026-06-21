@@ -56,9 +56,13 @@ export interface OutreachEmail {
   text: string;
 }
 
-export function buildOutreachEmail(lead: Lead): OutreachEmail {
+export function buildOutreachEmail(
+  lead: Pick<Lead, 'id' | 'businessName' | 'trade' | 'city'>,
+  options: { physicalAddress?: string } = {},
+): OutreachEmail {
   const biz = lead.businessName;
   const trade = lead.trade;
+  const address = options.physicalAddress?.trim() || '[Your mailing address here]';
   const roi = roiFor(trade);
   const isHvac = /hvac|air|cooling|ac\b/i.test(trade);
 
@@ -128,7 +132,7 @@ export function buildOutreachEmail(lead: Lead): OutreachEmail {
 
         <!-- footer / CAN-SPAM -->
         <tr><td style="padding:16px 32px 24px;border-top:1px solid #E4E7E2;">
-          <p style="margin:0;font-size:11px;line-height:1.6;color:#66706B;">VoiceFront · [Your mailing address here]<br>
+          <p style="margin:0;font-size:11px;line-height:1.6;color:#66706B;">${esc(address)}<br>
           You're receiving this because you run a ${esc(trade)} business in ${esc(
             lead.city,
           )}. <a href="${unsubUrl}" style="color:#66706B;">Unsubscribe</a> and I won't email again.</p>
@@ -159,7 +163,7 @@ export function buildOutreachEmail(lead: Lead): OutreachEmail {
     `Worth a look?`,
     '',
     `—`,
-    `VoiceFront · [Your mailing address here]`,
+    address,
     `You're receiving this because you run a ${trade} business in ${lead.city}. Unsubscribe: ${unsubUrl}`,
   ].join('\n');
 

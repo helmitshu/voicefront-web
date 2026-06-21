@@ -20,6 +20,7 @@ import {
   SETTING_META,
   assertSettingKey,
   getSetting,
+  getSettingValue,
   maskValue,
   recordAdminAction,
   setSetting,
@@ -79,6 +80,7 @@ import {
   updateLead,
 } from '../services/leadgen.service';
 import { buildOutreachEmail } from '../services/outreach.service';
+import { sendOutreachEmail } from '../services/mailer.service';
 import { getMonthlyUsage } from '../services/usage.service';
 import {
   addNumber,
@@ -1324,5 +1326,40 @@ adminRouter.post(
       status: body.status ?? null,
     });
     res.json({ count });
+  }),
+);
+
+const TestEmailSchema = z.object({
+  recipients: z.array(z.string().trim().email()).min(1).max(20),
+  leadId: z.string().optional(),
+});
+
+adminRouter.post(
+  '/leads/test-email',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const adminEmail = getAdminEmail(req);
+    const body = TestEmailSchema.parse(req.body);
+    // Render from a real lead when given, otherwise a representative sample so
+    // the test stands alone. The send always goes to the provided test list,
+    // never to the lead's own address.
+    const lead = body.leadId ? await prisma.lead.findUnique({ where: { id: body.leadId } }) : null;
+    const target = lead ?? { id: 'sample', businessName: 'Sample HVAC Co.', trade: 'HVAC', city: 'Phoenix, AZ' };
+    const physicalAddress = (await getSettingValue('OUTREACH_PHYSICAL_ADDRESS')) ?? undefined;
+    const email = buildOutreachEmail(target, { physicalAddress });
+    const subject = `[TEST] ${email.subject}`;
+
+    const results: Array<{ to: string; ok: boolean; error?: string }> = [];
+    for (const to of body.recipients) {
+      try {
+        await sendOutreachEmail({ to, subject, html: email.html, text: email.text });
+        results.push({ to, ok: true });
+      } catch (err) {
+        results.push({ to, ok: false, error: err instanceof HttpError ? err.message : 'Send failed.' });
+      }
+    }
+    const sent = results.filter((r) => r.ok).length;
+    await recordAdminAction(adminEmail, 'leads.testEmail', null, { sent, total: body.recipients.length });
+    res.json({ sent, total: body.recipients.length, results });
   }),
 );

@@ -21,6 +21,10 @@ export const SETTING_KEYS = [
   'MICROSOFT_OAUTH_CLIENT_ID',
   'MICROSOFT_OAUTH_CLIENT_SECRET',
   'GOOGLE_PLACES_API_KEY',
+  'RESEND_API_KEY',
+  'OUTREACH_FROM_EMAIL',
+  'OUTREACH_FROM_NAME',
+  'OUTREACH_PHYSICAL_ADDRESS',
 ] as const;
 export type SettingKey = (typeof SETTING_KEYS)[number];
 
@@ -89,6 +93,33 @@ export const SETTING_META: Record<
     secret: true,
     placeholder: 'paste your Google Places API key',
   },
+  RESEND_API_KEY: {
+    label: 'Resend API key',
+    description:
+      'From resend.com → API Keys. Powers outreach email sending (Leads tab). With no verified domain you can send from onboarding@resend.dev but only to your own Resend signup email — verify a domain to send to a real list.',
+    secret: true,
+    placeholder: 're_…',
+  },
+  OUTREACH_FROM_EMAIL: {
+    label: 'Outreach “from” email',
+    description:
+      'The address outreach emails are sent from. For testing with no domain, use onboarding@resend.dev. Once you verify a domain on Resend, switch this to e.g. hello@mail.yourdomain.com.',
+    secret: false,
+    placeholder: 'onboarding@resend.dev',
+  },
+  OUTREACH_FROM_NAME: {
+    label: 'Outreach “from” name',
+    description: 'The sender name shown in the inbox, e.g. “Sam at VoiceFront”. Optional.',
+    secret: false,
+    placeholder: 'VoiceFront',
+  },
+  OUTREACH_PHYSICAL_ADDRESS: {
+    label: 'Mailing address (CAN-SPAM)',
+    description:
+      'A real physical mailing address — US law requires one in every commercial email. Shown in the email footer. e.g. “VoiceFront, 123 Main St, Phoenix, AZ 85004”.',
+    secret: false,
+    placeholder: 'Business name, street, city, state ZIP',
+  },
 };
 
 function isSettingKey(key: string): key is SettingKey {
@@ -147,6 +178,14 @@ function envFallback(key: SettingKey): string | null {
       return env.MICROSOFT_OAUTH_CLIENT_SECRET ?? null;
     case 'GOOGLE_PLACES_API_KEY':
       return process.env.GOOGLE_PLACES_API_KEY ?? null;
+    case 'RESEND_API_KEY':
+      return process.env.RESEND_API_KEY ?? null;
+    case 'OUTREACH_FROM_EMAIL':
+      return process.env.OUTREACH_FROM_EMAIL ?? null;
+    case 'OUTREACH_FROM_NAME':
+      return process.env.OUTREACH_FROM_NAME ?? null;
+    case 'OUTREACH_PHYSICAL_ADDRESS':
+      return process.env.OUTREACH_PHYSICAL_ADDRESS ?? null;
   }
 }
 
@@ -200,6 +239,10 @@ const VALIDATORS: Record<SettingKey, (value: string) => string | null> = {
   MICROSOFT_OAUTH_CLIENT_ID: (v) => (v.length >= 8 ? null : 'That does not look like a Microsoft client ID.'),
   MICROSOFT_OAUTH_CLIENT_SECRET: (v) => (v.length >= 8 ? null : 'That looks too short to be a client secret.'),
   GOOGLE_PLACES_API_KEY: (v) => (v.length >= 20 ? null : 'That looks too short to be a Google API key.'),
+  RESEND_API_KEY: (v) => (v.length >= 10 ? null : 'That looks too short to be a Resend API key.'),
+  OUTREACH_FROM_EMAIL: (v) => (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? null : 'Enter a valid email address.'),
+  OUTREACH_FROM_NAME: () => null,
+  OUTREACH_PHYSICAL_ADDRESS: (v) => (v.length >= 5 ? null : 'Enter a real mailing address.'),
 };
 
 export async function setSetting(key: SettingKey, rawValue: string, adminEmail: string): Promise<void> {
