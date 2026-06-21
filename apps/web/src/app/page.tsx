@@ -1450,7 +1450,7 @@ const FAQS = [
   },
   {
     q: 'How do appointments reach my calendar?',
-    a: 'Bookings land in your VoiceFront calendar the moment the caller hangs up — with the name, number and reason. Two callers can never grab the same slot, and Google & Microsoft calendar sync is on the roadmap.',
+    a: 'Bookings land in your VoiceFront calendar the moment the caller hangs up — with the name, number and reason. Two callers can never grab the same slot, and you can connect your Google or Microsoft calendar so it reads your real availability and never books over personal time.',
   },
   {
     q: 'How long does setup take?',
@@ -1465,6 +1465,123 @@ const FAQS = [
     a: 'Yes. You keep your number and simply forward it — always, after a few rings, or only after hours. You stay in control and can turn it off anytime.',
   },
 ];
+
+/* --------------------------- beyond answering ----------------------------- */
+
+/** Caller/agent bubbles in the same language as the hero + industry samples. */
+function ChatBubbles({ lines }: { lines: { role: 'caller' | 'agent'; text: string }[] }) {
+  return (
+    <div className="flex flex-col gap-2">
+      {lines.map((line, i) => (
+        <div
+          key={i}
+          className={`max-w-[92%] rounded-2xl px-3.5 py-2 text-[12.5px] leading-snug ${
+            line.role === 'agent'
+              ? 'self-start rounded-bl-md bg-signal-soft/70 text-ink ring-1 ring-inset ring-signal/10'
+              : 'self-end rounded-br-md bg-paper text-ink ring-1 ring-inset ring-ink/5'
+          }`}
+        >
+          {line.text}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** The three marquee capabilities, each with a mini-visual built from the
+ *  existing kit (bubbles, dashboard tile, badges) so it reads as one family. */
+function BeyondAnswering() {
+  return (
+    <div className="grid gap-5 lg:grid-cols-3">
+      {/* Warm transfer */}
+      <div className="flex h-full flex-col rounded-3xl border border-line/70 bg-white p-7 shadow-card transition-all duration-200 hover:-translate-y-1 hover:shadow-card-hover">
+        <div className="rounded-2xl bg-paper/70 p-4 ring-1 ring-inset ring-ink/5">
+          <ChatBubbles
+            lines={[
+              { role: 'caller', text: 'Is Dr. Lee free? It’s urgent.' },
+              { role: 'agent', text: 'One moment — connecting you now.' },
+            ]}
+          />
+          <div className="mt-2.5 flex items-center gap-2.5 rounded-xl border border-signal/20 bg-signal-soft/60 px-3 py-2">
+            <Waveform bars={4} />
+            <p className="text-[11.5px] font-medium leading-snug text-signal-deep">
+              “Sarah’s calling about a filling that fell out — putting her through.”
+            </p>
+          </div>
+        </div>
+        <span className="mt-5 inline-flex w-fit items-center rounded-full bg-clinic-soft px-2.5 py-1 text-[11px] font-semibold text-[#0b8a74]">
+          Warm handoff
+        </span>
+        <h3 className="mt-3 font-display text-lg font-semibold tracking-tight text-ink">
+          Warm transfers, not blind ones
+        </h3>
+        <p className="mt-2 flex-1 text-[14px] leading-relaxed text-ink-muted">
+          When a call needs a real person, it rings your line and briefs your staff on who’s calling and
+          why — before connecting. Your team picks up already in the loop, not cold.
+        </p>
+      </div>
+
+      {/* Revenue captured */}
+      <div className="flex h-full flex-col rounded-3xl border border-line/70 bg-white p-7 shadow-card transition-all duration-200 hover:-translate-y-1 hover:shadow-card-hover">
+        <div className="rounded-2xl border border-signal/15 bg-gradient-to-br from-signal-soft/60 via-white to-white p-5">
+          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-signal-deep">
+            Revenue captured
+          </p>
+          <p className="mt-1.5 font-display text-[34px] font-bold leading-none tracking-tight text-ink">
+            $4,200<span className="text-base font-semibold text-ink-muted">/mo</span>
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-ink-muted ring-1 ring-inset ring-ink/5">
+              28 bookings saved
+            </span>
+            <span className="rounded-full bg-clinic-soft px-2.5 py-1 text-[11px] font-semibold text-[#0b8a74]">
+              +9 after-hours
+            </span>
+          </div>
+        </div>
+        <span className="mt-5 inline-flex w-fit items-center rounded-full bg-signal-soft/70 px-2.5 py-1 text-[11px] font-semibold text-signal-deep">
+          On your dashboard
+        </span>
+        <h3 className="mt-3 font-display text-lg font-semibold tracking-tight text-ink">
+          See the revenue it captures
+        </h3>
+        <p className="mt-2 flex-1 text-[14px] leading-relaxed text-ink-muted">
+          Every booking it saves — especially the after-hours calls you’d have missed — adds up on your
+          dashboard. Watch the receptionist pay for itself, in real dollars.
+        </p>
+      </div>
+
+      {/* Answers from your docs */}
+      <div className="flex h-full flex-col rounded-3xl border border-line/70 bg-white p-7 shadow-card transition-all duration-200 hover:-translate-y-1 hover:shadow-card-hover">
+        <div className="rounded-2xl bg-paper/70 p-4 ring-1 ring-inset ring-ink/5">
+          <ChatBubbles
+            lines={[
+              { role: 'caller', text: 'Do you take Cigna insurance?' },
+              { role: 'agent', text: 'Yes — we’re in-network with Cigna and most major PPOs.' },
+            ]}
+          />
+          <div className="mt-2.5 flex items-center gap-2 rounded-xl bg-white px-3 py-2 ring-1 ring-inset ring-ink/5">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-3.5 w-3.5 shrink-0 text-signal-deep">
+              <path d="M4 2.5h5L12 5.5v8H4z" strokeLinejoin="round" />
+              <path d="M9 2.5V6h3M6 9h4M6 11h4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <p className="text-[11px] font-medium text-ink-muted">Answered from your uploaded documents</p>
+          </div>
+        </div>
+        <span className="mt-5 inline-flex w-fit items-center rounded-full bg-clinic-soft px-2.5 py-1 text-[11px] font-semibold text-[#0b8a74]">
+          Knowledge base
+        </span>
+        <h3 className="mt-3 font-display text-lg font-semibold tracking-tight text-ink">
+          Answers from your own docs
+        </h3>
+        <p className="mt-2 flex-1 text-[14px] leading-relaxed text-ink-muted">
+          Upload your pricing, insurance list, services or FAQs and it answers callers straight from them —
+          accurately, in your words, with no scripting.
+        </p>
+      </div>
+    </div>
+  );
+}
 
 /* ---------------------------------- page ---------------------------------- */
 
@@ -1926,6 +2043,25 @@ export default function LandingPage() {
         </div>
       </section>
 
+      {/* --------------------------- beyond answering --------------------------- */}
+      <section className="border-t border-line/60 bg-surface/50 px-6 py-24 md:py-32">
+        <div className="mx-auto max-w-6xl">
+          <Reveal className="mx-auto max-w-2xl text-center">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-deep">Beyond answering</p>
+            <h2 className="mt-4 font-display text-4xl font-semibold tracking-tight md:text-[44px]">
+              It doesn’t just answer. It wins you the work.
+            </h2>
+            <p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-ink-muted">
+              Answering and booking are table stakes. Where VoiceFront earns its keep is the harder work a
+              great receptionist does — the handoffs, the revenue, and the answers only your business knows.
+            </p>
+          </Reveal>
+          <Reveal delay={150} className="mt-12">
+            <BeyondAnswering />
+          </Reveal>
+        </div>
+      </section>
+
       {/* ----------------------------- integrations ------------------------------ */}
       <section className="px-6 py-24 md:py-32">
         <div className="mx-auto max-w-6xl">
@@ -1962,8 +2098,8 @@ export default function LandingPage() {
                   { name: 'Your phone number', tag: 'Forwarding', icon: <path d="M5 4h4l2 5-2.5 2a12 12 0 0 0 4.5 4.5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2Z" strokeLinejoin="round" /> },
                   { name: 'ElevenLabs', tag: 'Voices', icon: <path d="M12 4v16M8 8v8M16 8v8M4 11v2M20 11v2" strokeLinecap="round" /> },
                   { name: 'VoiceFront calendar', tag: 'Bookings', icon: <><rect x="3" y="5" width="18" height="16" rx="3" /><path d="M3 10h18M8 3v4M16 3v4" strokeLinecap="round" /></> },
-                  { name: 'Google Calendar', tag: 'Sync · soon', soon: true, icon: <><rect x="3" y="5" width="18" height="16" rx="3" /><path d="M3 10h18M8 3v4M16 3v4M9 15l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" /></> },
-                  { name: 'Microsoft 365', tag: 'Sync · soon', soon: true, icon: <><rect x="4" y="4" width="7" height="7" rx="1" /><rect x="13" y="4" width="7" height="7" rx="1" /><rect x="4" y="13" width="7" height="7" rx="1" /><rect x="13" y="13" width="7" height="7" rx="1" /></> },
+                  { name: 'Google Calendar', tag: 'Two-way sync', icon: <><rect x="3" y="5" width="18" height="16" rx="3" /><path d="M3 10h18M8 3v4M16 3v4M9 15l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" /></> },
+                  { name: 'Microsoft 365', tag: 'Two-way sync', icon: <><rect x="4" y="4" width="7" height="7" rx="1" /><rect x="13" y="4" width="7" height="7" rx="1" /><rect x="4" y="13" width="7" height="7" rx="1" /><rect x="13" y="13" width="7" height="7" rx="1" /></> },
                   { name: 'Webhooks & CRM', tag: 'API · soon', soon: true, icon: <path d="M9 7a3 3 0 1 1 4.2 2.7L12 14M12 17v.01M6 12a6 6 0 1 1 12 0" strokeLinecap="round" strokeLinejoin="round" /> },
                 ].map((it) => (
                   <div
