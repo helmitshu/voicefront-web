@@ -653,17 +653,23 @@ export const AdminApi = {
 
   // Lead generation (founder outbound prospecting).
   leads: (
-    params: { status?: string; hasEmail?: boolean; q?: string; page?: number } = {},
+    params: { status?: string; hasEmail?: boolean; q?: string; sort?: 'newest' | 'rating'; page?: number } = {},
     signal?: AbortSignal,
   ) => {
     const query = new URLSearchParams();
     if (params.status) query.set('status', params.status);
     if (params.hasEmail !== undefined) query.set('hasEmail', String(params.hasEmail));
     if (params.q) query.set('q', params.q);
+    if (params.sort) query.set('sort', params.sort);
     if (params.page) query.set('page', String(params.page));
     const qs = query.toString();
     return api<LeadListResult>(`/api/admin/leads${qs ? `?${qs}` : ''}`, { signal });
   },
+  bulkLeads: (ids: string[], action: 'delete' | 'status', status?: string) =>
+    api<{ count: number }>('/api/admin/leads/bulk', {
+      method: 'POST',
+      body: { ids, action, ...(status ? { status } : {}) },
+    }),
   sourceLeads: (input: { trade: string; city: string; limit?: number }) =>
     api<{ sourced: number; created: number; updated: number }>('/api/admin/leads/source', {
       method: 'POST',
@@ -688,6 +694,13 @@ export interface OutreachEmailDto {
   html: string;
   text: string;
 }
+
+/** Public (no-auth) endpoints reachable from marketing pages. */
+export const PublicApi = {
+  /** Behind the CAN-SPAM unsubscribe link in outreach emails. */
+  unsubscribe: (leadId: string) =>
+    api<{ ok: true }>('/api/unsubscribe', { method: 'POST', body: { leadId } }),
+};
 
 export interface LeadRow {
   id: string;

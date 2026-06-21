@@ -273,6 +273,7 @@ export interface ListLeadsParams {
   status?: string;
   hasEmail?: boolean;
   q?: string;
+  sort?: 'newest' | 'rating';
   page?: number;
   perPage?: number;
 }
@@ -298,11 +299,13 @@ export async function listLeads(params: ListLeadsParams): Promise<{
       { city: { contains: q, mode: 'insensitive' } },
     ];
   }
+  const orderBy: Prisma.LeadOrderByWithRelationInput =
+    params.sort === 'rating' ? { rating: { sort: 'desc', nulls: 'last' } } : { createdAt: 'desc' };
   const [total, leads] = await prisma.$transaction([
     prisma.lead.count({ where }),
     prisma.lead.findMany({
       where,
-      orderBy: { createdAt: 'desc' },
+      orderBy,
       skip: (page - 1) * perPage,
       take: perPage,
     }),
@@ -349,4 +352,29 @@ export async function updateLead(
 
 export async function deleteLead(id: string): Promise<void> {
   await prisma.lead.deleteMany({ where: { id } });
+}
+
+/** Bulk status-change or delete across many leads at once. Returns the count
+ *  affected. Used by the admin select-and-act workflow. */
+export async function bulkLeads(
+  ids: string[],
+  action: 'delete' | 'status',
+  status?: string,
+): Promise<number> {
+  if (ids.length === 0) return 0;
+  if (action === 'delete') {
+    const r = await prisma.lead.deleteMany({ where: { id: { in: ids } } });
+    return r.count;
+  }
+  if (!status || !LEAD_STATUSES.includes(status)) {
+    throw new HttpError(400, 'Unknown status.', 'BAD_STATUS');
+  }
+  const r = await prisma.lead.updateMany({ where: { id: { in: ids } }, data: { status } });
+  return r.count;
+}
+
+/** Mark a lead unsubscribed (public, idempotent — used by the email's
+ *  CAN-SPAM unsubscribe link). Never throws if the lead is already gone. */
+export async function unsubscribeLead(leadId: string): Promise<void> {
+  await prisma.lead.updateMany({ where: { id: leadId }, data: { status: 'unsubscribed' } });
 }

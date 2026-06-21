@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { AdminApi, ApiError, type LeadListResult, type LeadRow, type OutreachEmailDto } from '@/lib/api';
 import { useToast } from '@/components/ui/Toast';
 import { Card, CardHeader, EmptyState } from '@/components/ui/Card';
@@ -10,6 +10,19 @@ import { Spinner } from '@/components/ui/Spinner';
 import { formatPhone } from '@/lib/format';
 
 const STATUSES = ['new', 'emailed', 'opened', 'clicked', 'replied', 'demoed', 'won', 'dead', 'unsubscribed'] as const;
+
+// Funnel colour so the list is scannable at a glance.
+const STATUS_DOT: Record<string, string> = {
+  new: 'bg-ink-muted/40',
+  emailed: 'bg-signal',
+  opened: 'bg-signal',
+  clicked: 'bg-signal-deep',
+  replied: 'bg-clinic',
+  demoed: 'bg-clinic',
+  won: 'bg-clinic',
+  dead: 'bg-danger',
+  unsubscribed: 'bg-ink-muted/40',
+};
 
 export default function LeadsPage() {
   const { toast } = useToast();
@@ -28,13 +41,32 @@ export default function LeadsPage() {
   const [statusFilter, setStatusFilter] = useState('');
   const [emailFilter, setEmailFilter] = useState('');
   const [search, setSearch] = useState('');
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [sort, setSort] = useState<'newest' | 'rating'>('newest');
   const [page, setPage] = useState(1);
   const [rowBusy, setRowBusy] = useState<string | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Bulk selection (ids persist only within the current filtered view)
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
 
   // Email preview modal
   const [previewLead, setPreviewLead] = useState<LeadRow | null>(null);
   const [previewEmail, setPreviewEmail] = useState<OutreachEmailDto | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
+
+  // Debounce typing → one query per pause, reset to page 1 on new terms.
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setDebouncedSearch(search.trim());
+      setPage(1);
+    }, 350);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, [search]);
 
   const load = useCallback(
     (signal?: AbortSignal) => {
@@ -44,7 +76,8 @@ export default function LeadsPage() {
         {
           status: statusFilter || undefined,
           hasEmail: emailFilter === '' ? undefined : emailFilter === 'yes',
-          q: search.trim() || undefined,
+          q: debouncedSearch || undefined,
+          sort,
           page,
         },
         signal,
@@ -59,7 +92,7 @@ export default function LeadsPage() {
           setLoading(false);
         });
     },
-    [statusFilter, emailFilter, search, page],
+    [statusFilter, emailFilter, debouncedSearch, sort, page],
   );
 
   useEffect(() => {
@@ -67,6 +100,12 @@ export default function LeadsPage() {
     load(c.signal);
     return () => c.abort();
   }, [load]);
+
+  // Clear the selection whenever the visible set changes, so bulk actions never
+  // hit rows you can no longer see.
+  useEffect(() => {
+    setSelected(new Set());
+  }, [statusFilter, emailFilter, debouncedSearch, sort, page]);
 
   async function runSource() {
     setSourcing(true);
@@ -85,7 +124,7 @@ export default function LeadsPage() {
   async function runScrape() {
     setScraping(true);
     try {
-      const r = await AdminApi.scrapeLeadEmails(40);
+      const r = await AdminApi.scrapeLeadEmails(10);
       const noLeadsYet = (data?.stats.total ?? 0) === 0;
       toast(
         r.scanned === 0
@@ -137,6 +176,48 @@ export default function LeadsPage() {
       toast(err instanceof ApiError ? err.message : 'Could not delete.', 'error');
     } finally {
       setRowBusy(null);
+    }
+  }
+
+  function toggleSelect(id: string) {
+    setSelected((s) => {
+      const n = new Set(s);
+      if (n.has(id)) n.delete(id);
+      else n.add(id);
+      return n;
+    });
+  }
+
+  function toggleAllOnPage() {
+    if (!data) return;
+    const ids = data.leads.map((l) => l.id);
+    const allOn = ids.length > 0 && ids.every((id) => selected.has(id));
+    setSelected((s) => {
+      const n = new Set(s);
+      if (allOn) ids.forEach((id) => n.delete(id));
+      else ids.forEach((id) => n.add(id));
+      return n;
+    });
+  }
+
+  async function bulkAction(action: 'delete' | 'status', status?: string) {
+    if (selected.size === 0) return;
+    if (action === 'delete' && !window.confirm(`Delete ${selected.size} lead${selected.size === 1 ? '' : 's'}?`)) {
+      return;
+    }
+    setBulkBusy(true);
+    try {
+      const r = await AdminApi.bulkLeads([...selected], action, status);
+      toast(
+        action === 'delete' ? `Deleted ${r.count} lead${r.count === 1 ? '' : 's'}.` : `Updated ${r.count} lead${r.count === 1 ? '' : 's'}.`,
+        'success',
+      );
+      setSelected(new Set());
+      load();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Bulk action failed.', 'error');
+    } finally {
+      setBulkBusy(false);
     }
   }
 
@@ -219,7 +300,7 @@ export default function LeadsPage() {
             disabled={(data?.stats.total ?? 0) === 0}
             onClick={runScrape}
           >
-            Scrape emails (next 40)
+            Scrape emails (next 10)
           </Button>
           <p className="text-[12.5px] text-ink-muted">
             Best-effort: fetches each website and pulls a published business email. Many small sites list none.
@@ -245,48 +326,107 @@ export default function LeadsPage() {
       )}
 
       {/* Filters */}
-      <div className="flex flex-col gap-3 sm:flex-row">
-        <div className="flex-1">
-          <Input
-            aria-label="Search leads"
-            placeholder="Search business, email or city…"
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-          />
-        </div>
-        <Select
-          aria-label="Status"
-          value={statusFilter}
-          onChange={(e) => {
-            setStatusFilter(e.target.value);
-            setPage(1);
-          }}
-          className="sm:w-44"
-        >
-          <option value="">All statuses</option>
-          {STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {s}
-            </option>
+      <div className="flex flex-col gap-3">
+        {/* Quick views */}
+        <div className="flex flex-wrap gap-2">
+          {[
+            { label: 'Ready to email', apply: () => { setStatusFilter('new'); setEmailFilter('yes'); } },
+            { label: 'Needs email', apply: () => { setStatusFilter(''); setEmailFilter('no'); } },
+            { label: 'Replied', apply: () => { setStatusFilter('replied'); setEmailFilter(''); } },
+            { label: 'All', apply: () => { setStatusFilter(''); setEmailFilter(''); setSearch(''); } },
+          ].map((c) => (
+            <button
+              key={c.label}
+              type="button"
+              onClick={() => { c.apply(); setPage(1); }}
+              className="rounded-full border border-line bg-white px-3 py-1.5 text-[12.5px] font-medium text-ink-muted transition-colors hover:border-signal/40 hover:text-ink"
+            >
+              {c.label}
+            </button>
           ))}
-        </Select>
-        <Select
-          aria-label="Has email"
-          value={emailFilter}
-          onChange={(e) => {
-            setEmailFilter(e.target.value);
-            setPage(1);
-          }}
-          className="sm:w-40"
-        >
-          <option value="">Email: any</option>
-          <option value="yes">Has email</option>
-          <option value="no">No email</option>
-        </Select>
+        </div>
+        <div className="flex flex-col gap-3 sm:flex-row">
+          <div className="flex-1">
+            <Input
+              aria-label="Search leads"
+              placeholder="Search business, email or city…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+          </div>
+          <Select
+            aria-label="Sort"
+            value={sort}
+            onChange={(e) => { setSort(e.target.value as 'newest' | 'rating'); setPage(1); }}
+            className="sm:w-40"
+          >
+            <option value="newest">Newest first</option>
+            <option value="rating">Top rated first</option>
+          </Select>
+          <Select
+            aria-label="Status"
+            value={statusFilter}
+            onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+            className="sm:w-40"
+          >
+            <option value="">All statuses</option>
+            {STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </Select>
+          <Select
+            aria-label="Has email"
+            value={emailFilter}
+            onChange={(e) => { setEmailFilter(e.target.value); setPage(1); }}
+            className="sm:w-36"
+          >
+            <option value="">Email: any</option>
+            <option value="yes">Has email</option>
+            <option value="no">No email</option>
+          </Select>
+        </div>
       </div>
+
+      {/* Bulk action bar */}
+      {selected.size > 0 && (
+        <div className="flex flex-wrap items-center gap-3 rounded-2xl border border-signal/30 bg-signal-soft/50 px-4 py-2.5">
+          <p className="text-sm font-semibold text-signal-deep">{selected.size} selected</p>
+          <Button size="sm" variant="secondary" loading={bulkBusy} onClick={() => bulkAction('status', 'emailed')}>
+            Mark emailed
+          </Button>
+          <Select
+            aria-label="Set status for selected"
+            value=""
+            disabled={bulkBusy}
+            onChange={(e) => e.target.value && bulkAction('status', e.target.value)}
+            className="w-40"
+          >
+            <option value="">Set status…</option>
+            {STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </Select>
+          <button
+            type="button"
+            disabled={bulkBusy}
+            onClick={() => bulkAction('delete')}
+            className="text-[13px] font-medium text-danger hover:underline disabled:opacity-50"
+          >
+            Delete
+          </button>
+          <button
+            type="button"
+            onClick={() => setSelected(new Set())}
+            className="ml-auto text-[13px] font-medium text-ink-muted hover:text-ink"
+          >
+            Clear
+          </button>
+        </div>
+      )}
 
       {/* Table */}
       <Card padded={false} className="overflow-hidden">
@@ -306,12 +446,37 @@ export default function LeadsPage() {
             />
           </div>
         ) : data ? (
-          <ul className={`divide-y divide-line/60 transition-opacity ${loading ? 'opacity-60' : ''}`}>
-            {data.leads.map((lead) => (
-              <li key={lead.id} className="flex flex-col gap-2 px-5 py-3.5 sm:flex-row sm:items-center sm:gap-4">
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="truncate text-sm font-semibold text-ink">{lead.businessName}</p>
+          <>
+            <div className="flex items-center gap-3 border-b border-line/60 bg-paper/50 px-5 py-2.5">
+              <input
+                type="checkbox"
+                aria-label="Select all on this page"
+                checked={data.leads.length > 0 && data.leads.every((l) => selected.has(l.id))}
+                onChange={toggleAllOnPage}
+                className="h-4 w-4 rounded border-line accent-signal"
+              />
+              <span className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-muted">
+                {selected.size > 0 ? `${selected.size} selected` : 'Select all'}
+              </span>
+            </div>
+            <ul className={`divide-y divide-line/60 transition-opacity ${loading ? 'opacity-60' : ''}`}>
+              {data.leads.map((lead) => (
+                <li key={lead.id} className="flex items-start gap-3 px-5 py-3.5 sm:items-center">
+                  <input
+                    type="checkbox"
+                    aria-label={`Select ${lead.businessName}`}
+                    checked={selected.has(lead.id)}
+                    onChange={() => toggleSelect(lead.id)}
+                    className="mt-1 h-4 w-4 shrink-0 rounded border-line accent-signal sm:mt-0"
+                  />
+                  <div className="flex w-full flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span
+                          className={`h-2 w-2 shrink-0 rounded-full ${STATUS_DOT[lead.status] ?? 'bg-ink-muted/40'}`}
+                          aria-hidden
+                        />
+                        <p className="truncate text-sm font-semibold text-ink">{lead.businessName}</p>
                     {lead.rating != null && (
                       <span className="shrink-0 text-[11px] text-ink-muted">
                         ★ {lead.rating.toFixed(1)} ({lead.reviewCount ?? 0})
@@ -384,9 +549,11 @@ export default function LeadsPage() {
                     </svg>
                   </button>
                 </div>
-              </li>
-            ))}
-          </ul>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </>
         ) : null}
 
         {data && data.totalPages > 1 && (

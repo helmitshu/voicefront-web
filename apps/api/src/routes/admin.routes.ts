@@ -69,6 +69,7 @@ import {
   validateAssistant,
 } from '../services/vapi.service';
 import {
+  bulkLeads,
   deleteLead,
   getLeadStats,
   listLeads,
@@ -1245,6 +1246,7 @@ const ListLeadsSchema = z.object({
   status: z.string().trim().max(40).optional(),
   hasEmail: z.enum(['true', 'false']).optional(),
   q: z.string().trim().max(120).optional(),
+  sort: z.enum(['newest', 'rating']).optional(),
   page: z.coerce.number().int().min(1).optional(),
   perPage: z.coerce.number().int().min(1).max(200).optional(),
 });
@@ -1259,6 +1261,7 @@ adminRouter.get(
         status: query.status,
         hasEmail: query.hasEmail === undefined ? undefined : query.hasEmail === 'true',
         q: query.q,
+        sort: query.sort,
         page: query.page,
         perPage: query.perPage,
       }),
@@ -1300,5 +1303,26 @@ adminRouter.get(
     const lead = await prisma.lead.findUnique({ where: { id: req.params.id } });
     if (!lead) throw new HttpError(404, 'Lead not found.', 'LEAD_NOT_FOUND');
     res.json({ email: buildOutreachEmail(lead) });
+  }),
+);
+
+const BulkLeadsSchema = z.object({
+  ids: z.array(z.string()).min(1).max(500),
+  action: z.enum(['delete', 'status']),
+  status: z.string().trim().max(40).optional(),
+});
+
+adminRouter.post(
+  '/leads/bulk',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const adminEmail = getAdminEmail(req);
+    const body = BulkLeadsSchema.parse(req.body);
+    const count = await bulkLeads(body.ids, body.action, body.status);
+    await recordAdminAction(adminEmail, `leads.bulk.${body.action}`, null, {
+      count,
+      status: body.status ?? null,
+    });
+    res.json({ count });
   }),
 );

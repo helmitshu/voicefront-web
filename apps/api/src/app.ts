@@ -22,6 +22,7 @@ import { waitlistRouter } from './routes/waitlist.routes';
 import { reactivationRouter } from './routes/reactivation.routes';
 import { calendarRouter } from './routes/calendar.routes';
 import { screeningRouter } from './routes/screening.routes';
+import { unsubscribeRouter } from './routes/unsubscribe.routes';
 
 export function createApp(): express.Express {
   const app = express();
@@ -66,6 +67,7 @@ export function createApp(): express.Express {
   app.use('/api/vapi/inbound', inboundRouter);
   app.use('/api/demo', demoRouter);
   app.use('/api/booking', bookingRouter);
+  app.use('/api/unsubscribe', unsubscribeRouter);
 
   app.use(notFound);
   app.use(errorHandler);
