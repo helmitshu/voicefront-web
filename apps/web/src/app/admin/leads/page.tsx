@@ -51,6 +51,9 @@ export default function LeadsPage() {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [bulkBusy, setBulkBusy] = useState(false);
 
+  // Inline notes editing
+  const [editingNotes, setEditingNotes] = useState<string | null>(null);
+
   // Email preview modal
   const [previewLead, setPreviewLead] = useState<LeadRow | null>(null);
   const [previewEmail, setPreviewEmail] = useState<OutreachEmailDto | null>(null);
@@ -245,6 +248,22 @@ export default function LeadsPage() {
     }
   }
 
+  async function saveNotes(lead: LeadRow, notes: string) {
+    const trimmed = notes.trim();
+    if (trimmed === (lead.notes ?? '')) {
+      setEditingNotes(null);
+      return;
+    }
+    try {
+      await AdminApi.updateLead(lead.id, { notes: trimmed });
+      setEditingNotes(null);
+      load();
+      toast('Note saved.', 'success');
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not save note.', 'error');
+    }
+  }
+
   async function markEmailed() {
     if (!previewLead) return;
     try {
@@ -256,6 +275,13 @@ export default function LeadsPage() {
     } catch (err) {
       toast(err instanceof ApiError ? err.message : 'Could not update.', 'error');
     }
+  }
+
+  // "Next →" in the email modal walks the emailable leads in the current view.
+  const emailable = data?.leads.filter((l) => l.email) ?? [];
+  const previewIdx = previewLead ? emailable.findIndex((l) => l.id === previewLead.id) : -1;
+  function openNext() {
+    if (previewIdx >= 0 && previewIdx < emailable.length - 1) openEmail(emailable[previewIdx + 1]);
   }
 
   const stats = data?.stats;
@@ -461,7 +487,8 @@ export default function LeadsPage() {
             </div>
             <ul className={`divide-y divide-line/60 transition-opacity ${loading ? 'opacity-60' : ''}`}>
               {data.leads.map((lead) => (
-                <li key={lead.id} className="flex items-start gap-3 px-5 py-3.5 sm:items-center">
+                <li key={lead.id} className="px-5 py-3.5">
+                  <div className="flex items-start gap-3 sm:items-center">
                   <input
                     type="checkbox"
                     aria-label={`Select ${lead.businessName}`}
@@ -539,6 +566,19 @@ export default function LeadsPage() {
                   </Select>
                   <button
                     type="button"
+                    aria-label={lead.notes ? 'Edit note' : 'Add note'}
+                    title={lead.notes ?? 'Add a note'}
+                    onClick={() => setEditingNotes((cur) => (cur === lead.id ? null : lead.id))}
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-paper ${
+                      lead.notes ? 'text-signal-deep' : 'text-ink-muted hover:text-ink'
+                    }`}
+                  >
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4">
+                      <path d="M11 2.5l2.5 2.5L6 12.5l-3 .5.5-3z" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
                     aria-label="Delete lead"
                     disabled={rowBusy === lead.id}
                     onClick={() => remove(lead)}
@@ -550,6 +590,19 @@ export default function LeadsPage() {
                   </button>
                 </div>
                   </div>
+                  </div>
+                  {editingNotes === lead.id && (
+                    <div className="mt-2.5 sm:pl-7">
+                      <textarea
+                        autoFocus
+                        defaultValue={lead.notes ?? ''}
+                        placeholder="Notes — e.g. left a voicemail, follow up Tuesday…"
+                        onBlur={(e) => saveNotes(lead, e.target.value)}
+                        rows={2}
+                        className="w-full rounded-xl border border-line bg-paper/60 px-3 py-2 text-sm text-ink shadow-input outline-none focus:border-signal/60 focus:ring-2 focus:ring-signal/20"
+                      />
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
@@ -590,7 +643,9 @@ export default function LeadsPage() {
           >
             <div className="flex items-center justify-between gap-3 border-b border-line/60 px-5 py-3.5">
               <div className="min-w-0">
-                <p className="text-xs font-semibold uppercase tracking-[0.1em] text-ink-muted">Outreach email</p>
+                <p className="text-xs font-semibold uppercase tracking-[0.1em] text-ink-muted">
+                  Outreach email{previewIdx >= 0 ? ` · ${previewIdx + 1} of ${emailable.length}` : ''}
+                </p>
                 <p className="truncate text-sm font-semibold text-ink">{previewLead.businessName}</p>
               </div>
               <button
@@ -641,10 +696,15 @@ export default function LeadsPage() {
                   >
                     Open in mail app
                   </a>
-                  <div className="ml-auto">
+                  <div className="ml-auto flex items-center gap-2">
                     <Button size="sm" variant="ghost" onClick={markEmailed}>
                       Mark as emailed
                     </Button>
+                    {previewIdx >= 0 && previewIdx < emailable.length - 1 && (
+                      <Button size="sm" variant="secondary" onClick={openNext}>
+                        Next →
+                      </Button>
+                    )}
                   </div>
                 </div>
                 <p className="text-[11.5px] leading-relaxed text-ink-muted/80">
