@@ -81,10 +81,13 @@ export default function LeadsPage() {
     setScraping(true);
     try {
       const r = await AdminApi.scrapeLeadEmails(40);
+      const noLeadsYet = (data?.stats.total ?? 0) === 0;
       toast(
         r.scanned === 0
-          ? 'No leads left to scrape — every one with a website already has an email or was checked.'
-          : `Checked ${r.scanned} sites, found ${r.found} new email${r.found === 1 ? '' : 's'}.`,
+          ? noLeadsYet
+            ? 'No leads yet — click “Source” above to find businesses first, then scrape their emails.'
+            : 'No leads left to scrape — every lead with a website already has an email or was checked.'
+          : `Checked ${r.scanned} site${r.scanned === 1 ? '' : 's'}, found ${r.found} new email${r.found === 1 ? '' : 's'}.`,
         r.found > 0 ? 'success' : 'info',
       );
       load();
@@ -167,7 +170,13 @@ export default function LeadsPage() {
           </div>
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-3 border-t border-line/60 pt-4">
-          <Button variant="secondary" size="sm" loading={scraping} onClick={runScrape}>
+          <Button
+            variant="secondary"
+            size="sm"
+            loading={scraping}
+            disabled={(data?.stats.total ?? 0) === 0}
+            onClick={runScrape}
+          >
             Scrape emails (next 40)
           </Button>
           <p className="text-[12.5px] text-ink-muted">
