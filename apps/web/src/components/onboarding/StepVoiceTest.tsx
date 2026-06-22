@@ -216,7 +216,7 @@ export function StepVoiceTest({
           active={live}
           level={phase === 'assistant-speaking' ? Math.max(volume, 0.55) : volume}
           tone="light"
-          className="h-16 w-full max-w-md"
+          className="h-16 w-full max-w-md justify-center"
         />
         <p aria-live="polite" className="text-sm font-medium text-white/80">
           {PHASE_LABEL[phase]}
