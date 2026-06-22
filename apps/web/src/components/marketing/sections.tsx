@@ -2,14 +2,31 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import dynamic from 'next/dynamic';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { Logo } from '@/components/ui/Logo';
+import { Spinner } from '@/components/ui/Spinner';
 import { DemoApi } from '@/lib/api';
 import { BookCallSection } from '@/components/BookCallSection';
 import { ROICalculator } from '@/components/ROICalculator';
 import { WorkflowConsole } from '@/components/WorkflowConsole';
-import { Reveal, CallCard, InteractiveDemo, IndustryTabs, BeyondAnswering, FAQS } from './landing';
+import { Reveal, CallCard, IndustryTabs, BeyondAnswering, FAQS } from './landing';
+
+// The interactive voice demo pulls in the Vapi web SDK and is only rendered on
+// the home page. Load it in its own chunk so pricing/product/book routes don't
+// ship the widget. ssr:false because it relies on browser-only audio APIs.
+const InteractiveDemo = dynamic(
+  () => import('./landing').then((m) => m.InteractiveDemo),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex min-h-[420px] items-center justify-center">
+        <Spinner />
+      </div>
+    ),
+  },
+);
 
 /* ------------------------------ shared helpers ---------------------------- */
 
