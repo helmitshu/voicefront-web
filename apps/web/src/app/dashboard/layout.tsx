@@ -136,12 +136,12 @@ function DashboardChrome({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen bg-paper">
       {/* Sidebar */}
-      <aside className="sticky top-0 hidden h-screen w-64 flex-col border-r border-line/70 bg-white px-4 py-6 md:flex">
+      <aside className="sticky top-0 hidden h-screen w-64 flex-col border-r border-white/10 bg-ink-deep px-4 py-6 md:flex">
         <Link href="/dashboard" className="px-2">
-          <Logo />
+          <Logo tone="light" />
         </Link>
 
-        <p className="mt-9 px-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-muted/70">
+        <p className="mt-9 px-3 text-[11px] font-semibold uppercase tracking-[0.12em] text-white/40">
           Workspace
         </p>
         <nav className="mt-2 flex flex-1 flex-col gap-0.5" aria-label="Main">
@@ -154,19 +154,19 @@ function DashboardChrome({ children }: { children: ReactNode }) {
                 aria-current={active ? 'page' : undefined}
                 className={`group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150 ${
                   active
-                    ? 'bg-signal-soft/60 text-signal-deep shadow-[inset_0_1px_0_rgba(255,255,255,0.6)] ring-1 ring-inset ring-signal/10'
-                    : 'text-ink-muted hover:bg-paper hover:text-ink'
+                    ? 'bg-white/[0.07] text-white ring-1 ring-inset ring-white/10'
+                    : 'text-white/55 hover:bg-white/[0.04] hover:text-white'
                 }`}
               >
                 <span
                   aria-hidden
-                  className={`absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-signal transition-opacity duration-150 ${
+                  className={`absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full bg-gold-light transition-opacity duration-150 ${
                     active ? 'opacity-100' : 'opacity-0'
                   }`}
                 />
                 <span
                   className={`transition-colors duration-150 ${
-                    active ? 'text-signal-deep' : 'text-ink-muted/70 group-hover:text-ink'
+                    active ? 'text-white' : 'text-white/45 group-hover:text-white'
                   }`}
                 >
                   {item.icon}
@@ -180,9 +180,9 @@ function DashboardChrome({ children }: { children: ReactNode }) {
         {me.user.isPlatformAdmin && (
           <Link
             href="/admin"
-            className="group mb-3 flex items-center gap-3 rounded-xl bg-ink px-3 py-2.5 text-sm font-medium text-white/90 transition-colors hover:bg-ink/90"
+            className="group mb-3 flex items-center gap-3 rounded-xl border border-white/15 bg-white/[0.04] px-3 py-2.5 text-sm font-medium text-white/90 transition-colors hover:bg-white/[0.08]"
           >
-            <span className="text-signal-soft">
+            <span className="text-gold-light">
               <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-[18px] w-[18px]">
                 <path d="M10 2.5 4 5v4.5c0 3.5 2.4 6.4 6 8 3.6-1.6 6-4.5 6-8V5l-6-2.5Z" strokeLinejoin="round" />
                 <path d="M7.5 10l1.8 1.8L13 8" strokeLinecap="round" strokeLinejoin="round" />
@@ -195,23 +195,23 @@ function DashboardChrome({ children }: { children: ReactNode }) {
           </Link>
         )}
 
-        <div className="rounded-2xl border border-line/70 bg-paper/80 p-3">
+        <div className="rounded-2xl border border-white/10 bg-white/[0.04] p-3">
           <div className="flex items-center gap-3">
             <span
               aria-hidden
-              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-signal to-signal-deep text-xs font-semibold text-white shadow-pop"
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-signal to-signal-deep text-xs font-semibold text-white shadow-pop ring-1 ring-inset ring-white/15"
             >
               {initials(me.user.fullName)}
             </span>
             <div className="min-w-0">
-              <p className="truncate text-[13px] font-semibold text-ink">{me.user.fullName}</p>
-              <p className="truncate text-xs text-ink-muted">{me.user.email}</p>
+              <p className="truncate text-[13px] font-semibold text-white">{me.user.fullName}</p>
+              <p className="truncate text-xs text-white/50">{me.user.email}</p>
             </div>
           </div>
           <button
             type="button"
             onClick={signOut}
-            className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-line/80 bg-white px-3 py-1.5 text-xs font-medium text-ink-muted shadow-input transition-colors hover:border-ink-muted/40 hover:text-ink"
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg border border-white/15 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-white/70 transition-colors hover:border-white/30 hover:text-white"
           >
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3.5 w-3.5">
               <path d="M6 2.5H3.5v11H6M10.5 5l3 3-3 3M13 8H6.5" strokeLinecap="round" strokeLinejoin="round" />
@@ -223,12 +223,12 @@ function DashboardChrome({ children }: { children: ReactNode }) {
 
       <div className="flex min-w-0 flex-1 flex-col">
         {/* Topbar */}
-        <header className="sticky top-0 z-30 flex items-center justify-between gap-4 border-b border-line/70 bg-white/80 px-6 py-3.5 backdrop-blur-md">
+        <header className="sticky top-0 z-30 flex items-center justify-between gap-4 border-b border-white/10 bg-ink-deep/90 px-6 py-3.5 backdrop-blur-md">
           <div className="flex min-w-0 items-center gap-3 md:hidden">
             <Logo size="sm" withText={false} />
           </div>
           <div className="flex min-w-0 items-center gap-3">
-            <h1 className="truncate font-display text-[15px] font-semibold tracking-tight text-ink">
+            <h1 className="truncate font-display text-[15px] font-semibold tracking-tight text-white">
               {me.tenant.companyName}
             </h1>
             <Badge tone={me.tenant.industry === 'CLINIC' ? 'success' : 'warning'}>
@@ -245,15 +245,15 @@ function DashboardChrome({ children }: { children: ReactNode }) {
         </header>
 
         {/* Mobile nav */}
-        <nav className="flex gap-1 border-b border-line/70 bg-white px-4 py-2 md:hidden" aria-label="Main">
+        <nav className="flex gap-1 overflow-x-auto border-b border-white/10 bg-ink-deep px-4 py-2 md:hidden" aria-label="Main">
           {nav.map((item) => {
             const active = item.exact ? pathname === item.href : pathname.startsWith(item.href);
             return (
               <Link
                 key={item.href}
                 href={item.href}
-                className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
-                  active ? 'bg-signal-soft/70 text-signal-deep' : 'text-ink-muted hover:text-ink'
+                className={`whitespace-nowrap rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${
+                  active ? 'bg-white/[0.08] text-white' : 'text-white/55 hover:text-white'
                 }`}
               >
                 {item.label}
