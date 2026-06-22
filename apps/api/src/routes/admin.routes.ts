@@ -15,6 +15,7 @@ import { hashPassword } from '../lib/passwords';
 import { randomSuffix, toSlug } from '../lib/slug';
 import { defaultBusinessHours } from '../domain/agent-config';
 import { industryDefaults, industryPersona } from '../domain/prompt-templates';
+import { getTenantFeatures, setFeatureByAdmin } from '../services/features.service';
 import {
   SETTING_KEYS,
   SETTING_META,
@@ -404,6 +405,39 @@ adminRouter.patch(
 
     await recordAdminAction(adminEmail, 'tenant.update', tenant.companyName, patch);
     res.json({ ok: true });
+  }),
+);
+
+/* ------------------------------ feature gating ----------------------------- */
+/* The operator's control plane for the optional Tier-1 features: grant/revoke  */
+/* entitlement, allow the customer to self-manage, or flip the switch directly. */
+
+adminRouter.get(
+  '/tenants/:id/features',
+  asyncHandler(async (req, res) => {
+    const features = await getTenantFeatures(req.params.id);
+    res.json({ features });
+  }),
+);
+
+const FeaturePatchSchema = z
+  .object({
+    entitled: z.boolean(),
+    selfManage: z.boolean(),
+    enabled: z.boolean(),
+  })
+  .partial()
+  .refine((v) => Object.keys(v).length > 0, { message: 'Nothing to update.' });
+
+adminRouter.patch(
+  '/tenants/:id/features/:feature',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const adminEmail = getAdminEmail(req);
+    const patch = FeaturePatchSchema.parse(req.body);
+    const feature = await setFeatureByAdmin(req.params.id, req.params.feature, patch);
+    await recordAdminAction(adminEmail, 'tenant.feature.update', `${req.params.id}:${req.params.feature}`, patch);
+    res.json({ feature });
   }),
 );
 

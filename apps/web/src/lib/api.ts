@@ -542,6 +542,19 @@ export const AdminApi = {
     }),
   /** Permanently delete a workspace and all its data. */
   deleteTenant: (id: string) => api<{ ok: true }>(`/api/admin/tenants/${id}`, { method: 'DELETE' }),
+  /** The customer's gated-feature states (entitlement, self-manage, on/off). */
+  listFeatures: (tenantId: string, signal?: AbortSignal) =>
+    api<{ features: FeatureState[] }>(`/api/admin/tenants/${tenantId}/features`, { signal }),
+  /** Operator control: grant/revoke entitlement, allow self-manage, or flip on/off. */
+  setFeature: (
+    tenantId: string,
+    feature: FeatureKey,
+    patch: Partial<{ entitled: boolean; selfManage: boolean; enabled: boolean }>,
+  ) =>
+    api<{ feature: FeatureState }>(`/api/admin/tenants/${tenantId}/features/${feature}`, {
+      method: 'PATCH',
+      body: patch,
+    }),
   /** Add a login to a customer workspace. Returns a one-time password. */
   inviteUser: (tenantId: string, input: { email: string; fullName: string; role: Role }) =>
     api<{ email: string; role: Role; tempPassword: string }>(`/api/admin/tenants/${tenantId}/users`, {
@@ -886,6 +899,33 @@ export const JobsApi = {
   }) => api<{ job: JobDto }>('/api/jobs', { method: 'POST', body: input }),
   update: (id: string, patch: Partial<{ status: JobStatus; notes: string | null }>) =>
     api<{ job: JobDto }>(`/api/jobs/${id}`, { method: 'PATCH', body: patch }),
+};
+
+/* ------------------------------ gated features ------------------------------ */
+
+export type FeatureKey = 'ON_CALL_DISPATCH' | 'MISSED_CALL_TEXTBACK' | 'SERVICE_AREA';
+
+/** A feature's resolved state for one tenant — mirrors the API's ResolvedFeature. */
+export interface FeatureState {
+  key: FeatureKey;
+  label: string;
+  description: string;
+  /** Platform reqs met + offered to this industry. */
+  available: boolean;
+  unavailableReason: string | null;
+  /** Operator master switch. */
+  entitled: boolean;
+  /** Operator grant: may the client toggle it themselves. */
+  selfManage: boolean;
+  enabled: boolean;
+  /** available && entitled && enabled. */
+  effective: boolean;
+}
+
+export const FeaturesApi = {
+  list: (signal?: AbortSignal) => api<{ features: FeatureState[] }>('/api/features', { signal }),
+  setEnabled: (feature: FeatureKey, enabled: boolean) =>
+    api<{ feature: FeatureState }>(`/api/features/${feature}`, { method: 'PATCH', body: { enabled } }),
 };
 
 /* ----------------------------- providers/services ----------------------------- */

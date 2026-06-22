@@ -123,6 +123,7 @@ model Tenant {
   blockedCallers BlockedCaller[]
   screenedCalls  ScreenedCallLog[]
   jobRequests   JobRequest[]
+  features      TenantFeature[]
 
   @@map("tenants")
 }
@@ -392,6 +393,36 @@ model ReactivationLog {
 
   @@index([tenantId, phone, sentAt])
   @@map("reactivation_logs")
+}
+
+/// Per-tenant state for an optional, gated product feature (the Tier-1 trades
+/// capabilities: on-call dispatch, missed-call text-back, service-area check).
+/// Implements the three-layer control model:
+///   - `entitled`   — operator grants the feature to this customer (admin only).
+///   - `selfManage` — operator lets the customer flip `enabled` themselves.
+///   - `enabled`    — the actual on/off (client when self-managed, else admin).
+/// Effective = platform-available (e.g. Twilio configured) AND entitled AND
+/// enabled, resolved server-side. `feature` is a stable key from the code-side
+/// feature registry (domain/features.ts), not a DB enum, so adding a feature
+/// needs no migration. Feature-specific config lives in its own model/fields.
+model TenantFeature {
+  id         String   @id @default(cuid())
+  tenantId   String   @map("tenant_id")
+  tenant     Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// Stable feature key, e.g. "ON_CALL_DISPATCH" (see domain/features.ts).
+  feature    String
+  /// Operator entitlement — the master switch. Off = feature unavailable here.
+  entitled   Boolean  @default(false)
+  /// Operator grant: may the customer toggle `enabled` from their dashboard?
+  selfManage Boolean  @default(false)
+  /// The on/off. Client-owned when selfManage is true; operator-owned otherwise.
+  enabled    Boolean  @default(false)
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, feature])
+  @@index([tenantId])
+  @@map("tenant_features")
 }
 
 /// A job/service request the receptionist captured on a call. For trades, most

@@ -29,6 +29,7 @@ import { SmsSettingsCard } from '@/components/agent/SmsSettingsCard';
 import { ReactivationSettingsCard } from '@/components/agent/ReactivationSettingsCard';
 import { CalendarConnectionsCard } from '@/components/agent/CalendarConnectionsCard';
 import { CallScreeningCard } from '@/components/agent/CallScreeningCard';
+import { FeatureTogglesCard } from '@/components/agent/FeatureTogglesCard';
 import { BusinessHoursEditor } from '@/components/agent/BusinessHoursEditor';
 import {
   ForwardingNumbersEditor,
@@ -617,6 +618,8 @@ export default function SettingsPage() {
       <SmsSettingsCard />
 
       <ReactivationSettingsCard />
+
+      <FeatureTogglesCard />
 
       {/* Floating save dock */}
       {!readOnly && (
