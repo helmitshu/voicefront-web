@@ -44,6 +44,8 @@ interface AgentSettingsDto {
   silenceTimeoutSeconds: number;
   /** Custom closing line for graceful wrap-up; null = built-in default. */
   wrapUpMessage: string | null;
+  /** Trades: number texted the moment an EMERGENCY job is captured. Null = off. */
+  emergencyAlertPhone: string | null;
   /** E.164 number from the provider dashboard; null until assigned. */
   inboundPhoneNumber: string | null;
   /**
@@ -72,6 +74,7 @@ function toDto(settings: AgentSettings): AgentSettingsDto {
     maxCallDurationSeconds: settings.maxCallDurationSeconds,
     silenceTimeoutSeconds: settings.silenceTimeoutSeconds,
     wrapUpMessage: settings.wrapUpMessage,
+    emergencyAlertPhone: settings.emergencyAlertPhone,
     inboundPhoneNumber: settings.inboundPhoneNumber,
     assistantId: settings.assistantId,
     updatedAt: settings.updatedAt.toISOString(),
@@ -133,6 +136,14 @@ const UpdateSchema = z
       .transform(normalizePhone)
       .refine(isE164, 'Use E.164 format, e.g. +15551234567.')
       .nullable(),
+    // Empty string clears the alert (stored as null); otherwise a valid E.164.
+    emergencyAlertPhone: z
+      .string()
+      .trim()
+      .transform((v) => normalizePhone(v))
+      .refine((v) => v === '' || isE164(v), 'Use E.164 format, e.g. +15551234567.')
+      .transform((v) => (v.length > 0 ? v : null))
+      .nullable(),
   })
   .partial()
   .refine((value) => Object.keys(value).length > 0, { message: 'Nothing to update.' });
@@ -171,6 +182,7 @@ agentRouter.patch(
     if (patch.maxCallDurationSeconds !== undefined) data.maxCallDurationSeconds = patch.maxCallDurationSeconds;
     if (patch.silenceTimeoutSeconds !== undefined) data.silenceTimeoutSeconds = patch.silenceTimeoutSeconds;
     if (patch.wrapUpMessage !== undefined) data.wrapUpMessage = patch.wrapUpMessage;
+    if (patch.emergencyAlertPhone !== undefined) data.emergencyAlertPhone = patch.emergencyAlertPhone;
     if (patch.inboundPhoneNumber !== undefined) data.inboundPhoneNumber = patch.inboundPhoneNumber;
     if (patch.businessHours !== undefined) {
       data.businessHours = patch.businessHours as unknown as Prisma.InputJsonValue;

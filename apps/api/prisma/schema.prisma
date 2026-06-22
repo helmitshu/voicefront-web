@@ -61,6 +61,26 @@ enum WaitlistStatus {
   CANCELLED
 }
 
+/// How fast a captured trades job needs a human. EMERGENCY fires an instant
+/// owner alert; the dashboard sorts EMERGENCY/URGENT to the top of the queue.
+enum JobUrgency {
+  EMERGENCY
+  URGENT
+  ROUTINE
+}
+
+/// Lifecycle of a captured job in the trades triage queue.
+enum JobStatus {
+  /// Just captured by the receptionist; nobody has acted yet.
+  NEW
+  /// Someone reached back out to the caller.
+  CONTACTED
+  /// Turned into a booked visit / estimate.
+  SCHEDULED
+  /// Done, or no longer relevant.
+  CLOSED
+}
+
 model Tenant {
   id                 String             @id @default(cuid())
   companyName        String             @map("company_name")
@@ -102,6 +122,7 @@ model Tenant {
   calendarConnections CalendarConnection[]
   blockedCallers BlockedCaller[]
   screenedCalls  ScreenedCallLog[]
+  jobRequests   JobRequest[]
 
   @@map("tenants")
 }
@@ -225,6 +246,12 @@ model AgentSettings {
   reactivationInactivityDays Int     @default(180)   @map("reactivation_inactivity_days")
   /// Custom recall message. Null = use platform default.
   reactivationTemplate       String? @db.Text @map("reactivation_template")
+
+  // ── Trades emergency routing ─────────────────────────────────────────────
+  /// Text this number the moment an EMERGENCY job is captured (e.g. the on-call
+  /// owner's mobile). Null = no instant alert. Requires smsEnabled + platform
+  /// Twilio. E.164. Primarily for CONSTRUCTION tenants.
+  emergencyAlertPhone        String? @map("emergency_alert_phone")
 
   updatedAt          DateTime @updatedAt @map("updated_at")
 
@@ -365,6 +392,43 @@ model ReactivationLog {
 
   @@index([tenantId, phone, sentAt])
   @@map("reactivation_logs")
+}
+
+/// A job/service request the receptionist captured on a call. For trades, most
+/// calls don't map to a fixed appointment slot — they're "burst pipe, send
+/// someone" or "I want a quote on a re-pipe." This is where those land as a
+/// structured, triageable work item instead of evaporating into a transcript.
+/// The customer dashboard shows it as a queue; EMERGENCY rows fire an instant
+/// owner SMS. Populated by the captureJobRequest voice tool (or by hand).
+model JobRequest {
+  id             String            @id @default(cuid())
+  tenantId       String            @map("tenant_id")
+  tenant         Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerName   String            @map("customer_name")
+  customerPhone  String?           @map("customer_phone")
+  /// Where the work is. Trades go TO the customer, so the address IS the job.
+  serviceAddress String?           @db.Text @map("service_address")
+  /// Short label for the work, e.g. "burst pipe", "panel upgrade", "no heat".
+  jobType        String?           @map("job_type")
+  urgency        JobUrgency        @default(ROUTINE)
+  /// What the caller described, in their words — the detail a tech needs.
+  description    String?           @db.Text
+  /// Caller's stated callback preference, free text ("this afternoon", "after 5").
+  preferredCallback String?        @map("preferred_callback")
+  status         JobStatus         @default(NEW)
+  source         AppointmentSource @default(VOICE_AGENT)
+  /// Provider call id of the originating call (server-side only, like CallLog's).
+  externalCallId String?           @map("external_call_id")
+  /// Staff notes added from the dashboard.
+  notes          String?           @db.Text
+  /// Set only for the public landing-page demo; null for real jobs.
+  demoSessionId  String?           @map("demo_session_id")
+  createdAt      DateTime          @default(now()) @map("created_at")
+  updatedAt      DateTime          @updatedAt @map("updated_at")
+
+  @@index([tenantId, status, createdAt(sort: Desc)])
+  @@index([tenantId, urgency])
+  @@map("job_requests")
 }
 
 /// A tenant's connected external calendar (Google or Microsoft). OAuth tokens

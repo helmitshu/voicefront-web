@@ -37,7 +37,7 @@ voiceRouter.post(
     const [tenant, settings] = await Promise.all([
       prisma.tenant.findUnique({
         where: { id: auth.tenantId },
-        select: { id: true, companyName: true },
+        select: { id: true, companyName: true, industry: true },
       }),
       prisma.agentSettings.findUnique({ where: { tenantId: auth.tenantId } }),
     ]);

@@ -12,6 +12,7 @@ import {
   composeSystemPrompt,
   providerDiscipline,
   ENDING_THE_CALL,
+  JOB_INTAKE_PROMPT,
   wrapUpGuidance,
   type ProviderInfo,
   type ServiceInfo,
@@ -94,6 +95,13 @@ const LOOKUP_FILLERS = [
   'Let me pull up your appointment.',
   'One sec, let me find that booking.',
   'Sure — let me look that up.',
+];
+// Warm, reassuring fillers for the moment a job is logged — calm and caring so
+// it lands right even when the caller is stressed about an emergency.
+const JOB_CAPTURE_FILLERS = [
+  'Okay, let me get this logged for you right now.',
+  'Got it — putting this in for the team right away.',
+  'Alright, let me get all this down for you.',
 ];
 
 interface TransferCallTool {
@@ -444,6 +452,60 @@ function buildBookingTools(opts: { multiProvider?: boolean } = {}): FunctionTool
 }
 
 /**
+ * Trades job-capture tool (CONSTRUCTION tenants only). One synchronous call
+ * that persists the whole job at once — name, callback, address, type, urgency,
+ * description, callback preference — so the receptionist makes a single round
+ * trip (cheap) and gets back a confirmation line it can read aloud. Routed to
+ * job.service via the webhook, which fires the emergency owner-alert when the
+ * urgency is EMERGENCY.
+ */
+function buildJobCaptureTool(): FunctionTool {
+  return {
+    type: 'function',
+    async: false,
+    messages: JOB_CAPTURE_FILLERS.map((content) => ({ type: 'request-start' as const, content })),
+    function: {
+      name: 'captureJobRequest',
+      description:
+        "Logs a job or service request so the team can follow up — use this for new work, quotes, callbacks, and emergencies (anything that isn't changing an existing appointment). Gather the details conversationally first, then call this ONCE with everything you have.",
+      parameters: {
+        type: 'object',
+        properties: {
+          customerName: { type: 'string', description: "Caller's name." },
+          customerPhone: {
+            type: 'string',
+            description: "Best callback number with country code, e.g. +15551234567. Omit to use the number they're calling from.",
+          },
+          jobType: {
+            type: 'string',
+            description: 'Short label for the work, e.g. "burst pipe", "panel upgrade", "no heat", "kitchen remodel quote".',
+          },
+          urgency: {
+            type: 'string',
+            description:
+              'How fast they need help. EMERGENCY = active danger or damage (flooding, gas, no heat in freezing weather, electrical hazard). URGENT = pressing but not dangerous (no hot water, AC out in a heatwave). ROUTINE = a quote or non-pressing job.',
+            enum: ['EMERGENCY', 'URGENT', 'ROUTINE'],
+          },
+          description: {
+            type: 'string',
+            description: 'What the caller described, in their words — the detail a tech would need.',
+          },
+          serviceAddress: {
+            type: 'string',
+            description: 'Where the work is — the job site or property address. Read street numbers back to confirm.',
+          },
+          preferredCallback: {
+            type: 'string',
+            description: 'When they\'d like the callback or a visit, in their words ("this afternoon", "after 5", "ASAP").',
+          },
+        },
+        required: ['customerName', 'urgency'],
+      },
+    },
+  };
+}
+
+/**
  * Tools that book a planning call onto the FOUNDER's calendar (not the demo
  * clinic). The sales demo adds these so Ava can close by scheduling the founder
  * — routed in the webhook to founder.service, which reuses the booking engine's
@@ -493,7 +555,7 @@ export function buildFounderBookingTools(): FunctionTool[] {
 }
 
 export function buildTransientAssistant(
-  tenant: Pick<Tenant, 'id' | 'companyName'>,
+  tenant: Pick<Tenant, 'id' | 'companyName' | 'industry'>,
   settings: AgentSettings,
   channel: CallChannel,
   now: Date = new Date(),
@@ -557,11 +619,17 @@ export function buildTransientAssistant(
         maxCallDurationSeconds: settings.maxCallDurationSeconds,
         wrapUpMessage: settings.wrapUpMessage,
       }),
+      // Trades job-capture guidance — only for CONSTRUCTION, so clinics never
+      // pay for the extra prompt tokens (cost discipline).
+      ...(tenant.industry === 'CONSTRUCTION' ? ['', JOB_INTAKE_PROMPT] : []),
       ...(knowledgeTool ? ['', KNOWLEDGE_PROMPT] : []),
     ].join('\n');
 
   const multiProvider = (options.providers?.length ?? 0) > 1;
   const tools: Array<TransferCallTool | FunctionTool | QueryTool> = [...buildBookingTools({ multiProvider })];
+  // Attach the job-capture tool for trades. Skipped on the sales-demo override
+  // path (that agent has its own playbook) so it only reaches real receptionists.
+  if (!options.systemPromptOverride && tenant.industry === 'CONSTRUCTION') tools.push(buildJobCaptureTool());
   if (options.includeFounderBooking) tools.push(...buildFounderBookingTools());
   if (options.includeScreenControl) tools.push(buildScreenControlTool(), buildCallSummaryTool());
   if (knowledgeTool) tools.push(knowledgeTool);
@@ -673,7 +741,7 @@ export function buildTransientAssistant(
  * attached and routed to our webhook via `server.url`.
  */
 export function buildAssistantUpdatePayload(
-  tenant: Pick<Tenant, 'id' | 'companyName'>,
+  tenant: Pick<Tenant, 'id' | 'companyName' | 'industry'>,
   settings: AgentSettings,
   options: {
     serverUrl?: string;
@@ -735,10 +803,13 @@ export function buildAssistantUpdatePayload(
     wrapUpGuidance(settings.maxCallDurationSeconds, settings.wrapUpMessage),
     '',
     ENDING_THE_CALL,
+    // Trades job-capture guidance — CONSTRUCTION only (cost discipline).
+    ...(tenant.industry === 'CONSTRUCTION' ? ['', JOB_INTAKE_PROMPT] : []),
     ...(knowledgeTool ? ['', KNOWLEDGE_PROMPT] : []),
   ].join('\n');
 
   const tools: Array<TransferCallTool | FunctionTool | QueryTool> = [...buildBookingTools({ multiProvider })];
+  if (tenant.industry === 'CONSTRUCTION') tools.push(buildJobCaptureTool());
   if (knowledgeTool) tools.push(knowledgeTool);
   const transferTool = buildTransferTool(forwardingNumbers);
   if (transferTool) tools.push(transferTool);

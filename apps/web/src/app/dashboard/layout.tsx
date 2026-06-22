@@ -8,7 +8,16 @@ import { Logo } from '@/components/ui/Logo';
 import { Badge } from '@/components/ui/Card';
 import { INDUSTRY_LABELS } from '@/domain/prompt-templates';
 
-const NAV = [
+interface NavItem {
+  href: string;
+  label: string;
+  exact: boolean;
+  icon: ReactNode;
+  /** When true, only show this item for trades (CONSTRUCTION) workspaces. */
+  constructionOnly?: boolean;
+}
+
+const NAV: NavItem[] = [
   {
     href: '/dashboard',
     label: 'Overview',
@@ -42,6 +51,18 @@ const NAV = [
         <rect x="3" y="4" width="14" height="13" rx="2" />
         <path d="M3 8.5h14M7 2.5v3M13 2.5v3" strokeLinecap="round" />
         <path d="M6.5 12h2M11.5 12h2M6.5 14.5h2" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    href: '/dashboard/jobs',
+    label: 'Jobs',
+    exact: false,
+    constructionOnly: true,
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-[18px] w-[18px]">
+        <path d="M8 3.5h4l.5 2h2a1.5 1.5 0 0 1 1.5 1.5V14a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 4 14V7a1.5 1.5 0 0 1 1.5-1.5h2L8 3.5Z" strokeLinejoin="round" />
+        <path d="M10 9v3M8.5 10.5h3" strokeLinecap="round" />
       </svg>
     ),
   },
@@ -108,6 +129,10 @@ function DashboardChrome({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   if (!me) return null;
 
+  // Trades-only tabs (Jobs) are hidden for clinics, matching the agent-side
+  // gating where the job-capture tool only attaches for CONSTRUCTION.
+  const nav = NAV.filter((item) => !item.constructionOnly || me.tenant.industry === 'CONSTRUCTION');
+
   return (
     <div className="flex min-h-screen bg-paper">
       {/* Sidebar */}
@@ -120,7 +145,7 @@ function DashboardChrome({ children }: { children: ReactNode }) {
           Workspace
         </p>
         <nav className="mt-2 flex flex-1 flex-col gap-0.5" aria-label="Main">
-          {NAV.map((item) => {
+          {nav.map((item) => {
             const active = item.exact ? pathname === item.href : pathname.startsWith(item.href);
             return (
               <Link
@@ -221,7 +246,7 @@ function DashboardChrome({ children }: { children: ReactNode }) {
 
         {/* Mobile nav */}
         <nav className="flex gap-1 border-b border-line/70 bg-white px-4 py-2 md:hidden" aria-label="Main">
-          {NAV.map((item) => {
+          {nav.map((item) => {
             const active = item.exact ? pathname === item.href : pathname.startsWith(item.href);
             return (
               <Link

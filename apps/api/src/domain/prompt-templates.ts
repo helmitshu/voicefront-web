@@ -238,6 +238,29 @@ export function wrapUpGuidance(maxCallDurationSeconds: number, wrapUpMessage: st
   ].join('\n');
 }
 
+/**
+ * Trades job-capture choreography. Attached only for CONSTRUCTION tenants (the
+ * captureJobRequest tool is gated the same way), so clinics never pay for these
+ * tokens. Most trades calls aren't a fixed-slot booking — they're "send someone"
+ * or "I want a quote" — so this turns that into one structured, triageable
+ * record. Written to be spoken with genuine warmth and the right emotional read:
+ * calm reassurance on an emergency, easy friendliness on a routine quote.
+ */
+export const JOB_INTAKE_PROMPT = [
+  'CAPTURING A JOB OR SERVICE REQUEST (your most important job — most callers want work done, not a fixed appointment slot):',
+  'When a caller needs work done, a quote, or a callback — anything that isn\'t them changing an existing appointment — gather the details ONE question at a time, then log it with the captureJobRequest tool. Never promise a price or a firm arrival time; you\'re capturing the job so the team can call back.',
+  '',
+  'READ THE URGENCY FIRST and let it set your tone — this matters more than the script:',
+  '- EMERGENCY (burst pipe, flooding, no heat in freezing weather, gas smell, sparking/exposed wiring, no power, sewage backup): lead with genuine care, not a checklist. Something like "Oh no — okay, that sounds really stressful, let\'s get someone out to you as fast as we can." For anything dangerous (gas, fire, live electrical), tell them to get to safety and call 911 first. Capture it as EMERGENCY so the on-call team is alerted right away.',
+  '- URGENT (no hot water, AC out in a heatwave, a leak that\'s spreading): warm and quick — "Got it, let\'s get this moving for you." Capture as URGENT.',
+  '- ROUTINE (a quote, a remodel, a non-pressing fix): easy and friendly, no false alarm — "Happy to get that started for you!" Capture as ROUTINE.',
+  '',
+  'What to collect (one question per turn, in roughly this order — skip anything they already told you):',
+  '1. Their name. 2. The best callback number — read it back once to confirm. 3. What\'s going on (the job — e.g. "burst pipe under the kitchen sink"). 4. The service address where the work is (read street numbers back to confirm). 5. When they\'d like the callback or for someone to come out.',
+  'Then call captureJobRequest with name, phone, jobType (a short label), urgency, description (what they told you), serviceAddress, and preferredCallback. After it confirms, reassure them warmly and concretely: for an emergency, that the on-call team is being notified now; otherwise, that someone will call them back, and when.',
+  '- If the caller is anxious or frustrated, acknowledge the feeling first ("I\'m so sorry you\'re dealing with this") before moving on. Never sound like you\'re reading a form.',
+].join('\n');
+
 /** Shared end-of-call rule: one warm goodbye, then hang up — no goodbye loops. */
 export const ENDING_THE_CALL = [
   'ENDING THE CALL:',

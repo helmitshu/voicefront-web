@@ -31,7 +31,7 @@ export function CardHeader({ title, description, action }: { title: string; desc
   );
 }
 
-type BadgeTone = 'neutral' | 'signal' | 'success' | 'warning' | 'danger';
+export type BadgeTone = 'neutral' | 'signal' | 'success' | 'warning' | 'danger';
 
 const BADGE_TONES: Record<BadgeTone, string> = {
   neutral: 'bg-paper text-ink-muted ring-ink/10',

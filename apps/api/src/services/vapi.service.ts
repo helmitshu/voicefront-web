@@ -404,7 +404,7 @@ export async function syncAssistantForTenant(tenantId: string): Promise<SyncResu
   const [tenant, settings] = await Promise.all([
     prisma.tenant.findUnique({
       where: { id: tenantId },
-      select: { id: true, companyName: true, multiProviderEnabled: true },
+      select: { id: true, companyName: true, multiProviderEnabled: true, industry: true },
     }),
     prisma.agentSettings.findUnique({ where: { tenantId } }),
   ]);
@@ -467,7 +467,7 @@ export async function createAssistantForTenant(tenantId: string): Promise<string
   const [tenant, settings] = await Promise.all([
     prisma.tenant.findUnique({
       where: { id: tenantId },
-      select: { id: true, companyName: true, multiProviderEnabled: true },
+      select: { id: true, companyName: true, multiProviderEnabled: true, industry: true },
     }),
     prisma.agentSettings.findUnique({ where: { tenantId } }),
   ]);
