@@ -3,6 +3,8 @@ import { prisma } from '../lib/prisma';
 import { HttpError } from '../lib/http';
 import { normalizePhone } from '../lib/phone';
 import { sendEmergencyJobAlert } from './sms.service';
+import { isFeatureEnabled } from './features.service';
+import { startDispatch } from './dispatch.service';
 
 /**
  * Job/service-request intake. For trades, most calls don't map to a fixed
@@ -51,7 +53,15 @@ export async function createJobRequest(input: CreateJobInput): Promise<JobReques
   });
 
   if (job.urgency === 'EMERGENCY' && !job.demoSessionId) {
-    void sendEmergencyJobAlert(job.id).catch(() => {});
+    // When on-call dispatch is on for this tenant, ring the roster (which falls
+    // back to the owner SMS if there's nobody to ring); otherwise just SMS.
+    void (async () => {
+      if (await isFeatureEnabled(job.tenantId, 'ON_CALL_DISPATCH')) {
+        await startDispatch(job.id);
+      } else {
+        await sendEmergencyJobAlert(job.id);
+      }
+    })().catch(() => {});
   }
   return job;
 }

@@ -169,6 +169,10 @@ export interface AgentSettingsDto {
   wrapUpMessage: string | null;
   /** Trades: number texted the moment an EMERGENCY job is captured. Null = off. */
   emergencyAlertPhone: string | null;
+  /** On-call dispatch roster (ordered): who the receptionist rings on an emergency. */
+  onCallRoster: { name: string; phone: string }[];
+  /** Seconds to wait for a contact to accept before escalating to the next. */
+  dispatchEscalationSeconds: number;
   inboundPhoneNumber: string | null;
   /** Vapi assistant assigned by the founder; read-only for the customer. */
   assistantId: string | null;
@@ -200,6 +204,8 @@ export type AgentSettingsPatch = Partial<
     | 'silenceTimeoutSeconds'
     | 'wrapUpMessage'
     | 'emergencyAlertPhone'
+    | 'onCallRoster'
+    | 'dispatchEscalationSeconds'
     | 'inboundPhoneNumber'
   >
 >;

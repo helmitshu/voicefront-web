@@ -69,6 +69,27 @@ enum JobUrgency {
   ROUTINE
 }
 
+/// Lifecycle of an on-call dispatch session (one per emergency job dispatched).
+enum DispatchStatus {
+  /// Actively ringing the roster, escalating on no-answer.
+  NOTIFYING
+  /// A tech accepted; the customer is being told help is coming.
+  ACCEPTED
+  /// Nobody accepted — fell through to the owner as a final alert.
+  EXHAUSTED
+  /// Manually stopped (e.g. the job was handled another way).
+  CANCELLED
+}
+
+/// Outcome of ringing one roster contact during a dispatch.
+enum DispatchAttemptStatus {
+  CALLING
+  NO_ANSWER
+  DECLINED
+  ACCEPTED
+  FAILED
+}
+
 /// Lifecycle of a captured job in the trades triage queue.
 enum JobStatus {
   /// Just captured by the receptionist; nobody has acted yet.
@@ -124,6 +145,7 @@ model Tenant {
   screenedCalls  ScreenedCallLog[]
   jobRequests   JobRequest[]
   features      TenantFeature[]
+  dispatches    Dispatch[]
 
   @@map("tenants")
 }
@@ -253,6 +275,12 @@ model AgentSettings {
   /// owner's mobile). Null = no instant alert. Requires smsEnabled + platform
   /// Twilio. E.164. Primarily for CONSTRUCTION tenants.
   emergencyAlertPhone        String? @map("emergency_alert_phone")
+  /// Ordered on-call roster for the ON_CALL_DISPATCH feature: a JSON array of
+  /// { name, phone(E.164) }. On an emergency job the receptionist rings these
+  /// in order, escalating to the next on no-answer. Empty = nobody to dispatch.
+  onCallRoster               Json    @default("[]") @map("on_call_roster")
+  /// Seconds to wait for a contact to accept before escalating to the next.
+  dispatchEscalationSeconds  Int     @default(120)  @map("dispatch_escalation_seconds")
 
   updatedAt          DateTime @updatedAt @map("updated_at")
 
@@ -457,9 +485,65 @@ model JobRequest {
   createdAt      DateTime          @default(now()) @map("created_at")
   updatedAt      DateTime          @updatedAt @map("updated_at")
 
+  dispatches     Dispatch[]
+
   @@index([tenantId, status, createdAt(sort: Desc)])
   @@index([tenantId, urgency])
   @@map("job_requests")
+}
+
+/// An on-call dispatch session: the system ringing a trades tenant's on-call
+/// roster in order for an EMERGENCY job, escalating to the next person when one
+/// doesn't answer/accept, until someone takes it or the list is exhausted (then
+/// the owner gets a final alert). Gated by the ON_CALL_DISPATCH feature. The
+/// roster is snapshotted at creation so later settings edits don't shift a
+/// dispatch already in flight; `token` guards the public Twilio webhooks.
+model Dispatch {
+  id               String         @id @default(cuid())
+  tenantId         String         @map("tenant_id")
+  tenant           Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  jobRequestId     String         @map("job_request_id")
+  job              JobRequest     @relation(fields: [jobRequestId], references: [id], onDelete: Cascade)
+  status           DispatchStatus @default(NOTIFYING)
+  /// Index into `roster` we're currently ringing.
+  currentIndex     Int            @default(0) @map("current_index")
+  /// Snapshot of the on-call roster at dispatch time: [{ name, phone }].
+  roster           Json
+  acceptedName     String?        @map("accepted_name")
+  acceptedPhone    String?        @map("accepted_phone")
+  /// Random token in the webhook URLs so only Twilio's callbacks for THIS
+  /// dispatch can drive it.
+  token            String
+  /// Seconds to wait for an accept before escalating (also drives the sweep).
+  escalateAfterSec Int            @map("escalate_after_sec")
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+
+  attempts         DispatchAttempt[]
+
+  @@index([tenantId, status])
+  @@index([status, updatedAt])
+  @@map("dispatches")
+}
+
+/// One ring of one roster contact within a dispatch — the dispatch timeline.
+model DispatchAttempt {
+  id           String                @id @default(cuid())
+  dispatchId   String                @map("dispatch_id")
+  dispatch     Dispatch              @relation(fields: [dispatchId], references: [id], onDelete: Cascade)
+  /// Roster index this attempt corresponds to (matches Twilio callbacks back).
+  index        Int
+  contactName  String                @map("contact_name")
+  contactPhone String                @map("contact_phone")
+  status       DispatchAttemptStatus @default(CALLING)
+  /// Twilio call SID, for correlation/debugging.
+  callSid      String?               @map("call_sid")
+  createdAt    DateTime              @default(now()) @map("created_at")
+  updatedAt    DateTime              @updatedAt @map("updated_at")
+
+  @@unique([dispatchId, index])
+  @@index([dispatchId])
+  @@map("dispatch_attempts")
 }
 
 /// A tenant's connected external calendar (Google or Microsoft). OAuth tokens

@@ -14,6 +14,7 @@ import {
   type ForwardingNumber,
 } from '../domain/agent-config';
 import { BACKGROUND_SOUNDS, VOICE_PROVIDERS, isKnownVapiVoice } from '../domain/voice-catalog';
+import { parseOnCallRoster } from '../domain/dispatch';
 import { isE164, normalizePhone } from '../lib/phone';
 import { syncAssistantForTenant } from '../services/vapi.service';
 
@@ -46,6 +47,10 @@ interface AgentSettingsDto {
   wrapUpMessage: string | null;
   /** Trades: number texted the moment an EMERGENCY job is captured. Null = off. */
   emergencyAlertPhone: string | null;
+  /** On-call dispatch roster (ordered): who the receptionist rings on an emergency. */
+  onCallRoster: { name: string; phone: string }[];
+  /** Seconds to wait for a contact to accept before escalating to the next. */
+  dispatchEscalationSeconds: number;
   /** E.164 number from the provider dashboard; null until assigned. */
   inboundPhoneNumber: string | null;
   /**
@@ -75,6 +80,8 @@ function toDto(settings: AgentSettings): AgentSettingsDto {
     silenceTimeoutSeconds: settings.silenceTimeoutSeconds,
     wrapUpMessage: settings.wrapUpMessage,
     emergencyAlertPhone: settings.emergencyAlertPhone,
+    onCallRoster: parseOnCallRoster(settings.onCallRoster),
+    dispatchEscalationSeconds: settings.dispatchEscalationSeconds,
     inboundPhoneNumber: settings.inboundPhoneNumber,
     assistantId: settings.assistantId,
     updatedAt: settings.updatedAt.toISOString(),
@@ -144,6 +151,20 @@ const UpdateSchema = z
       .refine((v) => v === '' || isE164(v), 'Use E.164 format, e.g. +15551234567.')
       .transform((v) => (v.length > 0 ? v : null))
       .nullable(),
+    // On-call roster: each entry needs a name and a valid E.164 number.
+    onCallRoster: z
+      .array(
+        z.object({
+          name: z.string().trim().min(1).max(80),
+          phone: z
+            .string()
+            .trim()
+            .transform(normalizePhone)
+            .refine(isE164, 'Use E.164 format, e.g. +15551234567.'),
+        }),
+      )
+      .max(10),
+    dispatchEscalationSeconds: z.coerce.number().int().min(30).max(600),
   })
   .partial()
   .refine((value) => Object.keys(value).length > 0, { message: 'Nothing to update.' });
@@ -183,6 +204,12 @@ agentRouter.patch(
     if (patch.silenceTimeoutSeconds !== undefined) data.silenceTimeoutSeconds = patch.silenceTimeoutSeconds;
     if (patch.wrapUpMessage !== undefined) data.wrapUpMessage = patch.wrapUpMessage;
     if (patch.emergencyAlertPhone !== undefined) data.emergencyAlertPhone = patch.emergencyAlertPhone;
+    if (patch.onCallRoster !== undefined) {
+      data.onCallRoster = patch.onCallRoster as unknown as Prisma.InputJsonValue;
+    }
+    if (patch.dispatchEscalationSeconds !== undefined) {
+      data.dispatchEscalationSeconds = patch.dispatchEscalationSeconds;
+    }
     if (patch.inboundPhoneNumber !== undefined) data.inboundPhoneNumber = patch.inboundPhoneNumber;
     if (patch.businessHours !== undefined) {
       data.businessHours = patch.businessHours as unknown as Prisma.InputJsonValue;

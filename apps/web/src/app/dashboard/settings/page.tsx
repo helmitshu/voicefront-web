@@ -30,6 +30,7 @@ import { ReactivationSettingsCard } from '@/components/agent/ReactivationSetting
 import { CalendarConnectionsCard } from '@/components/agent/CalendarConnectionsCard';
 import { CallScreeningCard } from '@/components/agent/CallScreeningCard';
 import { FeatureTogglesCard } from '@/components/agent/FeatureTogglesCard';
+import { DispatchSettingsCard } from '@/components/agent/DispatchSettingsCard';
 import { BusinessHoursEditor } from '@/components/agent/BusinessHoursEditor';
 import {
   ForwardingNumbersEditor,
@@ -620,6 +621,8 @@ export default function SettingsPage() {
       <ReactivationSettingsCard />
 
       <FeatureTogglesCard />
+
+      <DispatchSettingsCard />
 
       {/* Floating save dock */}
       {!readOnly && (
