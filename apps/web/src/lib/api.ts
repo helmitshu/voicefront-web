@@ -167,6 +167,8 @@ export interface AgentSettingsDto {
   silenceTimeoutSeconds: number;
   /** Custom closing line for graceful wrap-up; null = built-in default. */
   wrapUpMessage: string | null;
+  /** Trades: number texted the moment an EMERGENCY job is captured. Null = off. */
+  emergencyAlertPhone: string | null;
   inboundPhoneNumber: string | null;
   /** Vapi assistant assigned by the founder; read-only for the customer. */
   assistantId: string | null;
@@ -197,6 +199,7 @@ export type AgentSettingsPatch = Partial<
     | 'maxCallDurationSeconds'
     | 'silenceTimeoutSeconds'
     | 'wrapUpMessage'
+    | 'emergencyAlertPhone'
     | 'inboundPhoneNumber'
   >
 >;
@@ -845,6 +848,44 @@ export const AppointmentsApi = {
       notes: string | null;
     }>,
   ) => api<{ appointment: AppointmentDto }>(`/api/appointments/${id}`, { method: 'PATCH', body: patch }),
+};
+
+/* -------------------------------- jobs (trades) -------------------------------- */
+
+export type JobUrgency = 'EMERGENCY' | 'URGENT' | 'ROUTINE';
+export type JobStatus = 'NEW' | 'CONTACTED' | 'SCHEDULED' | 'CLOSED';
+
+export interface JobDto {
+  id: string;
+  customerName: string;
+  customerPhone: string | null;
+  serviceAddress: string | null;
+  jobType: string | null;
+  urgency: JobUrgency;
+  description: string | null;
+  preferredCallback: string | null;
+  status: JobStatus;
+  source: string;
+  notes: string | null;
+  createdAt: string;
+}
+
+export const JobsApi = {
+  list: (status?: JobStatus, signal?: AbortSignal) => {
+    const query = status ? `?status=${status}` : '';
+    return api<{ jobs: JobDto[] }>(`/api/jobs${query}`, { signal });
+  },
+  create: (input: {
+    customerName: string;
+    customerPhone?: string;
+    serviceAddress?: string;
+    jobType?: string;
+    urgency: JobUrgency;
+    description?: string;
+    preferredCallback?: string;
+  }) => api<{ job: JobDto }>('/api/jobs', { method: 'POST', body: input }),
+  update: (id: string, patch: Partial<{ status: JobStatus; notes: string | null }>) =>
+    api<{ job: JobDto }>(`/api/jobs/${id}`, { method: 'PATCH', body: patch }),
 };
 
 /* ----------------------------- providers/services ----------------------------- */

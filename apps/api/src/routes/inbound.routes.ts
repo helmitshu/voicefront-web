@@ -19,6 +19,7 @@ import {
   type AppointmentMatch,
 } from '../services/appointment.service';
 import { getOrCreateDemoTenant, captureDemoCall, setDemoScreen, setDemoSummary } from '../services/demo.service';
+import { createJobRequest } from '../services/job.service';
 import { founderAvailability, bookFounderCall } from '../services/founder.service';
 import { resolveBookingContext } from '../services/providers.service';
 import { sendBookingConfirmation } from '../services/sms.service';
@@ -174,6 +175,17 @@ const CancelArgsSchema = z.object({
   customerPhone: z.string().optional(),
   customerName: z.string().optional(),
   date: z.string().optional(),
+});
+const JobCaptureArgsSchema = z.object({
+  customerName: z.string(),
+  customerPhone: z.string().optional(),
+  jobType: z.string().optional(),
+  // The model is told urgency is required, but default to ROUTINE if it omits it
+  // so a missing value never throws and loses the captured job.
+  urgency: z.enum(['EMERGENCY', 'URGENT', 'ROUTINE']).optional(),
+  description: z.string().optional(),
+  serviceAddress: z.string().optional(),
+  preferredCallback: z.string().optional(),
 });
 
 /** Long-form weekday + date label, spoken back to the caller. */
@@ -417,6 +429,26 @@ async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolC
           await updateAppointment(tenantId, m.id, { status: 'CANCELLED' }, null);
           result = `Done — I've cancelled the appointment on ${formatDay(m.startsAt, m.timezone)} at ${to12h(m.local.time)}. Is there anything else I can help with?`;
         }
+      } else if (name === 'captureJobRequest') {
+        const a = JobCaptureArgsSchema.parse(args);
+        const job = await createJobRequest({
+          tenantId,
+          customerName: a.customerName,
+          // Fall back to the caller's own number when they don't give one.
+          customerPhone: a.customerPhone ?? callerNumber,
+          serviceAddress: a.serviceAddress ?? null,
+          jobType: a.jobType ?? null,
+          urgency: a.urgency ?? 'ROUTINE',
+          description: a.description ?? null,
+          preferredCallback: a.preferredCallback ?? null,
+          source: 'VOICE_AGENT',
+          externalCallId: message.call?.id ?? null,
+          demoSessionId,
+        });
+        result =
+          job.urgency === 'EMERGENCY'
+            ? `Logged as an EMERGENCY — the on-call team is being alerted right now. Reassure ${job.customerName} warmly that someone will reach out right away, then let them get to safety if there's any danger.`
+            : `Got it — the job's logged for ${job.customerName}. Let them know someone will follow up${a.preferredCallback ? ` ${a.preferredCallback}` : ' shortly'}, confirm the key details back briefly, and ask if there's anything else.`;
       } else {
         result = `Unknown tool ${name || '(unnamed)'}.`;
       }

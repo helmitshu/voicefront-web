@@ -57,6 +57,8 @@ interface Draft {
   silenceTimeoutSeconds: string;
   /** Custom wrap-up line; '' means "use the built-in default" (null). */
   wrapUpMessage: string;
+  /** Trades emergency-alert number; '' means "no alert" (null). */
+  emergencyAlertPhone: string;
   /** Editable as a string; '' means "no number assigned" (null). */
   inboundPhoneNumber: string;
 }
@@ -78,6 +80,7 @@ function toDraft(settings: AgentSettingsDto): Draft {
     maxCallMinutes: String(Math.round((settings.maxCallDurationSeconds ?? 600) / 60)),
     silenceTimeoutSeconds: String(settings.silenceTimeoutSeconds ?? 30),
     wrapUpMessage: settings.wrapUpMessage ?? '',
+    emergencyAlertPhone: settings.emergencyAlertPhone ?? '',
     inboundPhoneNumber: settings.inboundPhoneNumber ?? '',
   };
 }
@@ -161,6 +164,9 @@ export default function SettingsPage() {
     const normalizedNumber = draft.inboundPhoneNumber.replace(/[\s().-]/g, '');
     if (normalizedNumber.length > 0 && !E164_REGEX.test(normalizedNumber))
       nextErrors.inboundPhoneNumber = 'Use E.164 format, e.g. +15551234567.';
+    const normalizedAlert = draft.emergencyAlertPhone.replace(/[\s().-]/g, '');
+    if (normalizedAlert.length > 0 && !E164_REGEX.test(normalizedAlert))
+      nextErrors.emergencyAlertPhone = 'Use E.164 format, e.g. +15551234567.';
     setFieldErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0 || forwardingErrors.size > 0) {
       // Name the offending fields — they may be scrolled out of view, so a
@@ -172,6 +178,7 @@ export default function SettingsPage() {
         voicemailGreeting: 'Voicemail greeting',
         voiceId: 'Voice',
         inboundPhoneNumber: 'Phone number',
+        emergencyAlertPhone: 'Emergency alert number',
       };
       const bad = Object.keys(nextErrors).map((k) => labels[k] ?? k);
       if (forwardingErrors.size > 0) bad.push('Forwarding numbers (fill in or remove the empty row)');
@@ -193,6 +200,7 @@ export default function SettingsPage() {
       maxCallDurationSeconds: clampNumber(draft.maxCallMinutes, 3, 30, 10) * 60,
       silenceTimeoutSeconds: clampNumber(draft.silenceTimeoutSeconds, 15, 120, 30),
       wrapUpMessage: draft.wrapUpMessage.trim() || null,
+      emergencyAlertPhone: normalizedAlert.length > 0 ? normalizedAlert : null,
       inboundPhoneNumber: normalizedNumber.length > 0 ? normalizedNumber : null,
       businessHours: draft.businessHours,
       forwardingNumbers: draft.forwardingNumbers.map((entry) => ({
@@ -559,6 +567,20 @@ export default function SettingsPage() {
             hint="How the receptionist gracefully steers a long call to a close, in your words. Leave blank to use the default above."
           />
         </div>
+        {me?.tenant.industry === 'CONSTRUCTION' && (
+          <div className="mt-5">
+            <Input
+              label="Emergency alert number"
+              placeholder="+15551234567"
+              value={draft.emergencyAlertPhone}
+              disabled={readOnly}
+              onChange={(e) => patchDraft({ emergencyAlertPhone: e.target.value })}
+              error={fieldErrors.emergencyAlertPhone}
+              hint="We'll text this number the instant the receptionist logs an emergency job — so an after-hours burst pipe reaches you right away. Requires SMS to be on. Leave blank to turn alerts off."
+              className="font-mono"
+            />
+          </div>
+        )}
       </Card>
 
       <Card>

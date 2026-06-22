@@ -212,6 +212,44 @@ export async function sendWaitlistOpening(params: WaitlistOpeningParams): Promis
   return true;
 }
 
+// ── Emergency job alert (owner-facing) ───────────────────────────────────────
+
+/**
+ * Text the business owner the instant an EMERGENCY job is captured, so an
+ * after-hours burst pipe never waits for someone to check a dashboard. Unlike
+ * the customer-facing texts above, this goes to the owner's OWN configured
+ * number (emergencyAlertPhone), so there's no opt-out to honor. Fire-and-forget;
+ * no-ops quietly unless SMS is enabled, Twilio is configured, and a number is set.
+ * Returns true only if a text actually went out.
+ */
+export async function sendEmergencyJobAlert(jobId: string): Promise<boolean> {
+  const job = await prisma.jobRequest.findUnique({
+    where: { id: jobId },
+    include: { tenant: { select: { companyName: true } } },
+  });
+  if (!job || job.demoSessionId) return false;
+
+  const settings = await prisma.agentSettings.findUnique({
+    where: { tenantId: job.tenantId },
+    select: { smsEnabled: true, emergencyAlertPhone: true },
+  });
+  if (!settings?.smsEnabled || !settings.emergencyAlertPhone) return false;
+  if (!isSmsAvailable()) return false;
+
+  const body = [
+    `EMERGENCY job - ${job.tenant.companyName}`,
+    `${job.customerName}${job.customerPhone ? ` (${job.customerPhone})` : ''}`,
+    job.jobType ? `Job: ${job.jobType}` : null,
+    job.serviceAddress ? `At: ${job.serviceAddress}` : null,
+    job.description ? job.description : null,
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  await sendRaw(settings.emergencyAlertPhone, body);
+  return true;
+}
+
 // ── Reactivation / recall ────────────────────────────────────────────────────
 
 export interface ReactivationParams {

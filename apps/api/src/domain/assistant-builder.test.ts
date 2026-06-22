@@ -3,7 +3,10 @@ import type { AgentSettings, Tenant } from '@prisma/client';
 import { buildAssistantUpdatePayload } from './assistant-builder';
 import { defaultBusinessHours } from './agent-config';
 
-const tenant = { id: 't1', companyName: 'Acme Dental' } as Pick<Tenant, 'id' | 'companyName'>;
+const tenant = { id: 't1', companyName: 'Acme Dental', industry: 'CLINIC' } as Pick<
+  Tenant,
+  'id' | 'companyName' | 'industry'
+>;
 
 function settings(overrides: Partial<AgentSettings> = {}): AgentSettings {
   return {
@@ -48,5 +51,24 @@ describe('buildAssistantUpdatePayload (persistent assistant)', () => {
     expect(payload.model.messages[0].content).not.toContain('PROVIDERS & SERVICES');
     const book = payload.model.tools?.find((t) => 'function' in t && t.function.name === 'bookAppointment');
     expect(JSON.stringify(book)).not.toContain('providerName');
+  });
+
+  it('does NOT attach the job-capture tool or prompt for a clinic', () => {
+    const payload = buildAssistantUpdatePayload(tenant, settings());
+    const job = payload.model.tools?.find((t) => 'function' in t && t.function.name === 'captureJobRequest');
+    expect(job).toBeUndefined();
+    expect(payload.model.messages[0].content).not.toContain('CAPTURING A JOB OR SERVICE REQUEST');
+  });
+
+  it('attaches the job-capture tool + intake prompt for a trades workspace', () => {
+    const trades = { id: 't2', companyName: 'Acme Plumbing', industry: 'CONSTRUCTION' } as Pick<
+      Tenant,
+      'id' | 'companyName' | 'industry'
+    >;
+    const payload = buildAssistantUpdatePayload(trades, settings());
+    const job = payload.model.tools?.find((t) => 'function' in t && t.function.name === 'captureJobRequest');
+    expect(job).toBeDefined();
+    expect(JSON.stringify(job)).toContain('urgency');
+    expect(payload.model.messages[0].content).toContain('CAPTURING A JOB OR SERVICE REQUEST');
   });
 });
