@@ -12,20 +12,28 @@ export function Waveform({
   active = false,
   level = 0,
   tone = 'signal',
-  className = '',
+  // Height + alignment live here (not the base class) so callers can size the
+  // mark down — `h-12`/`justify-center` are only the defaults, not locked in.
+  className = 'h-12 justify-center',
 }: {
   bars?: number;
   active?: boolean;
   level?: number;
-  tone?: 'signal' | 'light' | 'muted';
+  tone?: 'signal' | 'light' | 'muted' | 'gold';
   className?: string;
 }) {
   const clamped = Math.max(0, Math.min(1, level));
   const color =
-    tone === 'light' ? 'bg-white/80' : tone === 'muted' ? 'bg-ink-muted/40' : 'bg-signal';
+    tone === 'light'
+      ? 'bg-white/80'
+      : tone === 'muted'
+        ? 'bg-ink-muted/40'
+        : tone === 'gold'
+          ? 'bg-gold-light'
+          : 'bg-signal';
 
   return (
-    <div aria-hidden className={`flex h-12 items-center justify-center gap-[3px] ${className}`}>
+    <div aria-hidden className={`flex items-center gap-[3px] ${className}`}>
       {Array.from({ length: bars }, (_, i) => {
         // Deterministic pseudo-random heights so SSR and client markup match.
         const seed = Math.abs(Math.sin((i + 1) * 12.9898) * 43758.5453) % 1;

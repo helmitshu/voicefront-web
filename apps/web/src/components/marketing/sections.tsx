@@ -7,6 +7,7 @@ import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { Logo } from '@/components/ui/Logo';
 import { Spinner } from '@/components/ui/Spinner';
+import { Waveform } from '@/components/ui/Waveform';
 import { DemoApi } from '@/lib/api';
 import { BookCallSection } from '@/components/BookCallSection';
 import { ROICalculator } from '@/components/ROICalculator';
@@ -86,13 +87,14 @@ export function SiteHeader() {
           </div>
         </Link>
       )}
-      {/* nav */}
-      <div className="border-b border-line/60 bg-white/80 backdrop-blur-md">
+      {/* nav — dark, so the top of every page reads as one premium block and the
+          home hero flows seamlessly into it */}
+      <div className="border-b border-white/10 bg-ink-deep/85 backdrop-blur-md">
         <nav className="mx-auto flex h-16 max-w-6xl items-center justify-between px-6" aria-label="Main">
           <Link href="/">
-            <Logo />
+            <Logo tone="light" />
           </Link>
-          <div className="hidden items-center gap-7 text-sm font-medium text-ink-muted md:flex">
+          <div className="hidden items-center gap-7 text-sm font-medium text-white/65 md:flex">
             {nav.map((l) => {
               const active = isActive(l.href);
               return (
@@ -100,12 +102,12 @@ export function SiteHeader() {
                   key={l.href}
                   href={l.href}
                   aria-current={active ? 'page' : undefined}
-                  className={`relative transition-colors ${active ? 'text-signal-deep' : 'hover:text-ink'}`}
+                  className={`relative transition-colors ${active ? 'text-clinic' : 'hover:text-white'}`}
                 >
                   {l.label}
                   <span
                     aria-hidden
-                    className={`absolute -bottom-1.5 left-0 h-0.5 rounded-full bg-signal transition-all duration-300 ${
+                    className={`absolute -bottom-1.5 left-0 h-0.5 rounded-full bg-clinic transition-all duration-300 ${
                       active ? 'w-full opacity-100' : 'w-0 opacity-0'
                     }`}
                   />
@@ -117,7 +119,7 @@ export function SiteHeader() {
             {!authed && (
               <Link
                 href="/login"
-                className="hidden text-sm font-medium text-ink-muted transition-colors hover:text-ink sm:block"
+                className="hidden text-sm font-medium text-white/65 transition-colors hover:text-white sm:block"
               >
                 Sign in
               </Link>
@@ -133,7 +135,7 @@ export function SiteHeader() {
               onClick={() => setMenuOpen((v) => !v)}
               aria-label={menuOpen ? 'Close menu' : 'Open menu'}
               aria-expanded={menuOpen}
-              className="flex h-9 w-9 items-center justify-center rounded-lg border border-line text-ink md:hidden"
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-white/20 text-white md:hidden"
             >
               <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-5 w-5">
                 {menuOpen ? (
@@ -147,14 +149,14 @@ export function SiteHeader() {
         </nav>
 
         {menuOpen && (
-          <div className="animate-fade-up border-t border-line/60 bg-white px-6 py-4 md:hidden">
+          <div className="animate-fade-up border-t border-white/10 bg-ink-deep px-6 py-4 md:hidden">
             <div className="flex flex-col gap-1">
               {nav.map((l) => (
                 <Link
                   key={l.href}
                   href={l.href}
                   onClick={() => setMenuOpen(false)}
-                  className="rounded-lg px-3 py-2.5 text-[15px] font-medium text-ink-muted transition-colors hover:bg-paper hover:text-ink"
+                  className="rounded-lg px-3 py-2.5 text-[15px] font-medium text-white/70 transition-colors hover:bg-white/5 hover:text-white"
                 >
                   {l.label}
                 </Link>
@@ -163,7 +165,7 @@ export function SiteHeader() {
                 <Link
                   href="/login"
                   onClick={() => setMenuOpen(false)}
-                  className="rounded-lg px-3 py-2.5 text-[15px] font-medium text-ink-muted transition-colors hover:bg-paper hover:text-ink"
+                  className="rounded-lg px-3 py-2.5 text-[15px] font-medium text-white/70 transition-colors hover:bg-white/5 hover:text-white"
                 >
                   Sign in
                 </Link>
@@ -181,29 +183,56 @@ export function SiteHeader() {
 export function HeroSection() {
   const { authed, primaryHref } = usePrimaryCta();
   return (
-    <section className="relative overflow-hidden px-6 pb-24 pt-12 md:pt-20">
+    <section className="relative isolate -mt-[100px] overflow-hidden bg-ink-deep px-6 pb-28 pt-[150px] md:pb-32 md:pt-[178px]">
+      {/* Cinematic glow: teal key light, warm gold kicker, deep base — against ink.
+          This dark hero is the brand's confident first impression and bookends
+          with the dark stat anchor and closing CTA for a deliberate dark rhythm.
+          The light *flows*: each blob drifts + scales on its own long, offset
+          cycle (transform-only, GPU-composited; auto-stilled for reduced motion). */}
+      <div aria-hidden className="pointer-events-none absolute inset-0 overflow-hidden">
+        {/* teal key light, top-left */}
+        <div
+          className="bg-aurora-a absolute -left-[12%] -top-[28%] h-[78vh] w-[78vh] rounded-full"
+          style={{ background: 'radial-gradient(circle, rgba(16,169,142,0.30), transparent 68%)', filter: 'blur(72px)' }}
+        />
+        {/* warm gold kicker, top-right — drifts on a different phase */}
+        <div
+          className="bg-aurora-b absolute -right-[8%] -top-[14%] h-[52vh] w-[52vh] rounded-full"
+          style={{ background: 'radial-gradient(circle, rgba(199,148,63,0.22), transparent 66%)', filter: 'blur(76px)' }}
+        />
+        {/* deep base glow, rising from the bottom */}
+        <div
+          className="bg-aurora-c absolute -bottom-[34%] left-[26%] h-[66vh] w-[66vh] rounded-full"
+          style={{ background: 'radial-gradient(circle, rgba(10,87,79,0.55), transparent 70%)', filter: 'blur(84px)' }}
+        />
+      </div>
+      {/* Faint grid texture, masked so it fades at the edges. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 [background-image:linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] [background-size:60px_60px] [mask-image:radial-gradient(75%_70%_at_50%_22%,black,transparent)]"
+      />
       <div className="relative mx-auto grid max-w-6xl items-center gap-16 lg:grid-cols-[1.05fr_0.95fr]">
         <div>
           <Reveal>
-            <span className="inline-flex items-center gap-2 rounded-full border border-signal/15 bg-white/70 px-3.5 py-1.5 text-[13px] font-medium text-signal-deep shadow-input backdrop-blur">
+            <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-3.5 py-1.5 text-[13px] font-medium text-white/85 backdrop-blur">
               <span className="relative flex h-1.5 w-1.5">
-                <span className="absolute h-full w-full animate-pulse-ring rounded-full bg-signal" />
-                <span className="relative h-1.5 w-1.5 rounded-full bg-signal" />
+                <span className="absolute h-full w-full animate-pulse-ring rounded-full bg-clinic" />
+                <span className="relative h-1.5 w-1.5 rounded-full bg-clinic" />
               </span>
               AI receptionist · answers in under a second
             </span>
           </Reveal>
           <Reveal delay={80}>
-            <h1 className="mt-6 font-display text-[46px] font-semibold leading-[1.03] tracking-[-0.035em] text-ink md:text-[68px]">
+            <h1 className="mt-6 font-display text-[46px] font-semibold leading-[1.02] tracking-[-0.035em] text-white md:text-[70px]">
               Your phone is answered.
               <br />
-              <span className="bg-gradient-to-r from-signal to-signal-deep bg-clip-text text-transparent">
+              <span className="bg-gradient-to-r from-clinic via-[#43d2b6] to-gold-light bg-clip-text text-transparent">
                 Your calendar fills itself.
               </span>
             </h1>
           </Reveal>
           <Reveal delay={160}>
-            <p className="mt-6 max-w-[500px] text-[19px] leading-relaxed text-ink-muted">
+            <p className="mt-6 max-w-[500px] text-[19px] leading-relaxed text-white/65">
               VoiceFront answers every call with a voice your customers can’t tell from a person —
               then books the appointment straight into your calendar. 24/7. No hold music. No missed revenue.
             </p>
@@ -212,13 +241,13 @@ export function HeroSection() {
             <div className="mt-9 flex flex-wrap items-center gap-3">
               <Link
                 href={primaryHref}
-                className="rounded-full bg-gradient-to-b from-signal to-signal-deep px-7 py-3.5 text-[15px] font-semibold text-white shadow-pop transition-all duration-300 ease-smooth hover:-translate-y-0.5 hover:shadow-lift active:translate-y-0"
+                className="rounded-full bg-white px-7 py-3.5 text-[15px] font-semibold text-ink shadow-lift transition-all duration-300 ease-smooth hover:-translate-y-0.5 active:translate-y-0"
               >
                 {authed ? 'Open your dashboard' : 'Get started — it’s live in minutes'}
               </Link>
               <Link
                 href="/demo"
-                className="group flex items-center gap-2 rounded-full border border-line bg-white/80 px-6 py-3.5 text-[15px] font-semibold text-ink shadow-input backdrop-blur transition-all duration-300 ease-smooth hover:-translate-y-0.5 hover:border-ink-muted/30 hover:shadow-card"
+                className="group flex items-center gap-2 rounded-full border border-white/20 bg-white/[0.06] px-6 py-3.5 text-[15px] font-semibold text-white backdrop-blur transition-all duration-300 ease-smooth hover:-translate-y-0.5 hover:bg-white/[0.12]"
               >
                 Watch it book a call
                 <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4 transition-transform duration-300 ease-smooth group-hover:translate-y-0.5">
@@ -228,12 +257,22 @@ export function HeroSection() {
             </div>
           </Reveal>
           <Reveal delay={320}>
-            <p className="mt-8 text-[13px] font-medium text-ink-muted/70">
-              Built on Vapi · OpenAI · Deepgram — the same stack behind millions of AI calls
-            </p>
+            <div className="mt-9 flex items-center gap-4">
+              <Waveform bars={14} tone="light" className="h-6 w-auto shrink-0 opacity-70" />
+              <p className="max-w-sm text-[13px] font-medium leading-snug text-white/55">
+                <span className="font-semibold text-white/90">Built on Vapi · OpenAI · Deepgram</span> — the same
+                stack behind millions of AI calls
+              </p>
+            </div>
           </Reveal>
         </div>
-        <Reveal delay={200} className="flex justify-center lg:justify-end">
+        <Reveal delay={200} className="relative isolate flex justify-center lg:justify-end">
+          {/* Premium halo: the white call card glows against the dark hero,
+              commanding attention instead of receding into a pale page. */}
+          <div
+            aria-hidden
+            className="pointer-events-none absolute -inset-10 -z-10 bg-[radial-gradient(50%_50%_at_55%_45%,rgba(16,169,142,0.32),transparent_70%),radial-gradient(42%_42%_at_82%_86%,rgba(199,148,63,0.18),transparent_70%)] blur-2xl"
+          />
           <CallCard />
         </Reveal>
       </div>
@@ -359,18 +398,33 @@ export function HowItWorksSection() {
 
 export function StatBandSection() {
   return (
-    <section className="border-y border-line/60 bg-surface/70 px-6 py-14">
-      <div className="mx-auto grid max-w-5xl gap-10 text-center sm:grid-cols-3">
-        {[
-          { n: '62%', d: 'of callers hang up on voicemail and call a competitor instead' },
-          { n: '24/7', d: 'every call answered — nights, weekends and lunch rushes included' },
-          { n: '< 1s', d: 'pickup time, before the second ring, every single time' },
-        ].map((stat, i) => (
-          <Reveal key={stat.n} delay={i * 100}>
-            <p className="font-display text-5xl font-bold tracking-tight text-ink">{stat.n}</p>
-            <p className="mx-auto mt-3 max-w-[260px] text-sm leading-relaxed text-ink-muted">{stat.d}</p>
-          </Reveal>
-        ))}
+    <section className="relative overflow-hidden bg-ink-deep px-6 py-20 md:py-24">
+      {/* Layered teal + gold glow gives the dark anchor depth without a flat fill. */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(55%_60%_at_20%_0%,rgba(16,169,142,0.18),transparent),radial-gradient(45%_55%_at_88%_100%,rgba(199,148,63,0.14),transparent)]"
+      />
+      <div className="relative mx-auto max-w-5xl">
+        <Reveal className="flex flex-col items-center text-center">
+          <Waveform bars={20} tone="gold" className="h-7 opacity-90" />
+          <p className="mt-5 text-xs font-semibold uppercase tracking-[0.18em] text-gold-light/90">
+            Why it pays for itself
+          </p>
+        </Reveal>
+        <div className="mt-12 grid gap-12 text-center sm:grid-cols-3">
+          {[
+            { n: '62%', d: 'of callers hang up on voicemail and call a competitor instead' },
+            { n: '24/7', d: 'every call answered — nights, weekends and lunch rushes included' },
+            { n: '< 1s', d: 'pickup time, before the second ring, every single time' },
+          ].map((stat, i) => (
+            <Reveal key={stat.n} delay={i * 100}>
+              <p className="bg-gradient-to-br from-white via-white to-gold-light bg-clip-text font-display text-[58px] font-bold leading-none tracking-tight text-transparent md:text-6xl">
+                {stat.n}
+              </p>
+              <p className="mx-auto mt-4 max-w-[250px] text-sm leading-relaxed text-white/55">{stat.d}</p>
+            </Reveal>
+          ))}
+        </div>
       </div>
     </section>
   );
@@ -381,14 +435,15 @@ export function StatBandSection() {
 export function LiveDemoSection() {
   const { primaryHref } = usePrimaryCta();
   return (
-    <section className="relative overflow-hidden bg-ink px-6 py-24 md:py-32">
+    <section className="relative overflow-hidden bg-ink-deep px-6 py-24 md:py-32">
       <div
         aria-hidden
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_50%_at_30%_0%,rgba(16,169,142,0.16),transparent),radial-gradient(40%_40%_at_90%_100%,rgba(14,107,99,0.16),transparent)]"
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_50%_at_25%_0%,rgba(16,169,142,0.18),transparent),radial-gradient(45%_45%_at_92%_100%,rgba(199,148,63,0.14),transparent)]"
       />
       <div className="relative mx-auto max-w-6xl">
-        <Reveal className="mx-auto max-w-2xl text-center">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-soft/70">The product, live</p>
+        <Reveal className="mx-auto flex max-w-2xl flex-col items-center text-center">
+          <Waveform bars={18} tone="gold" className="h-6 opacity-90" />
+          <p className="mt-5 text-xs font-semibold uppercase tracking-[0.16em] text-gold-light/90">The product, live</p>
           <h2 className="mt-4 font-display text-4xl font-semibold tracking-tight text-white md:text-5xl">
             Watch it book. In real time.
           </h2>
@@ -418,11 +473,15 @@ export function LiveDemoSection() {
 
 export function GettingSetUpSection() {
   return (
-    <section className="px-6 py-24 md:py-32">
-      <div className="mx-auto max-w-6xl">
+    <section className="relative overflow-hidden bg-ink-deep px-6 py-24 md:py-32">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(50%_55%_at_12%_0%,rgba(16,169,142,0.16),transparent),radial-gradient(45%_55%_at_95%_90%,rgba(199,148,63,0.13),transparent)]"
+      />
+      <div className="relative mx-auto max-w-6xl">
         <Reveal className="max-w-2xl">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-deep">Up and running</p>
-          <h2 className="mt-4 font-display text-4xl font-semibold tracking-tight md:text-[44px]">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gold-light/90">Up and running</p>
+          <h2 className="mt-4 font-display text-4xl font-semibold tracking-tight text-white md:text-[44px]">
             Live before your next missed call.
           </h2>
         </Reveal>
@@ -445,10 +504,10 @@ export function GettingSetUpSection() {
             },
           ].map((item, i) => (
             <Reveal key={item.step} delay={i * 120}>
-              <div className="group h-full rounded-3xl border border-line/70 bg-white p-8 shadow-card transition-all duration-200 hover:-translate-y-1 hover:shadow-card-hover">
-                <span className="font-mono text-sm font-semibold text-signal-deep">{item.step}</span>
-                <h3 className="mt-4 font-display text-xl font-semibold tracking-tight">{item.title}</h3>
-                <p className="mt-3 text-[15px] leading-relaxed text-ink-muted">{item.body}</p>
+              <div className="group h-full rounded-3xl border border-white/10 bg-white/[0.04] p-8 backdrop-blur-sm transition-all duration-200 hover:-translate-y-1 hover:border-white/20 hover:bg-white/[0.07]">
+                <span className="font-mono text-sm font-semibold text-gold-light">{item.step}</span>
+                <h3 className="mt-4 font-display text-xl font-semibold tracking-tight text-white">{item.title}</h3>
+                <p className="mt-3 text-[15px] leading-relaxed text-white/60">{item.body}</p>
               </div>
             </Reveal>
           ))}
@@ -659,14 +718,19 @@ export function IndustriesSection() {
 
 export function RoiSection() {
   return (
-    <section className="border-t border-line/60 px-6 py-24 md:py-32">
-      <div className="mx-auto max-w-6xl">
-        <Reveal className="mx-auto max-w-2xl text-center">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-deep">The math</p>
-          <h2 className="mt-4 font-display text-4xl font-semibold tracking-tight md:text-[44px]">
+    <section className="relative overflow-hidden bg-ink-deep px-6 py-24 md:py-32">
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(50%_55%_at_18%_5%,rgba(16,169,142,0.16),transparent),radial-gradient(45%_55%_at_88%_100%,rgba(199,148,63,0.14),transparent)]"
+      />
+      <div className="relative mx-auto max-w-6xl">
+        <Reveal className="mx-auto flex max-w-2xl flex-col items-center text-center">
+          <Waveform bars={18} tone="gold" className="h-6 opacity-90" />
+          <p className="mt-5 text-xs font-semibold uppercase tracking-[0.16em] text-gold-light/90">The math</p>
+          <h2 className="mt-4 font-display text-4xl font-semibold tracking-tight text-white md:text-[44px]">
             What are missed calls costing you?
           </h2>
-          <p className="mt-5 text-lg leading-relaxed text-ink-muted">
+          <p className="mt-5 text-lg leading-relaxed text-white/60">
             Every unanswered call is a booking that went to whoever picked up. Tell us about your
             business — the numbers are real Vancouver-area averages, and you can change any of them.
           </p>
@@ -823,12 +887,20 @@ export function FinalCtaSection() {
     <section className="px-6 py-24 md:py-28">
       <div className="mx-auto max-w-6xl">
         <Reveal>
-          <div className="relative overflow-hidden rounded-[32px] bg-gradient-to-br from-signal to-signal-deep px-8 py-16 text-center md:py-20">
+          <div className="relative overflow-hidden rounded-[32px] bg-gradient-to-br from-ink-deep via-signal-deep to-signal px-8 py-16 text-center shadow-lift ring-1 ring-inset ring-white/10 md:py-20">
             <div
               aria-hidden
-              className="pointer-events-none absolute inset-0 [background-image:radial-gradient(rgba(255,255,255,0.14)_1px,transparent_1px)] [background-size:24px_24px] [mask-image:radial-gradient(70%_70%_at_50%_50%,black,transparent)]"
+              className="pointer-events-none absolute inset-0 [background-image:radial-gradient(rgba(255,255,255,0.12)_1px,transparent_1px)] [background-size:24px_24px] [mask-image:radial-gradient(70%_70%_at_50%_50%,black,transparent)]"
             />
-            <h2 className="relative mx-auto max-w-2xl font-display text-4xl font-semibold tracking-tight text-white md:text-5xl">
+            {/* Warm gold kicker glow in the corner ties it to the brand system. */}
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-0 bg-[radial-gradient(40%_60%_at_88%_8%,rgba(199,148,63,0.22),transparent_70%)]"
+            />
+            <Reveal className="relative flex justify-center">
+              <Waveform bars={22} tone="gold" className="h-7 opacity-90" />
+            </Reveal>
+            <h2 className="relative mx-auto mt-7 max-w-2xl font-display text-4xl font-semibold tracking-tight text-white md:text-5xl">
               Stop losing calls.
               <br />
               Start booking appointments.
@@ -862,19 +934,58 @@ export function FinalCtaSection() {
 /* --------------------------------- footer --------------------------------- */
 
 export function SiteFooter() {
+  const columns: { title: string; links: { href: string; label: string }[] }[] = [
+    {
+      title: 'Product',
+      links: [
+        { href: '/product', label: 'Overview' },
+        { href: '/demo', label: 'Live demo' },
+        { href: '/pricing', label: 'Pricing' },
+        { href: '/industries', label: 'Industries' },
+      ],
+    },
+    {
+      title: 'Company',
+      links: [
+        { href: '/book', label: 'Book a call' },
+        { href: '/dashboard', label: 'Dashboard' },
+        { href: '/login', label: 'Sign in' },
+      ],
+    },
+  ];
   return (
-    <footer className="border-t border-line/60 px-6 py-10">
-      <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-6 sm:flex-row">
-        <Link href="/" aria-label="VoiceFront home">
-          <Logo size="sm" />
-        </Link>
-        <div className="flex items-center gap-6 text-sm text-ink-muted">
-          <Link href="/product" className="transition-colors hover:text-ink">Product</Link>
-          <Link href="/demo" className="transition-colors hover:text-ink">Demo</Link>
-          <Link href="/pricing" className="transition-colors hover:text-ink">Pricing</Link>
-          <Link href="/dashboard" className="transition-colors hover:text-ink">Dashboard</Link>
+    <footer className="border-t border-line/60 bg-surface/40 px-6 pb-10 pt-14">
+      <div className="mx-auto max-w-6xl">
+        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr]">
+          <div className="max-w-xs">
+            <Link href="/" aria-label="VoiceFront home" className="inline-block">
+              <Logo size="sm" />
+            </Link>
+            <p className="mt-4 text-sm leading-relaxed text-ink-muted">
+              The AI receptionist that answers every call in a human voice and books the appointment —
+              24/7, on your calendar.
+            </p>
+            <Waveform bars={18} tone="muted" className="mt-5 h-6 w-auto justify-start" />
+          </div>
+          {columns.map((col) => (
+            <div key={col.title}>
+              <p className="text-xs font-semibold uppercase tracking-[0.14em] text-ink-muted/70">{col.title}</p>
+              <ul className="mt-4 flex flex-col gap-2.5">
+                {col.links.map((l) => (
+                  <li key={l.href}>
+                    <Link href={l.href} className="text-sm text-ink-muted transition-colors hover:text-signal-deep">
+                      {l.label}
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </div>
-        <p className="text-xs text-ink-muted/70">© 2026 VoiceFront. All rights reserved.</p>
+        <div className="mt-12 flex flex-col items-center justify-between gap-3 border-t border-line/60 pt-6 sm:flex-row">
+          <p className="text-xs text-ink-muted/70">© 2026 VoiceFront. All rights reserved.</p>
+          <p className="text-xs text-ink-muted/60">Built on Vapi · OpenAI · Deepgram</p>
+        </div>
       </div>
     </footer>
   );

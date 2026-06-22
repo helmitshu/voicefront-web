@@ -11,6 +11,10 @@ const config: Config = {
           DEFAULT: '#1E2421',
           soft: '#2C332E',
           muted: '#66706B',
+          // Near-black teal-charcoal for full-bleed "anchor" sections — the dark
+          // moments that give the light pages contrast rhythm and a premium feel.
+          deep: '#0B1714',
+          deeper: '#071210',
         },
         // Warm off-white page canvas + tinted surface. `white` stays the pure
         // elevated surface; `paper` is the calm neutral behind it.
@@ -32,6 +36,16 @@ const config: Config = {
           DEFAULT: '#A56A18',
           soft: '#F6ECD9',
         },
+        // Secondary brand accent: a refined warm gold. Signals value/premium and
+        // makes numbers and key marks glow against the dark anchor sections.
+        // Used sparingly — never as a large fill. `light` is tuned to luminesce
+        // on dark; `deep` reads on the light canvas.
+        gold: {
+          DEFAULT: '#C7943F',
+          light: '#E6BE72',
+          deep: '#946C24',
+          soft: '#F4E9D3',
+        },
         danger: {
           DEFAULT: '#C0453F',
           soft: '#F8E7E5',
@@ -51,6 +65,9 @@ const config: Config = {
         lift: '0 4px 10px -4px rgba(20, 30, 25, 0.06), 0 24px 56px -20px rgba(20, 30, 25, 0.14)',
         pop: '0 1px 2px rgba(10, 87, 79, 0.20), 0 6px 18px -4px rgba(14, 107, 99, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.18)',
         input: '0 1px 2px rgba(20, 30, 25, 0.04)',
+        // Premium "halo" lift for the hero's centerpiece — a soft teal glow so
+        // the key product visual commands attention instead of receding.
+        halo: '0 2px 6px rgba(20, 30, 25, 0.05), 0 20px 50px -16px rgba(14, 107, 99, 0.30), 0 40px 90px -40px rgba(11, 23, 20, 0.30)',
       },
       transitionTimingFunction: {
         // Apple-ish ease-out: quick to start, gentle settle. Used on interactions.

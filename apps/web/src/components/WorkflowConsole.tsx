@@ -350,7 +350,7 @@ export function WorkflowConsole() {
                 bars={14}
                 active={speaking !== null}
                 tone={speaking === 'caller' ? 'muted' : 'signal'}
-                className="h-7 w-24"
+                className="h-7 w-24 justify-center"
               />
             </div>
 
