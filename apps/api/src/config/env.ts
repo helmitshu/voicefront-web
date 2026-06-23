@@ -57,6 +57,17 @@ const EnvSchema = z.object({
    * These accounts see and control every workspace on the platform.
    */
   PLATFORM_ADMIN_EMAILS: z.string().default(''),
+
+  // ── Observability ──────────────────────────────────────────────────────────
+  /** Structured-log verbosity. */
+  LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+  /**
+   * Sentry error-reporting DSN. Optional — when unset, error reporting is simply
+   * disabled (the app logs as usual). Paste your project's DSN to switch it on.
+   */
+  SENTRY_DSN: z.string().optional(),
+  /** Override the environment tag Sentry shows (defaults to NODE_ENV). */
+  SENTRY_ENVIRONMENT: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;

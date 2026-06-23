@@ -3,6 +3,7 @@ import helmet from 'helmet';
 import cors from 'cors';
 import { env, corsOrigins } from './config/env';
 import { errorHandler, notFound } from './middleware/error';
+import { requestLogger } from './middleware/request-logger';
 import { authRouter } from './routes/auth.routes';
 import { onboardingRouter } from './routes/onboarding.routes';
 import { adminRouter } from './routes/admin.routes';
@@ -47,6 +48,7 @@ export function createApp(): express.Express {
   );
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: false })); // for Twilio webhook form-posts
+  app.use(requestLogger); // correlation id + one structured line per request
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, service: 'voicefront-api' });
