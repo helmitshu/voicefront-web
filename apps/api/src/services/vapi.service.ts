@@ -2,6 +2,18 @@ import { prisma } from '../lib/prisma';
 import { HttpError } from '../lib/http';
 import { getSettingValue } from './platform-config.service';
 import { buildAssistantUpdatePayload } from '../domain/assistant-builder';
+import { isFeatureEnabled } from './features.service';
+import { parseServiceAreaZips } from '../domain/prompt-templates';
+
+/** SERVICE_AREA payload option for the persistent assistant — {} unless on + set. */
+async function serviceAreaOptions(
+  tenantId: string,
+  settings: { serviceAreaZips: unknown; serviceAreaNote: string | null },
+): Promise<{ serviceArea?: { zips: string[]; note: string | null } }> {
+  if (!(await isFeatureEnabled(tenantId, 'SERVICE_AREA'))) return {};
+  const zips = parseServiceAreaZips(settings.serviceAreaZips);
+  return zips.length > 0 ? { serviceArea: { zips, note: settings.serviceAreaNote } } : {};
+}
 
 /**
  * Outbound calls to Vapi's REST API. Used to (1) validate an assistant ID the
@@ -431,11 +443,13 @@ export async function syncAssistantForTenant(tenantId: string): Promise<SyncResu
       tenant.multiProviderEnabled,
       settings.offerProviderChoice,
     );
+    const areaOpts = await serviceAreaOptions(tenantId, settings);
     const payload = buildAssistantUpdatePayload(tenant, settings, {
       serverUrl: publicApiUrl ? `${publicApiUrl}/api/vapi/inbound` : undefined,
       serverSecret: webhookSecret ?? undefined,
       knowledgeFileIds: documents.map((d) => d.vapiFileId),
       ...providerOpts,
+      ...areaOpts,
     });
     const res = await vapiFetch(`/assistant/${encodeURIComponent(settings.assistantId)}`, {
       method: 'PATCH',
@@ -486,11 +500,13 @@ export async function createAssistantForTenant(tenantId: string): Promise<string
     providerSyncOptions(tenantId, tenant.multiProviderEnabled, settings.offerProviderChoice),
   ]);
 
+  const areaOpts = await serviceAreaOptions(tenantId, settings);
   const payload = buildAssistantUpdatePayload(tenant, settings, {
     serverUrl: publicApiUrl ? `${publicApiUrl}/api/vapi/inbound` : undefined,
     serverSecret: webhookSecret ?? undefined,
     knowledgeFileIds: documents.map((d) => d.vapiFileId),
     ...providerOpts,
+    ...areaOpts,
   });
 
   const res = await vapiFetch('/assistant', { method: 'POST', body: payload });

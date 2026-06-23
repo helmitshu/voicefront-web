@@ -31,6 +31,8 @@ import { CalendarConnectionsCard } from '@/components/agent/CalendarConnectionsC
 import { CallScreeningCard } from '@/components/agent/CallScreeningCard';
 import { FeatureTogglesCard } from '@/components/agent/FeatureTogglesCard';
 import { DispatchSettingsCard } from '@/components/agent/DispatchSettingsCard';
+import { ServiceAreaCard } from '@/components/agent/ServiceAreaCard';
+import { MissedCallCard } from '@/components/agent/MissedCallCard';
 import { BusinessHoursEditor } from '@/components/agent/BusinessHoursEditor';
 import {
   ForwardingNumbersEditor,
@@ -623,6 +625,10 @@ export default function SettingsPage() {
       <FeatureTogglesCard />
 
       <DispatchSettingsCard />
+
+      <ServiceAreaCard />
+
+      <MissedCallCard />
 
       {/* Floating save dock */}
       {!readOnly && (

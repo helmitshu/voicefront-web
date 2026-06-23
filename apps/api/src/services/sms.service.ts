@@ -2,6 +2,7 @@ import twilio from 'twilio';
 import { env } from '../config/env';
 import { prisma } from '../lib/prisma';
 import { utcToZonedParts, to12h } from './appointment.service';
+import { isFeatureEnabled } from './features.service';
 
 // ── Platform defaults ────────────────────────────────────────────────────────
 
@@ -19,6 +20,9 @@ export const DEFAULT_WAITLIST_TEMPLATE =
 
 export const DEFAULT_REACTIVATION_TEMPLATE =
   "Hi {customerName}, it's been a while since your last visit to {businessName}. We'd love to see you again — call us to book a time that works for you. Reply STOP to opt out.";
+
+export const DEFAULT_MISSED_CALL_TEMPLATE =
+  "Hi, this is {businessName} — sorry we couldn't finish up on your call just now. Reply here and we'll get someone out to help. Reply STOP to opt out.";
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -248,6 +252,45 @@ export async function sendEmergencyJobAlert(jobId: string): Promise<boolean> {
 
   await sendRaw(settings.emergencyAlertPhone, body);
   return true;
+}
+
+// ── Missed-call text-back ────────────────────────────────────────────────────
+
+/**
+ * Fire-and-forget after a call ends. Texts the caller when a connected call
+ * wrapped up with NO booking and NO job captured — i.e. they likely didn't get
+ * what they needed — so the lead isn't lost. Gated by the MISSED_CALL_TEXTBACK
+ * feature; dedup'd via CallLog.textBackSentAt so a provider webhook retry can't
+ * double-text; honors opt-out. Takes the CallLog id (returned by ingest).
+ */
+export async function maybeSendMissedCallTextBack(callLogId: string): Promise<void> {
+  const log = await prisma.callLog.findUnique({
+    where: { id: callLogId },
+    include: { tenant: { select: { companyName: true } } },
+  });
+  if (!log || !log.callerNumber || log.textBackSentAt) return;
+  if (!(await isFeatureEnabled(log.tenantId, 'MISSED_CALL_TEXTBACK'))) return;
+  if (!isSmsAvailable()) return;
+  if (await isOptedOut(log.callerNumber, log.tenantId)) return;
+
+  // Skip if the caller actually got helped on the call — a booking or a captured
+  // job under this call id means there's nothing to chase.
+  const [appt, job] = await Promise.all([
+    prisma.appointment.findFirst({ where: { tenantId: log.tenantId, externalCallId: log.externalCallId }, select: { id: true } }),
+    prisma.jobRequest.findFirst({ where: { tenantId: log.tenantId, externalCallId: log.externalCallId }, select: { id: true } }),
+  ]);
+  if (appt || job) return;
+
+  const settings = await prisma.agentSettings.findUnique({
+    where: { tenantId: log.tenantId },
+    select: { missedCallTemplate: true },
+  });
+  const body = interpolate(settings?.missedCallTemplate ?? DEFAULT_MISSED_CALL_TEMPLATE, {
+    businessName: log.tenant.companyName,
+  });
+
+  await sendRaw(log.callerNumber, body);
+  await prisma.callLog.update({ where: { id: callLogId }, data: { textBackSentAt: new Date() } });
 }
 
 // ── Reactivation / recall ────────────────────────────────────────────────────

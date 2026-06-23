@@ -13,10 +13,17 @@ import {
   providerDiscipline,
   ENDING_THE_CALL,
   JOB_INTAKE_PROMPT,
+  serviceAreaGuidance,
   wrapUpGuidance,
   type ProviderInfo,
   type ServiceInfo,
 } from './prompt-templates';
+
+/** Serviced ZIPs/cities for the SERVICE_AREA feature, threaded in by callers. */
+export interface ServiceAreaInfo {
+  zips: string[];
+  note?: string | null;
+}
 import { utcToZonedParts } from '../services/appointment.service';
 
 export type CallChannel = 'phone' | 'web';
@@ -588,6 +595,8 @@ export function buildTransientAssistant(
     providers?: ProviderInfo[];
     services?: ServiceInfo[];
     offerProviderChoice?: boolean;
+    /** SERVICE_AREA feature: serviced ZIPs/cities (only passed when on + set). */
+    serviceArea?: ServiceAreaInfo;
   } = {},
 ): TransientAssistant {
   const businessHours = parseBusinessHours(settings.businessHours);
@@ -622,6 +631,10 @@ export function buildTransientAssistant(
       // Trades job-capture guidance — only for CONSTRUCTION, so clinics never
       // pay for the extra prompt tokens (cost discipline).
       ...(tenant.industry === 'CONSTRUCTION' ? ['', JOB_INTAKE_PROMPT] : []),
+      // SERVICE_AREA feature — only when on and an area is configured.
+      ...(options.serviceArea && options.serviceArea.zips.length > 0
+        ? ['', serviceAreaGuidance(options.serviceArea.zips, options.serviceArea.note ?? null)]
+        : []),
       ...(knowledgeTool ? ['', KNOWLEDGE_PROMPT] : []),
     ].join('\n');
 
@@ -752,6 +765,8 @@ export function buildAssistantUpdatePayload(
     providers?: ProviderInfo[];
     services?: ServiceInfo[];
     offerProviderChoice?: boolean;
+    /** SERVICE_AREA feature: serviced ZIPs/cities (only passed when on + set). */
+    serviceArea?: ServiceAreaInfo;
   } = {},
 ): TransientAssistant {
   const businessHours = parseBusinessHours(settings.businessHours);
@@ -805,6 +820,10 @@ export function buildAssistantUpdatePayload(
     ENDING_THE_CALL,
     // Trades job-capture guidance — CONSTRUCTION only (cost discipline).
     ...(tenant.industry === 'CONSTRUCTION' ? ['', JOB_INTAKE_PROMPT] : []),
+    // SERVICE_AREA feature — only when on and an area is configured.
+    ...(options.serviceArea && options.serviceArea.zips.length > 0
+      ? ['', serviceAreaGuidance(options.serviceArea.zips, options.serviceArea.note ?? null)]
+      : []),
     ...(knowledgeTool ? ['', KNOWLEDGE_PROMPT] : []),
   ].join('\n');
 

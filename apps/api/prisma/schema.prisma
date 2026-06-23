@@ -281,6 +281,15 @@ model AgentSettings {
   onCallRoster               Json    @default("[]") @map("on_call_roster")
   /// Seconds to wait for a contact to accept before escalating to the next.
   dispatchEscalationSeconds  Int     @default(120)  @map("dispatch_escalation_seconds")
+  /// MISSED_CALL_TEXTBACK feature: message sent when a connected call ends with
+  /// no booking and no job captured. Null = platform default. {businessName}.
+  missedCallTemplate         String? @db.Text @map("missed_call_template")
+  /// SERVICE_AREA feature: the ZIP codes / cities the business serves, as a JSON
+  /// string array. The receptionist confirms a job address is in-area before
+  /// booking and flags out-of-area calls. Empty = no area configured.
+  serviceAreaZips            Json    @default("[]") @map("service_area_zips")
+  /// Optional human note shown alongside the area (e.g. "within 25 mi of downtown").
+  serviceAreaNote            String? @map("service_area_note")
 
   updatedAt          DateTime @updatedAt @map("updated_at")
 
@@ -749,6 +758,9 @@ model CallLog {
   markupBpsApplied  Int        @default(0) @map("markup_bps_applied")
   status            CallStatus @default(UNKNOWN)
   endedReason       String?    @map("ended_reason")
+  /// When a missed-call text-back was sent for this call (dedupe + idempotency
+  /// against provider webhook retries). Null = none sent.
+  textBackSentAt    DateTime?  @map("textback_sent_at")
   summary           String?    @db.Text
   transcript        String?    @db.Text
   /// Provider-hosted recording URL — internal only; tenants stream audio
