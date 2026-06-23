@@ -69,6 +69,21 @@ enum JobUrgency {
   ROUTINE
 }
 
+/// Field-service-management systems a tenant can connect (the FSM_INTEGRATION
+/// feature). Captured jobs are pushed into whichever one they run on.
+enum FsmProvider {
+  SERVICETITAN
+  JOBBER
+  HOUSECALL
+}
+
+/// Health of an FSM connection.
+enum FsmConnectionStatus {
+  CONNECTED
+  ERROR
+  DISCONNECTED
+}
+
 /// Lifecycle of an on-call dispatch session (one per emergency job dispatched).
 enum DispatchStatus {
   /// Actively ringing the roster, escalating on no-answer.
@@ -146,6 +161,7 @@ model Tenant {
   jobRequests   JobRequest[]
   features      TenantFeature[]
   dispatches    Dispatch[]
+  fsmConnections FsmConnection[]
 
   @@map("tenants")
 }
@@ -553,6 +569,34 @@ model DispatchAttempt {
   @@unique([dispatchId, index])
   @@index([dispatchId])
   @@map("dispatch_attempts")
+}
+
+/// A tenant's connection to a field-service-management system (ServiceTitan,
+/// Jobber, Housecall Pro) for the FSM_INTEGRATION feature. Credentials are
+/// encrypted at rest (lib/secret-box), like CalendarConnection's OAuth tokens.
+/// When `pushJobs` is on, jobs the receptionist captures are pushed into the
+/// connected system. One row per provider per tenant.
+model FsmConnection {
+  id             String              @id @default(cuid())
+  tenantId       String              @map("tenant_id")
+  tenant         Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  provider       FsmProvider
+  /// AES-256-GCM encrypted credential blob (API key / OAuth tokens), JSON-shaped
+  /// per provider. Never returned to clients.
+  credentialsEnc String              @db.Text @map("credentials_enc")
+  /// Display label for the connected account (e.g. the company/tenant name).
+  accountLabel   String?             @map("account_label")
+  status         FsmConnectionStatus @default(CONNECTED)
+  /// Last error surfaced during a connection test or push, for the UI.
+  lastError      String?             @db.Text @map("last_error")
+  /// Push captured jobs into this system.
+  pushJobs       Boolean             @default(true) @map("push_jobs")
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+
+  @@unique([tenantId, provider])
+  @@index([tenantId])
+  @@map("fsm_connections")
 }
 
 /// A tenant's connected external calendar (Google or Microsoft). OAuth tokens

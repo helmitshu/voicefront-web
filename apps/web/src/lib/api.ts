@@ -918,7 +918,7 @@ export const JobsApi = {
 
 /* ------------------------------ gated features ------------------------------ */
 
-export type FeatureKey = 'ON_CALL_DISPATCH' | 'MISSED_CALL_TEXTBACK' | 'SERVICE_AREA';
+export type FeatureKey = 'ON_CALL_DISPATCH' | 'MISSED_CALL_TEXTBACK' | 'SERVICE_AREA' | 'FSM_INTEGRATION';
 
 /** A feature's resolved state for one tenant — mirrors the API's ResolvedFeature. */
 export interface FeatureState {
@@ -941,6 +941,39 @@ export const FeaturesApi = {
   list: (signal?: AbortSignal) => api<{ features: FeatureState[] }>('/api/features', { signal }),
   setEnabled: (feature: FeatureKey, enabled: boolean) =>
     api<{ feature: FeatureState }>(`/api/features/${feature}`, { method: 'PATCH', body: { enabled } }),
+};
+
+/* --------------------------- field service software --------------------------- */
+
+export type FsmProvider = 'SERVICETITAN' | 'JOBBER' | 'HOUSECALL';
+
+export interface FsmCredentialField {
+  key: string;
+  label: string;
+  secret: boolean;
+  placeholder: string | null;
+}
+
+export interface FsmConnection {
+  provider: FsmProvider;
+  label: string;
+  connected: boolean;
+  accountLabel: string | null;
+  status: string;
+  lastError: string | null;
+  pushJobs: boolean;
+  /** Whether live job-push to this provider is wired up yet. */
+  pushReady: boolean;
+  credentialFields: FsmCredentialField[];
+}
+
+export const FsmApi = {
+  list: (signal?: AbortSignal) => api<{ connections: FsmConnection[] }>('/api/fsm', { signal }),
+  connect: (provider: FsmProvider, credentials: Record<string, string>) =>
+    api<{ connection: FsmConnection }>('/api/fsm/connect', { method: 'POST', body: { provider, credentials } }),
+  setPush: (provider: FsmProvider, pushJobs: boolean) =>
+    api<{ ok: true }>(`/api/fsm/${provider}`, { method: 'PATCH', body: { pushJobs } }),
+  disconnect: (provider: FsmProvider) => api<{ ok: true }>(`/api/fsm/${provider}`, { method: 'DELETE' }),
 };
 
 /* ----------------------------- providers/services ----------------------------- */

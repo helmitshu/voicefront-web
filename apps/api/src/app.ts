@@ -11,6 +11,7 @@ import { appointmentsRouter } from './routes/appointments.routes';
 import { jobsRouter } from './routes/jobs.routes';
 import { featuresRouter } from './routes/features.routes';
 import { dispatchRouter } from './routes/dispatch.routes';
+import { fsmRouter } from './routes/fsm.routes';
 import { callsRouter } from './routes/calls.routes';
 import { voiceRouter } from './routes/voice.routes';
 import { mediaRouter } from './routes/media.routes';
@@ -59,6 +60,7 @@ export function createApp(): express.Express {
   app.use('/api/appointments', appointmentsRouter);
   app.use('/api/jobs', jobsRouter);
   app.use('/api/features', featuresRouter);
+  app.use('/api/fsm', fsmRouter);
   app.use('/api/providers', providersRouter);
   app.use('/api/sms', smsRouter);
   app.use('/api/analytics', analyticsRouter);

@@ -5,6 +5,7 @@ import { normalizePhone } from '../lib/phone';
 import { sendEmergencyJobAlert } from './sms.service';
 import { isFeatureEnabled } from './features.service';
 import { startDispatch } from './dispatch.service';
+import { pushJobToConnectedFsms } from './fsm.service';
 
 /**
  * Job/service-request intake. For trades, most calls don't map to a fixed
@@ -51,6 +52,12 @@ export async function createJobRequest(input: CreateJobInput): Promise<JobReques
       demoSessionId: input.demoSessionId ?? null,
     },
   });
+
+  // Push every captured job into any connected field-service system (gated by
+  // the FSM_INTEGRATION feature; no-op when nothing's connected).
+  if (!job.demoSessionId) {
+    void pushJobToConnectedFsms(job.id).catch(() => {});
+  }
 
   if (job.urgency === 'EMERGENCY' && !job.demoSessionId) {
     // When on-call dispatch is on for this tenant, ring the roster (which falls
