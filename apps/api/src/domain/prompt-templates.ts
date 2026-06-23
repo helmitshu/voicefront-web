@@ -261,6 +261,28 @@ export const JOB_INTAKE_PROMPT = [
   '- If the caller is anxious or frustrated, acknowledge the feeling first ("I\'m so sorry you\'re dealing with this") before moving on. Never sound like you\'re reading a form.',
 ].join('\n');
 
+/**
+ * SERVICE_AREA feature: tells the receptionist which ZIPs/cities the business
+ * covers so it can confirm a job address is in range before booking a visit and
+ * flag out-of-area calls — without ever flatly refusing a caller. Prompt-based
+ * (not a tool) so it adds no round-trip; the model matches the address against
+ * the list it's given. Attached only when the feature is on and an area is set.
+ */
+export function serviceAreaGuidance(zips: string[], note: string | null): string {
+  return [
+    'SERVICE AREA (check before booking an on-site visit):',
+    `- This business serves: ${zips.join(', ')}${note ? ` — ${note}` : ''}.`,
+    "- When the caller gives a job address or ZIP, compare it to the area above. If it's clearly outside, kindly say it looks outside the usual service area, and offer to take their details so the team can confirm whether they can still help — don't promise a booking.",
+    "- If it's in the area, or you're not sure, carry on normally. Never refuse a caller outright; always offer to pass their details along.",
+  ].join('\n');
+}
+
+/** Coerce the AgentSettings JSON area list into a clean string array. */
+export function parseServiceAreaZips(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((v) => (typeof v === 'string' ? v.trim() : '')).filter((v) => v.length > 0);
+}
+
 /** Shared end-of-call rule: one warm goodbye, then hang up — no goodbye loops. */
 export const ENDING_THE_CALL = [
   'ENDING THE CALL:',

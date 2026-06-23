@@ -15,6 +15,7 @@
     "build": "npm run build -w apps/api && npm run build -w apps/web",
     "typecheck": "npm run typecheck -w apps/api && npm run typecheck -w apps/web",
     "test": "npm run test -w apps/api",
+    "verify": "npm run generate -w apps/api && npm run typecheck && npm test && npm run build",
     "db:setup": "npm run generate -w apps/api && npm run db:push -w apps/api && npm run db:seed -w apps/api",
     "db:migrate": "npm run db:migrate -w apps/api",
     "db:seed": "npm run db:seed -w apps/api"

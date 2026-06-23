@@ -173,6 +173,12 @@ export interface AgentSettingsDto {
   onCallRoster: { name: string; phone: string }[];
   /** Seconds to wait for a contact to accept before escalating to the next. */
   dispatchEscalationSeconds: number;
+  /** Missed-call text-back message; null = platform default. */
+  missedCallTemplate: string | null;
+  /** Serviced ZIPs/cities for the service-area check. */
+  serviceAreaZips: string[];
+  /** Optional human note shown with the service area. */
+  serviceAreaNote: string | null;
   inboundPhoneNumber: string | null;
   /** Vapi assistant assigned by the founder; read-only for the customer. */
   assistantId: string | null;
@@ -206,6 +212,9 @@ export type AgentSettingsPatch = Partial<
     | 'emergencyAlertPhone'
     | 'onCallRoster'
     | 'dispatchEscalationSeconds'
+    | 'missedCallTemplate'
+    | 'serviceAreaZips'
+    | 'serviceAreaNote'
     | 'inboundPhoneNumber'
   >
 >;

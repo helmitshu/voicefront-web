@@ -15,6 +15,7 @@ import {
 } from '../domain/agent-config';
 import { BACKGROUND_SOUNDS, VOICE_PROVIDERS, isKnownVapiVoice } from '../domain/voice-catalog';
 import { parseOnCallRoster } from '../domain/dispatch';
+import { parseServiceAreaZips } from '../domain/prompt-templates';
 import { isE164, normalizePhone } from '../lib/phone';
 import { syncAssistantForTenant } from '../services/vapi.service';
 
@@ -51,6 +52,12 @@ interface AgentSettingsDto {
   onCallRoster: { name: string; phone: string }[];
   /** Seconds to wait for a contact to accept before escalating to the next. */
   dispatchEscalationSeconds: number;
+  /** Missed-call text-back message; null = platform default. */
+  missedCallTemplate: string | null;
+  /** Serviced ZIPs/cities for the service-area check. */
+  serviceAreaZips: string[];
+  /** Optional human note shown with the service area. */
+  serviceAreaNote: string | null;
   /** E.164 number from the provider dashboard; null until assigned. */
   inboundPhoneNumber: string | null;
   /**
@@ -82,6 +89,9 @@ function toDto(settings: AgentSettings): AgentSettingsDto {
     emergencyAlertPhone: settings.emergencyAlertPhone,
     onCallRoster: parseOnCallRoster(settings.onCallRoster),
     dispatchEscalationSeconds: settings.dispatchEscalationSeconds,
+    missedCallTemplate: settings.missedCallTemplate,
+    serviceAreaZips: parseServiceAreaZips(settings.serviceAreaZips),
+    serviceAreaNote: settings.serviceAreaNote,
     inboundPhoneNumber: settings.inboundPhoneNumber,
     assistantId: settings.assistantId,
     updatedAt: settings.updatedAt.toISOString(),
@@ -165,6 +175,20 @@ const UpdateSchema = z
       )
       .max(10),
     dispatchEscalationSeconds: z.coerce.number().int().min(30).max(600),
+    // Empty string clears the custom template back to the platform default.
+    missedCallTemplate: z
+      .string()
+      .trim()
+      .max(320)
+      .transform((v) => (v.length > 0 ? v : null))
+      .nullable(),
+    serviceAreaZips: z.array(z.string().trim().min(1).max(40)).max(60),
+    serviceAreaNote: z
+      .string()
+      .trim()
+      .max(200)
+      .transform((v) => (v.length > 0 ? v : null))
+      .nullable(),
   })
   .partial()
   .refine((value) => Object.keys(value).length > 0, { message: 'Nothing to update.' });
@@ -210,6 +234,11 @@ agentRouter.patch(
     if (patch.dispatchEscalationSeconds !== undefined) {
       data.dispatchEscalationSeconds = patch.dispatchEscalationSeconds;
     }
+    if (patch.missedCallTemplate !== undefined) data.missedCallTemplate = patch.missedCallTemplate;
+    if (patch.serviceAreaZips !== undefined) {
+      data.serviceAreaZips = patch.serviceAreaZips as unknown as Prisma.InputJsonValue;
+    }
+    if (patch.serviceAreaNote !== undefined) data.serviceAreaNote = patch.serviceAreaNote;
     if (patch.inboundPhoneNumber !== undefined) data.inboundPhoneNumber = patch.inboundPhoneNumber;
     if (patch.businessHours !== undefined) {
       data.businessHours = patch.businessHours as unknown as Prisma.InputJsonValue;

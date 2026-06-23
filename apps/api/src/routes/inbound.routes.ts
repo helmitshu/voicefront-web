@@ -8,6 +8,8 @@ import { normalizePhone } from '../lib/phone';
 import { buildTransientAssistant } from '../domain/assistant-builder';
 import { ingestEndOfCallReport } from '../services/calllog.service';
 import { isOverMonthlyLimit } from '../services/usage.service';
+import { isFeatureEnabled } from '../services/features.service';
+import { parseServiceAreaZips } from '../domain/prompt-templates';
 import { screenInboundCaller, recordScreenedCall } from '../services/screening.service';
 import {
   bookAppointment,
@@ -22,7 +24,7 @@ import { getOrCreateDemoTenant, captureDemoCall, setDemoScreen, setDemoSummary }
 import { createJobRequest } from '../services/job.service';
 import { founderAvailability, bookFounderCall } from '../services/founder.service';
 import { resolveBookingContext } from '../services/providers.service';
-import { sendBookingConfirmation } from '../services/sms.service';
+import { sendBookingConfirmation, maybeSendMissedCallTextBack } from '../services/sms.service';
 
 /**
  * Provider webhook. Two jobs:
@@ -607,6 +609,9 @@ inboundRouter.post(
             })
           : Promise.resolve([] as Array<{ name: string; durationMinutes: number }>),
       ]);
+      // SERVICE_AREA feature: pass the serviced area into the prompt when it's on.
+      const serviceAreaOn = await isFeatureEnabled(settings.tenantId, 'SERVICE_AREA');
+      const areaZips = serviceAreaOn ? parseServiceAreaZips(settings.serviceAreaZips) : [];
       const assistant = buildTransientAssistant(settings.tenant, settings, 'phone', new Date(), {
         serverUrl: publicApiUrl ? `${publicApiUrl}/api/vapi/inbound` : undefined,
         serverSecret: webhookSecret ?? undefined,
@@ -614,6 +619,7 @@ inboundRouter.post(
         ...(multiProviderTenant && providers.length > 1
           ? { providers, services, offerProviderChoice: settings.offerProviderChoice }
           : {}),
+        ...(areaZips.length > 0 ? { serviceArea: { zips: areaZips, note: settings.serviceAreaNote } } : {}),
       });
       res.status(200).json({ assistant });
       return;
@@ -684,7 +690,7 @@ inboundRouter.post(
       const startedAt = parseDate(report.startedAt) ?? new Date();
       const endedAt = parseDate(report.endedAt);
       try {
-        await ingestEndOfCallReport({
+        const log = await ingestEndOfCallReport({
           tenantId,
           externalCallId,
           channel: metadata?.channel === 'web' ? 'web' : 'phone',
@@ -697,6 +703,11 @@ inboundRouter.post(
           transcript: report.artifact?.transcript ?? report.transcript ?? null,
           recordingUrl: report.artifact?.recordingUrl ?? report.recordingUrl ?? null,
         });
+        // Phone calls only: if they hung up without a booking or captured job,
+        // text them back so the lead isn't lost (gated by the feature).
+        if (metadata?.channel !== 'web') {
+          void maybeSendMissedCallTextBack(log.id).catch(() => {});
+        }
       } catch (err) {
         // Log but still 200: a poisoned report must not trigger infinite retries.
         console.error('[webhook] Failed to ingest end-of-call-report:', err);
