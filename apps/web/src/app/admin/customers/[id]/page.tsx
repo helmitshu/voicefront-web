@@ -192,7 +192,7 @@ export default function AdminCustomerDetailPage() {
     if (!tenant) return;
     if (
       !window.confirm(
-        `Permanently delete ${tenant.companyName}?\n\nThis erases the workspace, all its users, call history, and appointments. This cannot be undone.`,
+        `Delete ${tenant.companyName}?\n\nTheir team can't sign in and the receptionist stops taking calls. The data is kept and you can restore it for 30 days before it's permanently purged.`,
       )
     ) {
       return;
@@ -200,7 +200,42 @@ export default function AdminCustomerDetailPage() {
     setBusy('delete');
     try {
       await AdminApi.deleteTenant(tenantId);
-      toast(`${tenant.companyName} deleted.`, 'success');
+      toast(`${tenant.companyName} deleted — recoverable for 30 days.`, 'success');
+      load();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not delete the workspace.', 'error');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function restoreWorkspace() {
+    if (!tenant) return;
+    setBusy('restore');
+    try {
+      await AdminApi.restoreTenant(tenantId);
+      toast(`${tenant.companyName} restored.`, 'success');
+      load();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not restore.', 'error');
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function permanentlyDelete() {
+    if (!tenant) return;
+    if (
+      !window.confirm(
+        `PERMANENTLY delete ${tenant.companyName}?\n\nThis erases the workspace, all users, call history, recordings, and appointments. This CANNOT be undone.`,
+      )
+    ) {
+      return;
+    }
+    setBusy('delete');
+    try {
+      await AdminApi.permanentlyDeleteTenant(tenantId);
+      toast(`${tenant.companyName} permanently deleted.`, 'success');
       router.push('/admin/customers');
     } catch (err) {
       toast(err instanceof ApiError ? err.message : 'Could not delete the workspace.', 'error');
@@ -291,15 +326,35 @@ export default function AdminCustomerDetailPage() {
                 Block
               </Button>
             ))}
-          {isFullAdmin && (
-            <Button variant="danger" size="sm" loading={busy === 'delete'} onClick={deleteWorkspace}>
-              Delete
-            </Button>
-          )}
+          {isFullAdmin &&
+            (tenant.deletedAt ? (
+              <>
+                <Button variant="secondary" size="sm" loading={busy === 'restore'} onClick={restoreWorkspace}>
+                  Restore
+                </Button>
+                <Button variant="danger" size="sm" loading={busy === 'delete'} onClick={permanentlyDelete}>
+                  Permanently delete
+                </Button>
+              </>
+            ) : (
+              <Button variant="danger" size="sm" loading={busy === 'delete'} onClick={deleteWorkspace}>
+                Delete
+              </Button>
+            ))}
         </div>
       </div>
 
-      {tenant.blocked && (
+      {tenant.deletedAt && (
+        <p className="flex items-center gap-2.5 rounded-xl border border-construction/30 bg-construction-soft/60 px-4 py-3 text-sm text-construction">
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4 shrink-0">
+            <path d="M3 4.5h10M6 4.5V3h4v1.5M5 4.5l.5 8h5l.5-8" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
+          Deleted on {new Date(tenant.deletedAt).toLocaleDateString()} — recoverable for 30 days, then permanently
+          purged. Use “Restore” to bring it back.
+        </p>
+      )}
+
+      {tenant.blocked && !tenant.deletedAt && (
         <p className="flex items-center gap-2.5 rounded-xl border border-danger/25 bg-danger/5 px-4 py-3 text-sm text-danger">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4 shrink-0">
             <circle cx="8" cy="8" r="6" />
