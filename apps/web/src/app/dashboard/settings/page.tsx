@@ -33,6 +33,7 @@ import { FeatureTogglesCard } from '@/components/agent/FeatureTogglesCard';
 import { DispatchSettingsCard } from '@/components/agent/DispatchSettingsCard';
 import { ServiceAreaCard } from '@/components/agent/ServiceAreaCard';
 import { MissedCallCard } from '@/components/agent/MissedCallCard';
+import { FsmConnectionsCard } from '@/components/agent/FsmConnectionsCard';
 import { BusinessHoursEditor } from '@/components/agent/BusinessHoursEditor';
 import {
   ForwardingNumbersEditor,
@@ -629,6 +630,8 @@ export default function SettingsPage() {
       <ServiceAreaCard />
 
       <MissedCallCard />
+
+      <FsmConnectionsCard />
 
       {/* Floating save dock */}
       {!readOnly && (

@@ -10,7 +10,12 @@
  * AND the operator has entitled the tenant AND it is enabled.
  */
 
-export const FEATURE_KEYS = ['ON_CALL_DISPATCH', 'MISSED_CALL_TEXTBACK', 'SERVICE_AREA'] as const;
+export const FEATURE_KEYS = [
+  'ON_CALL_DISPATCH',
+  'MISSED_CALL_TEXTBACK',
+  'SERVICE_AREA',
+  'FSM_INTEGRATION',
+] as const;
 export type FeatureKey = (typeof FEATURE_KEYS)[number];
 
 /** Platform-level prerequisite a feature needs before it can run at all. */
@@ -50,6 +55,14 @@ export const FEATURES: Record<FeatureKey, FeatureMeta> = {
     label: 'Service-area check',
     description:
       'The receptionist confirms the job address is in your service area before booking, and flags out-of-area calls.',
+    requires: [],
+    industries: ['CONSTRUCTION'],
+  },
+  FSM_INTEGRATION: {
+    key: 'FSM_INTEGRATION',
+    label: 'Field service software',
+    description:
+      'Connect ServiceTitan, Jobber, or Housecall Pro so captured jobs flow straight into the system your crew already runs on.',
     requires: [],
     industries: ['CONSTRUCTION'],
   },
