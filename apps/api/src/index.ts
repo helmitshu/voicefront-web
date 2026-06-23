@@ -1,15 +1,20 @@
 import { createApp } from './app';
 import { env } from './config/env';
 import { prisma } from './lib/prisma';
+import { logger } from './lib/logger';
+import { initSentry, captureError } from './lib/sentry';
 import { startReminderJob } from './jobs/reminder.job';
 import { startReactivationJob } from './jobs/reactivation.job';
 import { startDispatchJob } from './jobs/dispatch.job';
 import { startRetentionJob } from './jobs/retention.job';
 
+// Initialise error reporting before anything else can throw.
+initSentry();
+
 const app = createApp();
 
 const server = app.listen(env.PORT, () => {
-  console.log(`✔ VoiceFront API listening on http://localhost:${env.PORT}`);
+  logger.info({ port: env.PORT }, 'VoiceFront API listening');
   startReminderJob();
   startReactivationJob();
   startDispatchJob();
@@ -17,12 +22,15 @@ const server = app.listen(env.PORT, () => {
 });
 
 // Belt-and-braces: every route is wrapped in asyncHandler, but anything that
-// escapes (timers, fire-and-forget) is logged instead of crashing silently.
+// escapes (timers, fire-and-forget) is logged + reported instead of crashing
+// silently.
 process.on('unhandledRejection', (reason) => {
-  console.error('[api] Unhandled promise rejection:', reason);
+  logger.error({ err: reason }, 'unhandled promise rejection');
+  captureError(reason);
 });
 process.on('uncaughtException', (err) => {
-  console.error('[api] Uncaught exception:', err);
+  logger.fatal({ err }, 'uncaught exception');
+  captureError(err);
   shutdown(1);
 });
 

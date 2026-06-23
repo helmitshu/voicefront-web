@@ -2,6 +2,8 @@ import type { NextFunction, Request, Response } from 'express';
 import { ZodError } from 'zod';
 import { HttpError } from '../lib/http';
 import { env } from '../config/env';
+import { logger } from '../lib/logger';
+import { captureError } from '../lib/sentry';
 
 /** Uniform JSON 404 for unknown API paths (instead of Express HTML). */
 export function notFound(_req: Request, res: Response): void {
@@ -16,7 +18,7 @@ interface ErrorBody {
  * Central error handler. Every route uses asyncHandler, so rejected promises
  * land here too — no unhandled rejections from request paths.
  */
-export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction): void {
+export function errorHandler(err: unknown, req: Request, res: Response, _next: NextFunction): void {
   if (res.headersSent) {
     // A streaming response (e.g. the media proxy) already started; the only
     // safe move is to terminate the socket.
@@ -53,7 +55,10 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
     return;
   }
 
-  console.error('[api] Unhandled error:', err);
+  // Unexpected (500-class): log with the request id and report to Sentry.
+  const log = req.log ?? logger;
+  log.error({ err, requestId: req.id, path: req.originalUrl }, 'unhandled error');
+  captureError(err, { requestId: req.id, path: req.originalUrl, method: req.method });
   res.status(500).json({
     error: {
       message: 'Something went wrong on our side. Please try again.',
