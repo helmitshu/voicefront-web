@@ -468,6 +468,8 @@ export interface AdminTenantDetail {
   monthlyMinuteLimit: number;
   usage: MonthlyUsage;
   blocked: boolean;
+  /** Set when soft-deleted (recoverable); null = live. */
+  deletedAt: string | null;
   /** Operator entitlement: multi-provider booking on/off for this customer. */
   multiProviderEnabled: boolean;
   /** Whether the customer may flip multiProviderEnabled themselves. */
@@ -556,7 +558,13 @@ export const AdminApi = {
       body: input,
     }),
   /** Permanently delete a workspace and all its data. */
+  /** Soft-delete (recoverable): blocks + marks deleted, keeps the data. */
   deleteTenant: (id: string) => api<{ ok: true }>(`/api/admin/tenants/${id}`, { method: 'DELETE' }),
+  /** Undo a soft-delete. */
+  restoreTenant: (id: string) => api<{ ok: true }>(`/api/admin/tenants/${id}/restore`, { method: 'POST' }),
+  /** Irreversible hard-delete — only allowed after a soft-delete. */
+  permanentlyDeleteTenant: (id: string) =>
+    api<{ ok: true }>(`/api/admin/tenants/${id}/permanent`, { method: 'DELETE' }),
   /** The customer's gated-feature states (entitlement, self-manage, on/off). */
   listFeatures: (tenantId: string, signal?: AbortSignal) =>
     api<{ features: FeatureState[] }>(`/api/admin/tenants/${tenantId}/features`, { signal }),

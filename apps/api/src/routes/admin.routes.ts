@@ -295,6 +295,7 @@ adminRouter.get(
         monthlyMinuteLimit: tenant.monthlyMinuteLimit,
         usage,
         blocked: tenant.isBlocked,
+        deletedAt: tenant.deletedAt ? tenant.deletedAt.toISOString() : null,
         multiProviderEnabled: tenant.multiProviderEnabled,
         multiProviderSelfManage: tenant.multiProviderSelfManage,
         createdAt: tenant.createdAt.toISOString(),
@@ -683,6 +684,13 @@ adminRouter.post(
   }),
 );
 
+/**
+ * Soft-delete: block the workspace and mark it deleted, but KEEP its data so the
+ * delete is recoverable. Login + the call webhook already refuse blocked tenants,
+ * so this fully cuts off access without new query filters. A retention job purges
+ * tenants left soft-deleted past the recovery window. The pooled number is kept
+ * reserved so a restore brings the workspace back intact.
+ */
 adminRouter.delete(
   '/tenants/:id',
   requireFullAdmin,
@@ -690,18 +698,69 @@ adminRouter.delete(
     const adminEmail = getAdminEmail(req);
     const tenant = await prisma.tenant.findUnique({
       where: { id: req.params.id },
-      select: { id: true, companyName: true, slug: true },
+      select: { id: true, companyName: true, slug: true, deletedAt: true },
     });
     if (!tenant) throw new HttpError(404, 'Workspace not found.', 'NOT_FOUND');
     if (tenant.slug === PLATFORM_TENANT_SLUG) {
       throw new HttpError(403, 'The platform workspace cannot be deleted.', 'FORBIDDEN');
     }
-    // Return any pooled number to inventory before the cascade removes the
-    // tenant (the pool link is a plain column, not an FK, so it won't cascade).
+    if (!tenant.deletedAt) {
+      await prisma.tenant.update({
+        where: { id: tenant.id },
+        data: { deletedAt: new Date(), isBlocked: true },
+      });
+      await recordAdminAction(adminEmail, 'tenant.soft_delete', tenant.companyName, {});
+    }
+    res.json({ ok: true });
+  }),
+);
+
+/** Undo a soft-delete: unblock and clear the deleted marker. */
+adminRouter.post(
+  '/tenants/:id/restore',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const adminEmail = getAdminEmail(req);
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, companyName: true, deletedAt: true },
+    });
+    if (!tenant) throw new HttpError(404, 'Workspace not found.', 'NOT_FOUND');
+    if (tenant.deletedAt) {
+      await prisma.tenant.update({
+        where: { id: tenant.id },
+        data: { deletedAt: null, isBlocked: false },
+      });
+      await recordAdminAction(adminEmail, 'tenant.restore', tenant.companyName, {});
+    }
+    res.json({ ok: true });
+  }),
+);
+
+/**
+ * Permanent, irreversible hard-delete (the old behavior) — only allowed on a
+ * workspace that's already soft-deleted, so it can't be a one-click mistake.
+ * Cascades to all child records; releases the pooled number back to inventory.
+ */
+adminRouter.delete(
+  '/tenants/:id/permanent',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const adminEmail = getAdminEmail(req);
+    const tenant = await prisma.tenant.findUnique({
+      where: { id: req.params.id },
+      select: { id: true, companyName: true, slug: true, deletedAt: true },
+    });
+    if (!tenant) throw new HttpError(404, 'Workspace not found.', 'NOT_FOUND');
+    if (tenant.slug === PLATFORM_TENANT_SLUG) {
+      throw new HttpError(403, 'The platform workspace cannot be deleted.', 'FORBIDDEN');
+    }
+    if (!tenant.deletedAt) {
+      throw new HttpError(409, 'Soft-delete the workspace first, then permanently delete it.', 'NOT_SOFT_DELETED');
+    }
     await releaseNumberForTenant(tenant.id);
-    // Cascades to users, onboarding, settings, call logs, and appointments.
     await prisma.tenant.delete({ where: { id: tenant.id } });
-    await recordAdminAction(adminEmail, 'tenant.delete', tenant.companyName, {});
+    await recordAdminAction(adminEmail, 'tenant.permanent_delete', tenant.companyName, {});
     res.json({ ok: true });
   }),
 );

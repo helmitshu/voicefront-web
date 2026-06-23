@@ -4,6 +4,7 @@ import { prisma } from './lib/prisma';
 import { startReminderJob } from './jobs/reminder.job';
 import { startReactivationJob } from './jobs/reactivation.job';
 import { startDispatchJob } from './jobs/dispatch.job';
+import { startRetentionJob } from './jobs/retention.job';
 
 const app = createApp();
 
@@ -12,6 +13,7 @@ const server = app.listen(env.PORT, () => {
   startReminderJob();
   startReactivationJob();
   startDispatchJob();
+  startRetentionJob();
 });
 
 // Belt-and-braces: every route is wrapped in asyncHandler, but anything that
