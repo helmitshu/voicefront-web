@@ -13,6 +13,7 @@ import { Input, Select } from '@/components/ui/Field';
 import { Toggle } from '@/components/ui/Toggle';
 import { Spinner } from '@/components/ui/Spinner';
 import { VoicePreviewButton } from '@/components/agent/VoicePreviewButton';
+import { FeaturesPanel } from '@/components/admin/FeaturesPanel';
 import { sampleUrlFor } from '@/domain/voice-catalog';
 
 const SUBSCRIPTION_OPTIONS = ['TRIALING', 'ACTIVE', 'PAST_DUE', 'CANCELED'] as const;
@@ -484,6 +485,9 @@ export default function AdminCustomerDetailPage() {
           </p>
         )}
       </Card>
+
+      {/* Optional gated features (full-admin only) */}
+      {isFullAdmin && <FeaturesPanel tenantId={tenantId} />}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <Card>
