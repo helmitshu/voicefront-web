@@ -76,8 +76,11 @@ jobs:
       - name: Generate Prisma client
         run: npm run generate -w apps/api
 
-      - name: Apply schema to the test database
-        run: npm run db:push -w apps/api
+      - name: Apply migrations to the test database
+        # migrate deploy (not db push) so CI validates that the committed
+        # migration files build a correct schema on a clean database — catching
+        # drift between the schema and the migrations before it hits production.
+        run: npm run db:migrate:deploy -w apps/api
 
       - name: Integration tests (advisory-lock booking concurrency)
         run: npm run test:integration -w apps/api
