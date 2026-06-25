@@ -134,8 +134,11 @@ export default function OnboardingPage() {
               personaName={settings.displayName}
               initialVoiceId={settings.voiceId}
               onTested={(view) => {
-                setOnboarding(view);
-                toast('Voice test recorded — you can activate whenever you’re ready.', 'success');
+                // Explicitly move forward to the next setup step — don't rely on
+                // an implicit index recompute (which can leave the user stuck on
+                // the test step). `advance` clamps to the next incomplete step.
+                advance(view);
+                toast('Sounds great — a couple of quick questions next.', 'success');
               }}
               onActivated={(view) => {
                 setOnboarding(view);
