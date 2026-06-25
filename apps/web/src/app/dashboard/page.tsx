@@ -15,6 +15,7 @@ import { formatCents, formatDateTime, formatDuration, formatPhone } from '@/lib/
 import { Card, CardHeader, CallStatusBadge, EmptyState, StatCard } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
+import { GoLiveGuide } from '@/components/dashboard/GoLiveGuide';
 
 export default function OverviewPage() {
   const { me } = useAuth();
@@ -81,6 +82,10 @@ export default function OverviewPage() {
         </h2>
         <p className="mt-1.5 text-sm text-ink-muted">Here&apos;s how your receptionist has been doing.</p>
       </div>
+
+      {/* Activation rescue: once live but before the first call lands, show the
+          owner the one real-world step (forward the line) + a self-test. */}
+      {inboundNumber && recent.length === 0 && <GoLiveGuide number={inboundNumber} />}
 
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard

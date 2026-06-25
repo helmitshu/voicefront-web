@@ -18,7 +18,16 @@ export function StepProfile({
 }) {
   const [displayName, setDisplayName] = useState(settings.displayName);
   const [firstMessage, setFirstMessage] = useState(settings.firstMessage);
-  const [timezone, setTimezone] = useState(settings.timezone);
+  // Pre-select the browser's timezone on first setup so the owner doesn't hunt
+  // for it. Only override the platform default — never an explicit prior choice.
+  const [timezone, setTimezone] = useState(() => {
+    if (settings.timezone !== 'America/New_York') return settings.timezone;
+    try {
+      return Intl.DateTimeFormat().resolvedOptions().timeZone || settings.timezone;
+    } catch {
+      return settings.timezone;
+    }
+  });
   const [hours, setHours] = useState<BusinessHours>(settings.businessHours);
   const [errors, setErrors] = useState<{ displayName?: string; firstMessage?: string }>({});
   const [saving, setSaving] = useState(false);
@@ -55,9 +64,9 @@ export function StepProfile({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="font-display text-xl font-semibold text-ink">Business profile</h2>
+        <h2 className="font-display text-xl font-semibold text-ink">Quick check — these look right?</h2>
         <p className="mt-1 text-sm text-ink-muted">
-          The basics: who answers, what callers hear first, and when you&apos;re open.
+          We&apos;ve pre-filled the basics for you. Tweak anything that&apos;s off, or just continue.
         </p>
       </div>
 
@@ -98,7 +107,7 @@ export function StepProfile({
 
       <div className="flex justify-end border-t border-line pt-5">
         <Button size="lg" loading={saving} onClick={save}>
-          Save &amp; continue
+          Looks good →
         </Button>
       </div>
     </div>
