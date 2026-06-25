@@ -33,6 +33,9 @@ export function StepPrompt({
   const [voicemailGreeting, setVoicemailGreeting] = useState(settings.voicemailGreeting);
   const [errors, setErrors] = useState<{ systemPrompt?: string; voicemailGreeting?: string }>({});
   const [saving, setSaving] = useState(false);
+  // The raw call script is hidden by default — most owners never need to touch
+  // it. Reveal it only if they choose to fine-tune, so the step isn't intimidating.
+  const [showScript, setShowScript] = useState(false);
 
   const template = INDUSTRY_TEMPLATES[industry];
   const count = systemPrompt.length;
@@ -76,10 +79,10 @@ export function StepPrompt({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="font-display text-xl font-semibold text-ink">Teach your receptionist</h2>
+        <h2 className="font-display text-xl font-semibold text-ink">How it handles your calls</h2>
         <p className="mt-1 text-sm text-ink-muted">
-          These instructions define how it handles every call. Start from the {template.title.toLowerCase()} template
-          and make it yours.
+          Your receptionist is already trained for your {template.title.toLowerCase()}. Here&apos;s what it does on
+          every call — leave it as-is, or fine-tune it below.
         </p>
       </div>
 
@@ -101,19 +104,30 @@ export function StepPrompt({
         </div>
       </div>
 
-      <Textarea
-        label="Call handling instructions"
-        rows={14}
-        value={systemPrompt}
-        onChange={(e) => setSystemPrompt(e.target.value)}
-        error={errors.systemPrompt}
-        className="font-mono text-sm"
-        trailing={
-          <span className={`font-mono text-xs ${counterTone}`}>
-            {count.toLocaleString()} / {MAX_PROMPT.toLocaleString()}
-          </span>
-        }
-      />
+      {showScript ? (
+        <Textarea
+          label="Call script"
+          rows={14}
+          value={systemPrompt}
+          onChange={(e) => setSystemPrompt(e.target.value)}
+          error={errors.systemPrompt}
+          hint="Plain English — write it the way you'd brief a new front-desk hire."
+          className="font-mono text-sm"
+          trailing={
+            <span className={`font-mono text-xs ${counterTone}`}>
+              {count.toLocaleString()} / {MAX_PROMPT.toLocaleString()}
+            </span>
+          }
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setShowScript(true)}
+          className="self-start text-sm font-medium text-signal-deep underline-offset-2 transition-colors hover:underline"
+        >
+          Fine-tune the call script (optional) →
+        </button>
+      )}
 
       <Textarea
         label="Voicemail greeting"
@@ -126,7 +140,7 @@ export function StepPrompt({
 
       <div className="flex justify-end border-t border-line pt-5">
         <Button size="lg" loading={saving} onClick={save}>
-          Save &amp; continue
+          Looks good →
         </Button>
       </div>
     </div>

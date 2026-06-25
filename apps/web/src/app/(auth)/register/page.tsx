@@ -75,8 +75,8 @@ export default function RegisterPage() {
     <div>
       <h1 className="font-display text-2xl font-semibold text-ink">Create your workspace</h1>
       <p className="mt-1 text-sm text-ink-muted">
-        VoiceFront is invite-only. Enter the access code we sent you after your demo, and your
-        receptionist comes pre-trained for your industry — fine-tune it in about two minutes.
+        Your receptionist comes pre-trained for your trade — you&apos;ll hear it answer a real call in
+        under two minutes, then go live. Enter the invitation code from your demo to start.
       </p>
 
       <form onSubmit={onSubmit} noValidate className="mt-8 flex flex-col gap-5">

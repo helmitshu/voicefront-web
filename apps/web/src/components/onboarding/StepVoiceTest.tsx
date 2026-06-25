@@ -170,7 +170,7 @@ export function StepVoiceTest({
   return (
     <div className="flex flex-col gap-6">
       <div>
-        <h2 className="font-display text-xl font-semibold text-ink">Hear it for yourself</h2>
+        <h2 className="font-display text-xl font-semibold text-ink">Talk to your receptionist</h2>
         <p className="mt-1 text-sm text-ink-muted">
           Talk to {personaName} right here in your browser — exactly what your callers will experience. You&apos;ll
           need to allow microphone access.
@@ -312,7 +312,7 @@ export function StepVoiceTest({
             </p>
           </div>
           <Button size="lg" loading={activating} onClick={activate}>
-            Activate my receptionist
+            Get my number &amp; go live
           </Button>
         </div>
       )}
