@@ -51,8 +51,8 @@ export async function getOnboarding(tenantId: string): Promise<OnboardingStatus>
  * the underlying data actually exists so the UI cannot skip ahead.
  */
 export async function completeStep(tenantId: string, step: OnboardingStep): Promise<OnboardingStatus> {
-  const [status, settings] = await Promise.all([
-    getOnboarding(tenantId),
+  const [, settings] = await Promise.all([
+    getOnboarding(tenantId), // ensures the onboarding row exists
     prisma.agentSettings.findUnique({ where: { tenantId } }),
   ]);
   if (!settings) {
@@ -70,9 +70,9 @@ export async function completeStep(tenantId: string, step: OnboardingStep): Prom
       });
     }
     case 'PROMPT': {
-      if (!status.hasConfiguredProfile) {
-        throw new HttpError(409, 'Finish your business profile first.', 'STEP_OUT_OF_ORDER');
-      }
+      // Steps can be completed in any order (the UI leads with the test call);
+      // each only validates its OWN data. `activate` is the gate that requires
+      // all three before going live.
       if (settings.systemPrompt.trim().length < 40) {
         throw new HttpError(
           409,
@@ -86,9 +86,7 @@ export async function completeStep(tenantId: string, step: OnboardingStep): Prom
       });
     }
     case 'VOICE_TEST': {
-      if (!status.hasConfiguredProfile || !status.hasConfiguredPrompt) {
-        throw new HttpError(409, 'Finish the earlier setup steps first.', 'STEP_OUT_OF_ORDER');
-      }
+      // No prerequisite — the test call is the first thing the user does.
       return prisma.onboardingStatus.update({
         where: { tenantId },
         data: { hasTestedVoice: true },
