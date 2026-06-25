@@ -67,13 +67,19 @@ export default function OnboardingPage() {
 
   if (!me) return <FullScreenLoader />;
 
+  // Called when a config step saves: record it, then move to the next step by
+  // POSITION (not by completedCount, which is order-dependent and would jump the
+  // user around when steps are done out of order). Once all three are done, go
+  // back to the test step where "Go live" waits.
   function advance(view: OnboardingView, updated?: AgentSettingsDto) {
     setOnboarding(view);
     if (updated) setSettings(updated);
-    const count = completedCount(view);
-    // All steps done → return to the test step where "go live" waits.
-    setIndex(count >= STEPS.length ? 0 : Math.min(count, STEPS.length - 1));
+    const allDone = view.hasTestedVoice && view.hasConfiguredProfile && view.hasConfiguredPrompt;
+    setIndex(allDone ? 0 : Math.min((index ?? currentIndex) + 1, STEPS.length - 1));
   }
+
+  // Manual navigation — the user moves between steps themselves (no auto-jumps).
+  const goTo = (i: number) => setIndex(Math.max(0, Math.min(i, STEPS.length - 1)));
 
   const step = STEPS[currentIndex];
 
@@ -98,6 +104,15 @@ export default function OnboardingPage() {
         </div>
 
         <Card className="min-h-[420px]">
+          {currentIndex > 0 && !loadError && settings && (
+            <button
+              type="button"
+              onClick={() => goTo(currentIndex - 1)}
+              className="mb-5 inline-flex items-center gap-1.5 text-sm font-medium text-ink-muted transition-colors hover:text-ink"
+            >
+              <span aria-hidden>←</span> Back
+            </button>
+          )}
           {loadError ? (
             <div className="flex flex-col items-start gap-3">
               <p className="text-sm text-danger">{loadError}</p>
@@ -133,12 +148,11 @@ export default function OnboardingPage() {
               }
               personaName={settings.displayName}
               initialVoiceId={settings.voiceId}
+              onContinue={() => goTo(currentIndex + 1)}
               onTested={(view) => {
-                // Explicitly move forward to the next setup step — don't rely on
-                // an implicit index recompute (which can leave the user stuck on
-                // the test step). `advance` clamps to the next incomplete step.
-                advance(view);
-                toast('Sounds great — a couple of quick questions next.', 'success');
+                // Record the test only — the user advances manually with Continue.
+                setOnboarding(view);
+                toast('Nice — test recorded. Continue when you’re ready.', 'success');
               }}
               onActivated={(view) => {
                 setOnboarding(view);
