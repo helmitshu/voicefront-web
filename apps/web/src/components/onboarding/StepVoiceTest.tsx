@@ -28,23 +28,18 @@ const PHASE_LABEL: Record<UiPhase, string> = {
 
 export function StepVoiceTest({
   tested,
-  canGoLive,
   personaName,
   initialVoiceId,
   onTested,
   onContinue,
-  onActivated,
   onError,
 }: {
   tested: boolean;
-  /** True only when all setup steps are done — the backend requires this to go live. */
-  canGoLive: boolean;
   personaName: string;
   initialVoiceId: string;
   onTested: (view: OnboardingView) => void;
   /** Manual "move to the next step" — the user is in control of navigation. */
   onContinue: () => void;
-  onActivated: (view: OnboardingView) => void;
   onError: (message: string) => void;
 }) {
   const [phase, setPhase] = useState<UiPhase>('idle');
@@ -53,9 +48,8 @@ export function StepVoiceTest({
   const [callError, setCallError] = useState<string | null>(null);
   const [voiceUnavailable, setVoiceUnavailable] = useState(false);
   const [marking, setMarking] = useState(false);
-  const [activating, setActivating] = useState(false);
   // The voice being tried in the simulator. Defaults to the saved voice; the
-  // founder can switch it to A/B compare, and the last pick is saved on activate.
+  // founder can switch it to A/B compare, and each pick is saved immediately.
   const [selectedVoiceId, setSelectedVoiceId] = useState(
     VAPI_VOICES.some((v) => v.id === initialVoiceId) ? initialVoiceId : VAPI_VOICES[0].id,
   );
@@ -155,19 +149,14 @@ export function StepVoiceTest({
     }
   }
 
-  async function activate() {
-    setActivating(true);
+  // Persist a voice change immediately, so going live (handled at the page
+  // level) always uses the chosen voice without any deferred-save coupling.
+  async function pickVoice(voiceId: string) {
+    setSelectedVoiceId(voiceId);
     try {
-      // Persist the voice the founder landed on before going live, so the
-      // dedicated assistant is provisioned with the chosen voice.
-      if (selectedVoiceId !== initialVoiceId) {
-        await AgentApi.update({ voiceProvider: 'vapi', voiceId: selectedVoiceId });
-      }
-      const { onboarding } = await OnboardingApi.activate();
-      onActivated(onboarding);
-    } catch (err) {
-      onError(err instanceof ApiError ? err.message : 'Could not activate. Please try again.');
-      setActivating(false);
+      await AgentApi.update({ voiceProvider: 'vapi', voiceId });
+    } catch {
+      /* best-effort; the next save will catch it */
     }
   }
 
@@ -199,7 +188,7 @@ export function StepVoiceTest({
         </div>
         <select
           value={selectedVoiceId}
-          onChange={(e) => setSelectedVoiceId(e.target.value)}
+          onChange={(e) => void pickVoice(e.target.value)}
           disabled={live}
           aria-label="Receptionist voice"
           className="mt-3 w-full rounded-xl border border-line bg-paper px-3 py-2.5 text-sm text-ink disabled:opacity-60"
@@ -308,31 +297,18 @@ export function StepVoiceTest({
         </div>
       )}
 
-      {/* Footer: go live when everything's done, otherwise a manual Continue. */}
-      {canGoLive ? (
-        <div className="flex flex-col items-start gap-3 rounded-2xl border border-clinic/30 bg-clinic-soft p-6 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <p className="font-display text-base font-semibold text-ink">Everything&apos;s ready ✓</p>
-            <p className="mt-0.5 text-sm text-ink-muted">
-              Flip the switch and {personaName} starts answering for real.
-            </p>
-          </div>
-          <Button size="lg" loading={activating} onClick={activate}>
-            Get my number &amp; go live
-          </Button>
-        </div>
-      ) : (
-        <div className="flex flex-col gap-3 border-t border-line pt-5 sm:flex-row sm:items-center sm:justify-between">
-          <p className="text-sm text-ink-muted">
-            {tested
-              ? 'Sounds great, right? Two quick steps left, then you’re live.'
-              : 'Have a quick chat with it, then continue to finish setup.'}
-          </p>
-          <Button size="lg" onClick={onContinue}>
-            Continue →
-          </Button>
-        </div>
-      )}
+      {/* Manual forward — the "go live" action lives at the page level so it's
+          available wherever the user finishes setup. */}
+      <div className="flex flex-col gap-3 border-t border-line pt-5 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-sm text-ink-muted">
+          {tested
+            ? 'Sounds great, right? Finish the quick steps and you’re ready to go live.'
+            : 'Have a quick chat with it, then continue to finish setup.'}
+        </p>
+        <Button size="lg" onClick={onContinue}>
+          Continue →
+        </Button>
+      </div>
     </div>
   );
 }

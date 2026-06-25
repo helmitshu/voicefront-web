@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
 import { useToast } from '@/components/ui/Toast';
-import { AgentApi, ApiError, type AgentSettingsDto, type OnboardingView } from '@/lib/api';
+import { AgentApi, ApiError, OnboardingApi, type AgentSettingsDto, type OnboardingView } from '@/lib/api';
 import { ProgressSteps, type StepDescriptor } from '@/components/ui/ProgressSteps';
 import { FullScreenLoader } from '@/components/ui/Spinner';
 import { Card } from '@/components/ui/Card';
@@ -36,6 +36,7 @@ export default function OnboardingPage() {
   const [settings, setSettings] = useState<AgentSettingsDto | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [index, setIndex] = useState<number | null>(null);
+  const [activating, setActivating] = useState(false);
 
   // Load the tenant's current settings once; steps edit local copies.
   useEffect(() => {
@@ -68,18 +69,35 @@ export default function OnboardingPage() {
   if (!me) return <FullScreenLoader />;
 
   // Called when a config step saves: record it, then move to the next step by
-  // POSITION (not by completedCount, which is order-dependent and would jump the
-  // user around when steps are done out of order). Once all three are done, go
-  // back to the test step where "Go live" waits.
+  // POSITION (not by completedCount, which is order-dependent). The "Go live"
+  // action is a page-level bar that appears wherever the user finishes.
   function advance(view: OnboardingView, updated?: AgentSettingsDto) {
     setOnboarding(view);
     if (updated) setSettings(updated);
-    const allDone = view.hasTestedVoice && view.hasConfiguredProfile && view.hasConfiguredPrompt;
-    setIndex(allDone ? 0 : Math.min((index ?? currentIndex) + 1, STEPS.length - 1));
+    setIndex(Math.min((index ?? currentIndex) + 1, STEPS.length - 1));
   }
 
   // Manual navigation — the user moves between steps themselves (no auto-jumps).
   const goTo = (i: number) => setIndex(Math.max(0, Math.min(i, STEPS.length - 1)));
+
+  const ob = me.onboarding;
+  const allDone = ob.hasTestedVoice && ob.hasConfiguredProfile && ob.hasConfiguredPrompt;
+  // Config finished but they haven't heard it yet — the backend won't go live
+  // without a test, so point them back to the test step.
+  const needsTest = ob.hasConfiguredProfile && ob.hasConfiguredPrompt && !ob.hasTestedVoice;
+
+  async function activate() {
+    setActivating(true);
+    try {
+      const { onboarding } = await OnboardingApi.activate();
+      setOnboarding(onboarding);
+      toast('Your receptionist is live!', 'success');
+      router.replace('/dashboard');
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not activate. Please try again.', 'error');
+      setActivating(false);
+    }
+  }
 
   const step = STEPS[currentIndex];
 
@@ -141,11 +159,6 @@ export default function OnboardingPage() {
           ) : (
             <StepVoiceTest
               tested={me.onboarding.hasTestedVoice}
-              canGoLive={
-                me.onboarding.hasTestedVoice &&
-                me.onboarding.hasConfiguredProfile &&
-                me.onboarding.hasConfiguredPrompt
-              }
               personaName={settings.displayName}
               initialVoiceId={settings.voiceId}
               onContinue={() => goTo(currentIndex + 1)}
@@ -154,16 +167,39 @@ export default function OnboardingPage() {
                 setOnboarding(view);
                 toast('Nice — test recorded. Continue when you’re ready.', 'success');
               }}
-              onActivated={(view) => {
-                setOnboarding(view);
-                toast('Your receptionist is live!', 'success');
-                router.replace('/dashboard');
-              }}
               onError={(message) => toast(message, 'error')}
             />
           )}
         </Card>
       </div>
+
+      {/* Page-level go-live — visible wherever you finish, not trapped on one step. */}
+      {allDone && (
+        <div className="mt-6 flex flex-col items-start gap-3 rounded-3xl border border-clinic/30 bg-clinic-soft p-6 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-display text-lg font-semibold text-ink">Everything&apos;s ready ✓</p>
+            <p className="mt-0.5 text-sm text-ink-muted">
+              Flip the switch and {me.tenant.companyName} starts answering for real.
+            </p>
+          </div>
+          <Button size="lg" loading={activating} onClick={activate}>
+            Get my number &amp; go live
+          </Button>
+        </div>
+      )}
+      {needsTest && (
+        <div className="mt-6 flex flex-col items-start gap-3 rounded-3xl border border-signal/25 bg-signal-soft/50 p-6 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="font-display text-lg font-semibold text-ink">One step left</p>
+            <p className="mt-0.5 text-sm text-ink-muted">
+              Hear your receptionist answer once, then you can go live.
+            </p>
+          </div>
+          <Button size="lg" onClick={() => goTo(0)}>
+            Hear it live →
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
