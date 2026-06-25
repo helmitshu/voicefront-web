@@ -74,6 +74,7 @@ export default function OnboardingPage() {
   function advance(view: OnboardingView, updated?: AgentSettingsDto) {
     setOnboarding(view);
     if (updated) setSettings(updated);
+    toast('Saved ✓', 'success');
     setIndex(Math.min((index ?? currentIndex) + 1, STEPS.length - 1));
   }
 
@@ -82,9 +83,15 @@ export default function OnboardingPage() {
 
   const ob = me.onboarding;
   const allDone = ob.hasTestedVoice && ob.hasConfiguredProfile && ob.hasConfiguredPrompt;
-  // Config finished but they haven't heard it yet — the backend won't go live
-  // without a test, so point them back to the test step.
-  const needsTest = ob.hasConfiguredProfile && ob.hasConfiguredPrompt && !ob.hasTestedVoice;
+  // Whatever steps still aren't done, in order — so we can always tell the user
+  // exactly what's left to go live (the backend requires all three). `goTo`
+  // index matches the STEPS order: 0 test, 1 profile, 2 prompt.
+  const incomplete = [
+    !ob.hasTestedVoice ? { i: 0, label: 'Hear it live' } : null,
+    !ob.hasConfiguredProfile ? { i: 1, label: 'Quick check' } : null,
+    !ob.hasConfiguredPrompt ? { i: 2, label: 'Fine-tune' } : null,
+  ].filter((x): x is { i: number; label: string } => x !== null);
+  const anyDone = ob.hasTestedVoice || ob.hasConfiguredProfile || ob.hasConfiguredPrompt;
 
   async function activate() {
     setActivating(true);
@@ -187,16 +194,18 @@ export default function OnboardingPage() {
           </Button>
         </div>
       )}
-      {needsTest && (
+      {!allDone && anyDone && incomplete.length > 0 && (
         <div className="mt-6 flex flex-col items-start gap-3 rounded-3xl border border-signal/25 bg-signal-soft/50 p-6 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="font-display text-lg font-semibold text-ink">One step left</p>
+            <p className="font-display text-lg font-semibold text-ink">
+              {incomplete.length === 1 ? 'One step left to go live' : `${incomplete.length} steps left to go live`}
+            </p>
             <p className="mt-0.5 text-sm text-ink-muted">
-              Hear your receptionist answer once, then you can go live.
+              Still to do: {incomplete.map((s) => s.label).join(', ')}.
             </p>
           </div>
-          <Button size="lg" onClick={() => goTo(0)}>
-            Hear it live →
+          <Button size="lg" onClick={() => goTo(incomplete[0].i)}>
+            {incomplete[0].label} →
           </Button>
         </div>
       )}
