@@ -32,6 +32,7 @@ export function StepVoiceTest({
   personaName,
   initialVoiceId,
   onTested,
+  onContinue,
   onActivated,
   onError,
 }: {
@@ -41,6 +42,8 @@ export function StepVoiceTest({
   personaName: string;
   initialVoiceId: string;
   onTested: (view: OnboardingView) => void;
+  /** Manual "move to the next step" — the user is in control of navigation. */
+  onContinue: () => void;
   onActivated: (view: OnboardingView) => void;
   onError: (message: string) => void;
 }) {
@@ -305,17 +308,8 @@ export function StepVoiceTest({
         </div>
       )}
 
-      {/* After the test: nudge to the quick steps, or the go-live panel once done */}
-      {tested && !canGoLive && (
-        <div className="rounded-2xl border border-signal/25 bg-signal-soft/50 p-5">
-          <p className="font-display text-base font-semibold text-ink">Sounds great, right? ✓</p>
-          <p className="mt-0.5 text-sm text-ink-muted">
-            Two quick steps left — confirm the basics and how it handles calls, then you&apos;re live. Pick them up in
-            the checklist on the left.
-          </p>
-        </div>
-      )}
-      {canGoLive && (
+      {/* Footer: go live when everything's done, otherwise a manual Continue. */}
+      {canGoLive ? (
         <div className="flex flex-col items-start gap-3 rounded-2xl border border-clinic/30 bg-clinic-soft p-6 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="font-display text-base font-semibold text-ink">Everything&apos;s ready ✓</p>
@@ -325,6 +319,17 @@ export function StepVoiceTest({
           </div>
           <Button size="lg" loading={activating} onClick={activate}>
             Get my number &amp; go live
+          </Button>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-3 border-t border-line pt-5 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm text-ink-muted">
+            {tested
+              ? 'Sounds great, right? Two quick steps left, then you’re live.'
+              : 'Have a quick chat with it, then continue to finish setup.'}
+          </p>
+          <Button size="lg" onClick={onContinue}>
+            Continue →
           </Button>
         </div>
       )}
