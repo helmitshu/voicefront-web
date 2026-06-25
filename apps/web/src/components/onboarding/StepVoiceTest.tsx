@@ -28,6 +28,7 @@ const PHASE_LABEL: Record<UiPhase, string> = {
 
 export function StepVoiceTest({
   tested,
+  canGoLive,
   personaName,
   initialVoiceId,
   onTested,
@@ -35,6 +36,8 @@ export function StepVoiceTest({
   onError,
 }: {
   tested: boolean;
+  /** True only when all setup steps are done — the backend requires this to go live. */
+  canGoLive: boolean;
   personaName: string;
   initialVoiceId: string;
   onTested: (view: OnboardingView) => void;
@@ -302,13 +305,22 @@ export function StepVoiceTest({
         </div>
       )}
 
-      {/* Activation */}
-      {tested && (
+      {/* After the test: nudge to the quick steps, or the go-live panel once done */}
+      {tested && !canGoLive && (
+        <div className="rounded-2xl border border-signal/25 bg-signal-soft/50 p-5">
+          <p className="font-display text-base font-semibold text-ink">Sounds great, right? ✓</p>
+          <p className="mt-0.5 text-sm text-ink-muted">
+            Two quick steps left — confirm the basics and how it handles calls, then you&apos;re live. Pick them up in
+            the checklist on the left.
+          </p>
+        </div>
+      )}
+      {canGoLive && (
         <div className="flex flex-col items-start gap-3 rounded-2xl border border-clinic/30 bg-clinic-soft p-6 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="font-display text-base font-semibold text-ink">Voice test complete ✓</p>
+            <p className="font-display text-base font-semibold text-ink">Everything&apos;s ready ✓</p>
             <p className="mt-0.5 text-sm text-ink-muted">
-              Everything&apos;s ready. Flip the switch and {personaName} starts answering for real.
+              Flip the switch and {personaName} starts answering for real.
             </p>
           </div>
           <Button size="lg" loading={activating} onClick={activate}>

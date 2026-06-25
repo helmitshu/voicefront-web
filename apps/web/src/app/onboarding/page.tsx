@@ -14,16 +14,17 @@ import { StepProfile } from '@/components/onboarding/StepProfile';
 import { StepPrompt } from '@/components/onboarding/StepPrompt';
 import { StepVoiceTest } from '@/components/onboarding/StepVoiceTest';
 
+// Order matters: lead with the test call (the "aha"), then the quick config.
 const STEPS: StepDescriptor[] = [
-  { key: 'PROFILE', title: 'Business profile', description: 'Name, greeting, and hours' },
-  { key: 'PROMPT', title: 'Call handling', description: 'Instructions and voicemail' },
-  { key: 'VOICE_TEST', title: 'Test & go live', description: 'Talk to your receptionist' },
+  { key: 'VOICE_TEST', title: 'Hear it live', description: 'Talk to your receptionist' },
+  { key: 'PROFILE', title: 'Quick check', description: 'Name, hours, greeting' },
+  { key: 'PROMPT', title: 'Fine-tune', description: 'How it handles your calls' },
 ];
 
 function completedCount(view: OnboardingView): number {
-  if (!view.hasConfiguredProfile) return 0;
-  if (!view.hasConfiguredPrompt) return 1;
-  if (!view.hasTestedVoice) return 2;
+  if (!view.hasTestedVoice) return 0;
+  if (!view.hasConfiguredProfile) return 1;
+  if (!view.hasConfiguredPrompt) return 2;
   return 3;
 }
 
@@ -53,7 +54,9 @@ export default function OnboardingPage() {
   }, []);
 
   const done = me ? completedCount(me.onboarding) : 0;
-  const currentIndex = index ?? Math.min(done, STEPS.length - 1);
+  // When everything's done, land on the test step (step 0) — that's where the
+  // "go live" panel lives — rather than the last config step.
+  const currentIndex = index ?? (done >= STEPS.length ? 0 : Math.min(done, STEPS.length - 1));
 
   const progressLabel = useMemo(() => {
     if (!me) return '';
@@ -67,7 +70,9 @@ export default function OnboardingPage() {
   function advance(view: OnboardingView, updated?: AgentSettingsDto) {
     setOnboarding(view);
     if (updated) setSettings(updated);
-    setIndex(Math.min(completedCount(view), STEPS.length - 1));
+    const count = completedCount(view);
+    // All steps done → return to the test step where "go live" waits.
+    setIndex(count >= STEPS.length ? 0 : Math.min(count, STEPS.length - 1));
   }
 
   const step = STEPS[currentIndex];
@@ -121,6 +126,11 @@ export default function OnboardingPage() {
           ) : (
             <StepVoiceTest
               tested={me.onboarding.hasTestedVoice}
+              canGoLive={
+                me.onboarding.hasTestedVoice &&
+                me.onboarding.hasConfiguredProfile &&
+                me.onboarding.hasConfiguredPrompt
+              }
               personaName={settings.displayName}
               initialVoiceId={settings.voiceId}
               onTested={(view) => {
