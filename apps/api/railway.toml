@@ -1,0 +1,17 @@
+# Railway service config for the VoiceFront API (config-as-code).
+#
+# Only deploy-time reliability settings are declared here so this file can't
+# clash with the build/start that Railway already detects for the service:
+#
+#  - healthcheckPath gates rollouts on /api/health, so a new deploy only takes
+#    traffic once it's actually up — a bad build can't drop live phone calls.
+#  - the restart policy brings the service back automatically if it crashes.
+#
+# NOTE: Railway applies this file from the service's configured root directory.
+# If the API service root is the repo root (not apps/api), move this file there.
+
+[deploy]
+healthcheckPath = "/api/health"
+healthcheckTimeout = 30
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 10

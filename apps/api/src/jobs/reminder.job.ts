@@ -1,5 +1,6 @@
 import cron from 'node-cron';
 import { prisma } from '../lib/prisma';
+import { runWithLease } from '../lib/job-lock';
 import { sendReminder, isSmsAvailable } from '../services/sms.service';
 
 /**
@@ -59,9 +60,13 @@ export function startReminderJob(): void {
     console.log('[sms] Twilio not configured — reminder job disabled.');
     return;
   }
-  // Every 5 minutes.
+  // Every 5 minutes. The lease ensures only one replica scans per tick, so a
+  // horizontally-scaled API never double-sends a reminder. Lease (4 min) is
+  // shorter than the interval so a healthy run frees it before the next tick.
   cron.schedule('*/5 * * * *', () => {
-    runReminderScan().catch((err) => console.error('[sms] Reminder scan error:', err));
+    void runWithLease('reminder-scan', 4 * 60_000, runReminderScan).catch((err) =>
+      console.error('[sms] Reminder scan error:', err),
+    );
   });
   console.log('[sms] Reminder job started (every 5 min).');
 }

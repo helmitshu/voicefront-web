@@ -1,5 +1,6 @@
 import cron from 'node-cron';
 import { prisma } from '../lib/prisma';
+import { runWithLease } from '../lib/job-lock';
 import { releaseNumberForTenant } from '../services/phone-pool.service';
 
 /**
@@ -54,9 +55,13 @@ async function runRetentionScan(): Promise<void> {
 }
 
 export function startRetentionJob(): void {
-  // Daily at 03:30 UTC — a quiet hour, offset from the other jobs.
+  // Daily at 03:30 UTC — a quiet hour, offset from the other jobs. Leased so a
+  // multi-replica deploy purges/scrubs once, not once per instance. 10-min lease
+  // comfortably covers the scan.
   cron.schedule('30 3 * * *', () => {
-    void runRetentionScan().catch((err) => console.error('[retention] scan failed:', err));
+    void runWithLease('retention-scan', 10 * 60_000, runRetentionScan).catch((err) =>
+      console.error('[retention] scan failed:', err),
+    );
   });
   console.log('[retention] Data-retention job started (daily at 03:30 UTC).');
 }

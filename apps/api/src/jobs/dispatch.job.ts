@@ -1,4 +1,5 @@
 import cron from 'node-cron';
+import { runWithLease } from '../lib/job-lock';
 import { isDispatchVoiceAvailable, sweepStaleDispatches } from '../services/dispatch.service';
 
 /**
@@ -12,8 +13,12 @@ export function startDispatchJob(): void {
     console.log('[dispatch] Twilio not configured — on-call dispatch sweep disabled.');
     return;
   }
+  // Every minute, but only on whichever replica wins the lease — otherwise a
+  // scaled API would escalate the same stale dispatch from several instances.
   cron.schedule('* * * * *', () => {
-    void sweepStaleDispatches().catch((err) => console.error('[dispatch] sweep failed:', err));
+    void runWithLease('dispatch-sweep', 50_000, sweepStaleDispatches).catch((err) =>
+      console.error('[dispatch] sweep failed:', err),
+    );
   });
   console.log('[dispatch] On-call dispatch escalation sweep started (every minute).');
 }
