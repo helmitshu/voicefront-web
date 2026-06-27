@@ -463,6 +463,42 @@ export async function syncAssistantForTenant(tenantId: string): Promise<SyncResu
   }
 }
 
+export interface BulkSyncResult {
+  total: number;
+  synced: number;
+  failed: number;
+  details: Array<{ company: string; synced: boolean; reason?: string }>;
+}
+
+/**
+ * Re-pushes EVERY persistent assistant's current settings to Vapi. Use after a
+ * platform-wide change (a new prompt layer, the analysis/structured-data plan,
+ * call-quality settings) so existing customers pick it up without clicking each
+ * workspace. Sequential to stay gentle on Vapi's rate limit; best-effort per
+ * tenant so one failure never stops the rest.
+ */
+export async function syncAllAssistants(): Promise<BulkSyncResult> {
+  if (!(await privateKey())) {
+    throw new HttpError(503, 'No Vapi private key is configured, so there is nothing to sync.', 'CONFIG_MISSING');
+  }
+  const tenants = await prisma.tenant.findMany({
+    where: { deletedAt: null, agentSettings: { assistantId: { not: null } } },
+    select: { id: true, companyName: true },
+    orderBy: { companyName: 'asc' },
+  });
+
+  const details: BulkSyncResult['details'] = [];
+  let synced = 0;
+  let failed = 0;
+  for (const t of tenants) {
+    const r = await syncAssistantForTenant(t.id);
+    if (r.synced) synced += 1;
+    else failed += 1;
+    details.push({ company: t.companyName, synced: r.synced, reason: r.reason });
+  }
+  return { total: tenants.length, synced, failed, details };
+}
+
 /**
  * Creates a dedicated persistent Vapi assistant for a tenant from their current
  * settings (Maya's shared tuning + the tenant's industry script, voice, and
