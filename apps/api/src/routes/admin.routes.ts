@@ -70,6 +70,7 @@ import {
   syncAssistantForTenant,
   validateAssistant,
 } from '../services/vapi.service';
+import { resolveWebhookUrl } from '../lib/webhook-url';
 import {
   bulkLeads,
   deleteLead,
@@ -817,22 +818,27 @@ adminRouter.get(
   '/settings',
   requireFullAdmin,
   asyncHandler(async (_req, res) => {
-    const settings = await Promise.all(
-      SETTING_KEYS.map(async (key) => {
-        const meta = SETTING_META[key];
-        const resolved = await getSetting(key);
-        return {
-          key,
-          label: meta.label,
-          description: meta.description,
-          secret: meta.secret,
-          placeholder: meta.placeholder,
-          source: resolved.source,
-          preview: resolved.value === null ? null : meta.secret ? '••••••••' : maskValue(resolved.value),
-        };
-      }),
-    );
-    res.json({ settings });
+    const [settings, webhook] = await Promise.all([
+      Promise.all(
+        SETTING_KEYS.map(async (key) => {
+          const meta = SETTING_META[key];
+          const resolved = await getSetting(key);
+          return {
+            key,
+            label: meta.label,
+            description: meta.description,
+            secret: meta.secret,
+            placeholder: meta.placeholder,
+            source: resolved.source,
+            preview: resolved.value === null ? null : meta.secret ? '••••••••' : maskValue(resolved.value),
+          };
+        }),
+      ),
+      // The effective webhook URL Vapi is (or will be) told, so the operator can
+      // see at a glance whether calls run on the stable cloud domain or a tunnel.
+      resolveWebhookUrl(),
+    ]);
+    res.json({ settings, webhook });
   }),
 );
 

@@ -56,9 +56,9 @@ export const SETTING_META: Record<
   PUBLIC_API_URL: {
     label: 'Public API URL',
     description:
-      'The public https address of this server (your ngrok URL in local dev). Needed so booking tools work on browser test calls.',
+      'The public https address of this server, used for the Vapi webhook. On Railway it auto-derives from the service domain — leave this blank in production. Set it only for local development (e.g. an ngrok/cloudflared tunnel) so browser test calls and booking tools can reach your machine.',
     secret: false,
-    placeholder: 'https://your-subdomain.ngrok.io',
+    placeholder: 'Blank on Railway · locally e.g. https://abc123.ngrok-free.app',
   },
   GOOGLE_OAUTH_CLIENT_ID: {
     label: 'Google OAuth client ID',

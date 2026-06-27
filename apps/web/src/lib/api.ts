@@ -518,6 +518,15 @@ export interface AdminSetting {
   preview: string | null;
 }
 
+/** The effective Vapi webhook URL + whether it's safe for production calls. */
+export interface AdminWebhookInfo {
+  baseUrl: string | null;
+  webhookUrl: string | null;
+  host: string | null;
+  productionSafe: boolean;
+  reason: string | null;
+}
+
 export interface AdminAuditEntry {
   id: string;
   adminEmail: string;
@@ -609,7 +618,7 @@ export const AdminApi = {
       method: 'POST',
     }),
   settings: (signal?: AbortSignal) =>
-    api<{ settings: AdminSetting[] }>('/api/admin/settings', { signal }),
+    api<{ settings: AdminSetting[]; webhook: AdminWebhookInfo }>('/api/admin/settings', { signal }),
   setSetting: (key: string, value: string) =>
     api<{ ok: true }>(`/api/admin/settings/${key}`, { method: 'PATCH', body: { value } }),
   unsetSetting: (key: string) =>
