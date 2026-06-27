@@ -17,9 +17,37 @@ const RANGE_OPTIONS = [
   { value: 'all', label: 'All time' },
 ] as const;
 
+const OUTCOME_OPTIONS = [
+  { value: '', label: 'Any outcome' },
+  { value: 'BOOKED', label: 'Booked' },
+  { value: 'JOB_LOGGED', label: 'Job logged' },
+  { value: 'MESSAGE_TAKEN', label: 'Message taken' },
+  { value: 'TRANSFERRED', label: 'Transferred' },
+  { value: 'RESCHEDULED', label: 'Rescheduled' },
+  { value: 'CANCELLED', label: 'Cancelled' },
+  { value: 'NO_ACTION', label: 'No action' },
+] as const;
+
+const URGENCY_OPTIONS = [
+  { value: '', label: 'Any urgency' },
+  { value: 'EMERGENCY', label: 'Emergency' },
+  { value: 'URGENT', label: 'Urgent' },
+  { value: 'ROUTINE', label: 'Routine' },
+] as const;
+
+const LEAD_OPTIONS = [
+  { value: '', label: 'Any lead' },
+  { value: 'HOT', label: 'Hot lead' },
+  { value: 'WARM', label: 'Warm lead' },
+  { value: 'COLD', label: 'Cold lead' },
+] as const;
+
 export default function CallsPage() {
   const [search, setSearch] = useState('');
   const [range, setRange] = useState<string>('30');
+  const [outcome, setOutcome] = useState('');
+  const [urgency, setUrgency] = useState('');
+  const [lead, setLead] = useState('');
   const [page, setPage] = useState(1);
   const [result, setResult] = useState<ListCallsResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -49,6 +77,9 @@ export default function CallsPage() {
         perPage: 15,
         search: debouncedSearch || undefined,
         sinceDays: range === 'all' ? undefined : Number(range),
+        outcome: outcome || undefined,
+        urgency: urgency || undefined,
+        leadQuality: lead || undefined,
       },
       controller.signal,
     )
@@ -62,7 +93,13 @@ export default function CallsPage() {
         setLoading(false);
       });
     return () => controller.abort();
-  }, [page, debouncedSearch, range]);
+  }, [page, debouncedSearch, range, outcome, urgency, lead]);
+
+  // Changing any outcome filter jumps back to the first page of results.
+  function setFilter(setter: (v: string) => void, value: string) {
+    setter(value);
+    setPage(1);
+  }
 
   return (
     <div className="flex animate-fade-up flex-col gap-6">
@@ -100,6 +137,45 @@ export default function CallsPage() {
         </div>
       </div>
 
+      {/* Outcome filters — powered by the AI-extracted call data. */}
+      <div className="flex flex-col gap-3 sm:flex-row">
+        <div className="sm:w-48">
+          <Select aria-label="Filter by outcome" value={outcome} onChange={(e) => setFilter(setOutcome, e.target.value)}>
+            {OUTCOME_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </Select>
+        </div>
+        <div className="sm:w-44">
+          <Select aria-label="Filter by urgency" value={urgency} onChange={(e) => setFilter(setUrgency, e.target.value)}>
+            {URGENCY_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </Select>
+        </div>
+        <div className="sm:w-44">
+          <Select aria-label="Filter by lead quality" value={lead} onChange={(e) => setFilter(setLead, e.target.value)}>
+            {LEAD_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </Select>
+        </div>
+        {(outcome || urgency || lead) && (
+          <button
+            type="button"
+            onClick={() => {
+              setOutcome('');
+              setUrgency('');
+              setLead('');
+              setPage(1);
+            }}
+            className="self-start text-sm font-medium text-ink-muted transition-colors hover:text-ink sm:self-center"
+          >
+            Clear filters
+          </button>
+        )}
+      </div>
+
       <Card padded={false} className="overflow-hidden">
         {error ? (
           <div className="p-6">
@@ -120,10 +196,10 @@ export default function CallsPage() {
         ) : result && result.calls.length === 0 ? (
           <div className="p-6">
             <EmptyState
-              title={debouncedSearch ? 'No calls match your search' : 'No calls in this period'}
+              title={debouncedSearch || outcome || urgency || lead ? 'No calls match your filters' : 'No calls in this period'}
               description={
-                debouncedSearch
-                  ? 'Try a different number or keyword.'
+                debouncedSearch || outcome || urgency || lead
+                  ? 'Try widening the date range or clearing a filter.'
                   : 'Calls will appear here as soon as your receptionist answers one.'
               }
             />

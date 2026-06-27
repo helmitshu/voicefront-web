@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { AnalyticsApi, ApiError, type AnalyticsOverview } from '@/lib/api';
-import { Card, CardHeader, EmptyState, StatCard } from '@/components/ui/Card';
+import { Badge, Card, CardHeader, EmptyState, StatCard } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 
@@ -95,6 +95,15 @@ function Overview({ data }: { data: AnalyticsOverview }) {
     estimatedRevenue: 0,
     afterHoursCalls: 0,
     afterHoursBookings: 0,
+  };
+  const co = data.callOutcomes ?? {
+    analyzedCalls: 0,
+    byOutcome: { BOOKED: 0, RESCHEDULED: 0, CANCELLED: 0, JOB_LOGGED: 0, MESSAGE_TAKEN: 0, TRANSFERRED: 0, NO_ACTION: 0 },
+    urgency: { emergency: 0, urgent: 0, routine: 0 },
+    leads: { hot: 0, warm: 0, cold: 0 },
+    avgQualityScore: null,
+    scoredCalls: 0,
+    qualityTrend: [],
   };
 
   return (
@@ -220,7 +229,140 @@ function Overview({ data }: { data: AnalyticsOverview }) {
               <SourceSplit source={data.bookingsBySource} />
             </Card>
           </div>
+
+          {/* AI call-outcome analytics — what callers needed and how well it went */}
+          {co.analyzedCalls > 0 && (
+            <div className="grid gap-6 lg:grid-cols-2">
+              <Card>
+                <CardHeader
+                  title="What callers needed"
+                  description={`How your receptionist handled ${co.analyzedCalls} analyzed call${co.analyzedCalls === 1 ? '' : 's'}.`}
+                />
+                <OutcomeBreakdown byOutcome={co.byOutcome} urgency={co.urgency} leads={co.leads} />
+              </Card>
+              <Card>
+                <CardHeader title="Agent quality" description="Average score the AI gave each handled call (1–10)." />
+                <QualityCard avgScore={co.avgQualityScore} scoredCalls={co.scoredCalls} trend={co.qualityTrend} />
+              </Card>
+            </div>
+          )}
         </>
+      )}
+    </div>
+  );
+}
+
+/* ── AI call-outcome breakdown ─────────────────────────────────────────────── */
+const OUTCOME_SEGMENTS: Array<{ key: keyof AnalyticsOverview['callOutcomes']['byOutcome']; label: string; color: string }> = [
+  { key: 'BOOKED', label: 'Booked', color: 'bg-signal' },
+  { key: 'JOB_LOGGED', label: 'Job logged', color: 'bg-clinic' },
+  { key: 'TRANSFERRED', label: 'Transferred', color: 'bg-signal-deep' },
+  { key: 'MESSAGE_TAKEN', label: 'Message taken', color: 'bg-ink-muted/50' },
+  { key: 'RESCHEDULED', label: 'Rescheduled', color: 'bg-construction' },
+  { key: 'CANCELLED', label: 'Cancelled', color: 'bg-construction/60' },
+  { key: 'NO_ACTION', label: 'No action', color: 'bg-danger/70' },
+];
+
+function OutcomeBreakdown({
+  byOutcome,
+  urgency,
+  leads,
+}: {
+  byOutcome: AnalyticsOverview['callOutcomes']['byOutcome'];
+  urgency: AnalyticsOverview['callOutcomes']['urgency'];
+  leads: AnalyticsOverview['callOutcomes']['leads'];
+}) {
+  const segments = OUTCOME_SEGMENTS.map((s) => ({ ...s, value: byOutcome[s.key] }));
+  const total = segments.reduce((s, x) => s + x.value, 0);
+  return (
+    <div className="flex flex-col gap-4">
+      {total > 0 ? (
+        <>
+          <div className="flex h-3 w-full overflow-hidden rounded-full bg-paper ring-1 ring-inset ring-ink/5">
+            {segments.map((s) =>
+              s.value > 0 ? (
+                <div key={s.key} className={s.color} style={{ width: `${(s.value / total) * 100}%` }} title={`${s.label}: ${s.value}`} />
+              ) : null,
+            )}
+          </div>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-2">
+            {segments
+              .filter((s) => s.value > 0)
+              .map((s) => (
+                <div key={s.key} className="flex items-center justify-between gap-2 text-sm">
+                  <span className="inline-flex items-center gap-2 text-ink-muted">
+                    <span className={`h-2.5 w-2.5 rounded-sm ${s.color}`} aria-hidden />
+                    {s.label}
+                  </span>
+                  <span className="font-semibold tabular-nums text-ink">{s.value}</span>
+                </div>
+              ))}
+          </div>
+        </>
+      ) : (
+        <p className="text-sm text-ink-muted">No call outcomes recorded in this window yet.</p>
+      )}
+      {(urgency.emergency > 0 || urgency.urgent > 0 || leads.hot > 0) && (
+        <div className="flex flex-wrap gap-2 border-t border-line/60 pt-4">
+          {urgency.emergency > 0 && <Badge tone="danger" dot>{urgency.emergency} emergency</Badge>}
+          {urgency.urgent > 0 && <Badge tone="warning" dot>{urgency.urgent} urgent</Badge>}
+          {leads.hot > 0 && <Badge tone="success">{leads.hot} hot lead{leads.hot === 1 ? '' : 's'}</Badge>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ── Agent quality score + trend ───────────────────────────────────────────── */
+function QualityCard({
+  avgScore,
+  scoredCalls,
+  trend,
+}: {
+  avgScore: number | null;
+  scoredCalls: number;
+  trend: AnalyticsOverview['callOutcomes']['qualityTrend'];
+}) {
+  if (avgScore == null || scoredCalls === 0) {
+    return <p className="text-sm text-ink-muted">No quality scores recorded in this window yet.</p>;
+  }
+  const tone = avgScore >= 8 ? 'text-[#0b8a74]' : avgScore >= 5 ? 'text-[#9a6a1d]' : 'text-danger';
+  const scored = trend.filter((t) => t.avgScore != null);
+  const tickEvery = Math.max(1, Math.round(trend.length / 6));
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="flex items-baseline gap-2">
+        <span className={`font-display text-[40px] font-bold leading-none tracking-tight ${tone}`}>{avgScore}</span>
+        <span className="text-lg text-ink-muted">/ 10</span>
+        <span className="ml-auto text-[13px] text-ink-muted">
+          across {scoredCalls} scored call{scoredCalls === 1 ? '' : 's'}
+        </span>
+      </div>
+      {scored.length > 0 && (
+        <div>
+          <div className="flex h-24 items-end gap-[3px]">
+            {trend.map((t) => (
+              <div key={t.date} className="group relative flex h-full flex-1 items-end justify-center">
+                <div
+                  className="w-full rounded-t bg-signal/80 transition-colors group-hover:bg-signal-deep"
+                  style={{ height: t.avgScore != null ? `${(t.avgScore / 10) * 100}%` : '0', minHeight: t.avgScore != null ? '3px' : '0' }}
+                />
+                {t.avgScore != null && (
+                  <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 hidden -translate-x-1/2 whitespace-nowrap rounded-lg bg-ink px-2 py-1 text-[11px] text-white shadow-lift group-hover:block">
+                    {fmtDay(t.date)} · {t.avgScore}/10
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="mt-2 flex justify-between text-[10px] text-ink-muted/70">
+            {trend.map((t, i) => (
+              <span key={t.date} className="flex-1 text-center">
+                {i % tickEvery === 0 ? fmtDay(t.date) : ''}
+              </span>
+            ))}
+          </div>
+        </div>
       )}
     </div>
   );

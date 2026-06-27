@@ -29,6 +29,27 @@ export interface AnalyticsOverview {
   byHour: { hour: number; bookings: number }[];
   /** Bookings grouped by local weekday (0=Sun .. 6=Sat). */
   byWeekday: { weekday: number; bookings: number }[];
+  /**
+   * AI call-outcome aggregates (from structuredDataPlan / successEvaluation).
+   * Only counts calls that actually carry an extracted outcome, so the share
+   * math isn't diluted by older un-analyzed calls.
+   */
+  callOutcomes: {
+    /** Calls in the window that have an extracted outcome. */
+    analyzedCalls: number;
+    /** Count per outcome enum (only the seven known values). */
+    byOutcome: { BOOKED: number; RESCHEDULED: number; CANCELLED: number; JOB_LOGGED: number; MESSAGE_TAKEN: number; TRANSFERRED: number; NO_ACTION: number };
+    /** Urgent-work signal — emergencies/urgent jobs the agent caught. */
+    urgency: { emergency: number; urgent: number; routine: number };
+    /** Sales-lead quality breakdown. */
+    leads: { hot: number; warm: number; cold: number };
+    /** Average agent quality score (1–10) over scored calls, or null. */
+    avgQualityScore: number | null;
+    /** How many calls carried a quality score. */
+    scoredCalls: number;
+    /** Per-day average quality (null on days with no scored calls). */
+    qualityTrend: { date: string; avgScore: number | null }[];
+  };
   /** ROI: dollar value the receptionist captured + after-hours catch. */
   revenue: {
     /** Owner-set average revenue per appointment, whole dollars. */
@@ -60,7 +81,7 @@ export async function getAnalyticsOverview(
   const [calls, bookings, settings] = await Promise.all([
     prisma.callLog.findMany({
       where: { tenantId, startedAt: { gte: since } },
-      select: { startedAt: true },
+      select: { startedAt: true, outcome: true, urgency: true, leadQuality: true, successScore: true },
       take: 10000,
     }),
     prisma.appointment.findMany({
@@ -84,15 +105,40 @@ export async function getAnalyticsOverview(
   let capturedBookings = 0;
 
   // ── Seed the daily series so empty days render as zero, not gaps ──────────
-  const dayBuckets = new Map<string, { calls: number; bookings: number }>();
+  const dayBuckets = new Map<string, { calls: number; bookings: number; scoreSum: number; scoreCount: number }>();
   for (let i = rangeDays - 1; i >= 0; i--) {
-    dayBuckets.set(utcDayKey(new Date(Date.now() - i * DAY_MS)), { calls: 0, bookings: 0 });
+    dayBuckets.set(utcDayKey(new Date(Date.now() - i * DAY_MS)), { calls: 0, bookings: 0, scoreSum: 0, scoreCount: 0 });
   }
+
+  // ── AI call-outcome aggregates ────────────────────────────────────────────
+  const byOutcome = { BOOKED: 0, RESCHEDULED: 0, CANCELLED: 0, JOB_LOGGED: 0, MESSAGE_TAKEN: 0, TRANSFERRED: 0, NO_ACTION: 0 };
+  const urgencyAgg = { emergency: 0, urgent: 0, routine: 0 };
+  const leadsAgg = { hot: 0, warm: 0, cold: 0 };
+  let analyzedCalls = 0;
+  let scoreSumAll = 0;
+  let scoredCalls = 0;
 
   for (const c of calls) {
     const bucket = dayBuckets.get(utcDayKey(c.startedAt));
     if (bucket) bucket.calls += 1;
     if (isAfterHours(c.startedAt)) afterHoursCalls += 1;
+
+    if (c.outcome || c.urgency || c.leadQuality || c.successScore != null) analyzedCalls += 1;
+    if (c.outcome && c.outcome in byOutcome) byOutcome[c.outcome as keyof typeof byOutcome] += 1;
+    if (c.urgency === 'EMERGENCY') urgencyAgg.emergency += 1;
+    else if (c.urgency === 'URGENT') urgencyAgg.urgent += 1;
+    else if (c.urgency === 'ROUTINE') urgencyAgg.routine += 1;
+    if (c.leadQuality === 'HOT') leadsAgg.hot += 1;
+    else if (c.leadQuality === 'WARM') leadsAgg.warm += 1;
+    else if (c.leadQuality === 'COLD') leadsAgg.cold += 1;
+    if (c.successScore != null) {
+      scoreSumAll += c.successScore;
+      scoredCalls += 1;
+      if (bucket) {
+        bucket.scoreSum += c.successScore;
+        bucket.scoreCount += 1;
+      }
+    }
   }
 
   const bookingsBySource = { voice: 0, manual: 0 };
@@ -130,6 +176,10 @@ export async function getAnalyticsOverview(
     calls: v.calls,
     bookings: v.bookings,
   }));
+  const qualityTrend = Array.from(dayBuckets.entries()).map(([date, v]) => ({
+    date,
+    avgScore: v.scoreCount > 0 ? Math.round((v.scoreSum / v.scoreCount) * 10) / 10 : null,
+  }));
 
   const attended = bookingsByStatus.completed + bookingsByStatus.noShow;
   const noShowRate = attended > 0 ? bookingsByStatus.noShow / attended : 0;
@@ -146,6 +196,15 @@ export async function getAnalyticsOverview(
     daily,
     byHour,
     byWeekday,
+    callOutcomes: {
+      analyzedCalls,
+      byOutcome,
+      urgency: urgencyAgg,
+      leads: leadsAgg,
+      avgQualityScore: scoredCalls > 0 ? Math.round((scoreSumAll / scoredCalls) * 10) / 10 : null,
+      scoredCalls,
+      qualityTrend,
+    },
     revenue: {
       avgAppointmentValue,
       capturedBookings,

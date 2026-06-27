@@ -184,6 +184,12 @@ export interface ListCallsParams {
   perPage: number;
   search?: string;
   sinceDays?: number;
+  /** Filter by AI-extracted outcome enum (validated against the allow-list). */
+  outcome?: string;
+  /** Filter by urgency enum. */
+  urgency?: string;
+  /** Filter by lead-quality enum. */
+  leadQuality?: string;
 }
 
 export interface ListCallsResult {
@@ -206,6 +212,14 @@ export async function listCalls(params: ListCallsParams): Promise<ListCallsResul
       { summary: { contains: q, mode: 'insensitive' } },
     ];
   }
+  // Outcome filters — only applied when the value is a known enum, so a junk
+  // query param can never silently return everything-or-nothing.
+  const outcome = pickEnum(params.outcome, OUTCOMES);
+  if (outcome) where.outcome = outcome;
+  const urgency = pickEnum(params.urgency, URGENCIES);
+  if (urgency) where.urgency = urgency;
+  const leadQuality = pickEnum(params.leadQuality, LEAD_QUALITIES);
+  if (leadQuality) where.leadQuality = leadQuality;
 
   const [total, rows] = await prisma.$transaction([
     prisma.callLog.count({ where }),
