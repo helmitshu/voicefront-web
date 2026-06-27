@@ -1170,12 +1170,26 @@ export const CalendarApi = {
 };
 
 export const CallsApi = {
-  list: (params: { page?: number; perPage?: number; search?: string; sinceDays?: number }, signal?: AbortSignal) => {
+  list: (
+    params: {
+      page?: number;
+      perPage?: number;
+      search?: string;
+      sinceDays?: number;
+      outcome?: string;
+      urgency?: string;
+      leadQuality?: string;
+    },
+    signal?: AbortSignal,
+  ) => {
     const query = new URLSearchParams();
     if (params.page) query.set('page', String(params.page));
     if (params.perPage) query.set('perPage', String(params.perPage));
     if (params.search) query.set('search', params.search);
     if (params.sinceDays) query.set('sinceDays', String(params.sinceDays));
+    if (params.outcome) query.set('outcome', params.outcome);
+    if (params.urgency) query.set('urgency', params.urgency);
+    if (params.leadQuality) query.set('leadQuality', params.leadQuality);
     const qs = query.toString();
     return api<ListCallsResult>(`/api/calls${qs ? `?${qs}` : ''}`, { signal });
   },
@@ -1229,6 +1243,23 @@ export interface AnalyticsOverview {
   daily: { date: string; calls: number; bookings: number }[];
   byHour: { hour: number; bookings: number }[];
   byWeekday: { weekday: number; bookings: number }[];
+  callOutcomes: {
+    analyzedCalls: number;
+    byOutcome: {
+      BOOKED: number;
+      RESCHEDULED: number;
+      CANCELLED: number;
+      JOB_LOGGED: number;
+      MESSAGE_TAKEN: number;
+      TRANSFERRED: number;
+      NO_ACTION: number;
+    };
+    urgency: { emergency: number; urgent: number; routine: number };
+    leads: { hot: number; warm: number; cold: number };
+    avgQualityScore: number | null;
+    scoredCalls: number;
+    qualityTrend: { date: string; avgScore: number | null }[];
+  };
   revenue: {
     avgAppointmentValue: number;
     capturedBookings: number;
