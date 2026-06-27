@@ -99,7 +99,14 @@ const EndOfCallSchema = z
     endedAt: z.string().optional(),
     endedReason: z.string().optional(),
     summary: z.string().optional(),
-    analysis: z.object({ summary: z.string().optional() }).passthrough().optional(),
+    analysis: z
+      .object({
+        summary: z.string().optional(),
+        structuredData: z.record(z.unknown()).optional(),
+        successEvaluation: z.union([z.string(), z.number()]).optional(),
+      })
+      .passthrough()
+      .optional(),
     artifact: z
       .object({ recordingUrl: z.string().optional(), transcript: z.string().optional() })
       .passthrough()
@@ -702,6 +709,8 @@ inboundRouter.post(
           summary: report.analysis?.summary ?? report.summary ?? null,
           transcript: report.artifact?.transcript ?? report.transcript ?? null,
           recordingUrl: report.artifact?.recordingUrl ?? report.recordingUrl ?? null,
+          structuredData: report.analysis?.structuredData ?? null,
+          successEvaluation: report.analysis?.successEvaluation ?? null,
         });
         // Phone calls only: if they hung up without a booking or captured job,
         // text them back so the lead isn't lost (gated by the feature).

@@ -76,10 +76,20 @@ export interface TransientAssistant {
    *  robocalls fast without ever interrupting a live caller. */
   silenceTimeoutSeconds?: number;
   serverMessages: string[];
-  /** `summaryPlan.messages`, when set, replaces the provider's default summary
-   *  prompt — the sales demo uses it to capture the full call arc, objections
-   *  and any friction, not just "an appointment was booked". */
-  analysisPlan: { summaryPlan: { enabled: boolean; messages?: Array<{ role: 'system' | 'user'; content: string }> } };
+  /**
+   * `summaryPlan.messages`, when set, replaces the provider's default summary
+   * prompt — the sales demo uses it to capture the full call arc, objections
+   * and any friction, not just "an appointment was booked".
+   * `structuredDataPlan` extracts a triage-able JSON outcome per call (intent,
+   * what happened, urgency, lead quality…) so the dashboard shows filterable
+   * results, not just prose. `successEvaluationPlan` scores how well the agent
+   * handled the call (1–10) for quality monitoring.
+   */
+  analysisPlan: {
+    summaryPlan: { enabled: boolean; messages?: Array<{ role: 'system' | 'user'; content: string }> };
+    structuredDataPlan?: { enabled: boolean; schema: Record<string, unknown> };
+    successEvaluationPlan?: { enabled: boolean; rubric: string };
+  };
   artifactPlan: { recordingEnabled: boolean };
   /** How quickly the agent starts talking once the caller stops. */
   startSpeakingPlan?: { waitSeconds: number; smartEndpointingEnabled: boolean };
@@ -156,6 +166,56 @@ function buildTranscriberKeywords(input: {
   const list = [...tokens].slice(0, 50).map((t) => `${t}:2`);
   return list.length > 0 ? list : undefined;
 }
+
+/**
+ * The structured outcome the model extracts at the end of every real call
+ * (Vapi `structuredDataPlan`). Turns a call into a triage-able record the
+ * dashboard can filter and count, instead of prose someone has to read.
+ * Industry-neutral: trades calls fill urgency/leadQuality, clinics fill the
+ * appointment fields, and anything irrelevant falls to NONE/NA.
+ */
+export const CALL_OUTCOME_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  properties: {
+    callerName: { type: 'string', description: "The caller's name if they gave it; empty string if not." },
+    callbackNumber: {
+      type: 'string',
+      description: 'Best callback number in E.164 (e.g. +15551234567) if captured; empty string if not.',
+    },
+    intent: {
+      type: 'string',
+      enum: ['BOOK', 'RESCHEDULE', 'CANCEL', 'JOB_REQUEST', 'QUESTION', 'OTHER'],
+      description: 'The primary reason the person called.',
+    },
+    outcome: {
+      type: 'string',
+      enum: ['BOOKED', 'RESCHEDULED', 'CANCELLED', 'JOB_LOGGED', 'MESSAGE_TAKEN', 'TRANSFERRED', 'NO_ACTION'],
+      description: 'What actually happened by the end of the call.',
+    },
+    appointmentBooked: {
+      type: 'boolean',
+      description: 'True only if an appointment was actually booked on this call.',
+    },
+    urgency: {
+      type: 'string',
+      enum: ['EMERGENCY', 'URGENT', 'ROUTINE', 'NONE'],
+      description: 'If a job or problem was described, how urgent it is; otherwise NONE.',
+    },
+    leadQuality: {
+      type: 'string',
+      enum: ['HOT', 'WARM', 'COLD', 'NA'],
+      description:
+        'For a potential new customer: HOT = ready to book/buy now, WARM = interested, COLD = just gathering info. NA if not a sales lead.',
+    },
+    topic: { type: 'string', description: 'A short 3–6 word label for what the call was about.' },
+  },
+  required: ['intent', 'outcome'],
+};
+
+/** Shared analysis plans attached to every real (non-demo) receptionist call. */
+const STRUCTURED_DATA_PLAN = { enabled: true as const, schema: CALL_OUTCOME_SCHEMA };
+/** 1–10 score of how well the agent handled the call, for quality monitoring. */
+const SUCCESS_EVALUATION_PLAN = { enabled: true as const, rubric: 'NumericScale' };
 
 interface TransferCallTool {
   type: 'transferCall';
@@ -778,6 +838,11 @@ export function buildTransientAssistant(
         enabled: true,
         ...(options.summaryPrompt ? { messages: [{ role: 'system', content: options.summaryPrompt }] } : {}),
       },
+      // Extract a structured outcome + quality score on real receptionist calls.
+      // Skipped for the sales demo (systemPromptOverride) — it has its own recap.
+      ...(options.systemPromptOverride
+        ? {}
+        : { structuredDataPlan: STRUCTURED_DATA_PLAN, successEvaluationPlan: SUCCESS_EVALUATION_PLAN }),
     },
     artifactPlan: { recordingEnabled: true },
     // Snappy responses + barge-in so the agent feels like a real conversation,
@@ -943,7 +1008,11 @@ export function buildAssistantUpdatePayload(
     // live caller — see the note on the transient assistant above. Owner-tunable.
     silenceTimeoutSeconds: settings.silenceTimeoutSeconds,
     serverMessages: ['end-of-call-report', 'status-update', 'tool-calls'],
-    analysisPlan: { summaryPlan: { enabled: true } },
+    analysisPlan: {
+      summaryPlan: { enabled: true },
+      structuredDataPlan: STRUCTURED_DATA_PLAN,
+      successEvaluationPlan: SUCCESS_EVALUATION_PLAN,
+    },
     artifactPlan: { recordingEnabled: true },
     // Snappy responses + barge-in so the agent feels like a real conversation,
     // not a walkie-talkie: start talking ~0.4s after the caller stops, and let

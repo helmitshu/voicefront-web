@@ -8,7 +8,7 @@ import {
   getCallForTenant,
   getCallStats,
   listCalls,
-  toCallDto,
+  toCallDetailDto,
   type CallDetailDto,
 } from '../services/calllog.service';
 import { getMonthlyUsage } from '../services/usage.service';
@@ -54,7 +54,7 @@ callsRouter.get(
   asyncHandler(async (req, res) => {
     const auth = getAuth(req);
     const log = await getCallForTenant(auth.tenantId, req.params.id);
-    const call: CallDetailDto = { ...toCallDto(log), transcript: log.transcript };
+    const call: CallDetailDto = toCallDetailDto(log);
     // The raw recording URL stays server-side; the client gets a short-lived
     // token it can append to the masked media route for <audio> streaming.
     const mediaToken = log.recordingUrl

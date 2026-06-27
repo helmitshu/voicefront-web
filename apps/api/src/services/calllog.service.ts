@@ -9,7 +9,18 @@ import { applyMarkup, dollarsToCents } from '../domain/billing';
  * recording URL never leave the server — audio streams through the masked
  * media proxy instead.
  */
-export interface CallDto {
+/** AI-extracted call outcome surfaced to tenants (Vapi structuredDataPlan). */
+export interface CallOutcomeDto {
+  intent: string | null;
+  outcome: string | null;
+  urgency: string | null;
+  leadQuality: string | null;
+  appointmentBooked: boolean | null;
+  /** 1–10 quality score from successEvaluationPlan, or null. */
+  successScore: number | null;
+}
+
+export interface CallDto extends CallOutcomeDto {
   id: string;
   channel: string;
   callerNumber: string | null;
@@ -24,6 +35,8 @@ export interface CallDto {
 
 export interface CallDetailDto extends CallDto {
   transcript: string | null;
+  /** Full structured-data blob (callerName, callbackNumber, topic, …). */
+  structuredData: Record<string, unknown> | null;
 }
 
 export function toCallDto(log: CallLog): CallDto {
@@ -38,6 +51,21 @@ export function toCallDto(log: CallLog): CallDto {
     status: log.status,
     summary: log.summary,
     hasRecording: Boolean(log.recordingUrl),
+    intent: log.intent,
+    outcome: log.outcome,
+    urgency: log.urgency,
+    leadQuality: log.leadQuality,
+    appointmentBooked: log.appointmentBooked,
+    successScore: log.successScore,
+  };
+}
+
+/** Detail DTO = list DTO + transcript + the full structured-data blob. */
+export function toCallDetailDto(log: CallLog): CallDetailDto {
+  return {
+    ...toCallDto(log),
+    transcript: log.transcript,
+    structuredData: (log.structuredData as Record<string, unknown> | null) ?? null,
   };
 }
 
@@ -53,6 +81,51 @@ export interface IngestReportInput {
   summary: string | null;
   transcript: string | null;
   recordingUrl: string | null;
+  /** Raw `analysis.structuredData` object from the provider (CALL_OUTCOME_SCHEMA). */
+  structuredData?: Record<string, unknown> | null;
+  /** Raw `analysis.successEvaluation` (NumericScale string/number). */
+  successEvaluation?: string | number | null;
+}
+
+// Accepted enum values, so a hallucinated label can't poison a filter column.
+const INTENTS = new Set(['BOOK', 'RESCHEDULE', 'CANCEL', 'JOB_REQUEST', 'QUESTION', 'OTHER']);
+const OUTCOMES = new Set(['BOOKED', 'RESCHEDULED', 'CANCELLED', 'JOB_LOGGED', 'MESSAGE_TAKEN', 'TRANSFERRED', 'NO_ACTION']);
+const URGENCIES = new Set(['EMERGENCY', 'URGENT', 'ROUTINE', 'NONE']);
+const LEAD_QUALITIES = new Set(['HOT', 'WARM', 'COLD', 'NA']);
+
+function pickEnum(value: unknown, allowed: Set<string>): string | null {
+  if (typeof value !== 'string') return null;
+  const v = value.trim().toUpperCase();
+  return v && allowed.has(v) ? v : null;
+}
+
+function parseSuccessScore(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined) return null;
+  const n = typeof value === 'number' ? value : Number.parseInt(value, 10);
+  return Number.isFinite(n) && n >= 1 && n <= 10 ? Math.round(n) : null;
+}
+
+/** Map the raw provider analysis onto our normalized, filter-safe columns. */
+export function normalizeCallOutcome(
+  structuredData: Record<string, unknown> | null | undefined,
+  successEvaluation: string | number | null | undefined,
+): {
+  intent: string | null;
+  outcome: string | null;
+  urgency: string | null;
+  leadQuality: string | null;
+  appointmentBooked: boolean | null;
+  successScore: number | null;
+} {
+  const sd = structuredData ?? {};
+  return {
+    intent: pickEnum(sd.intent, INTENTS),
+    outcome: pickEnum(sd.outcome, OUTCOMES),
+    urgency: pickEnum(sd.urgency, URGENCIES),
+    leadQuality: pickEnum(sd.leadQuality, LEAD_QUALITIES),
+    appointmentBooked: typeof sd.appointmentBooked === 'boolean' ? sd.appointmentBooked : null,
+    successScore: parseSuccessScore(successEvaluation),
+  };
 }
 
 /**
@@ -75,6 +148,8 @@ export async function ingestEndOfCallReport(input: IngestReportInput): Promise<C
       ? Math.round((input.endedAt.getTime() - input.startedAt.getTime()) / 1000)
       : 0;
 
+  const outcome = normalizeCallOutcome(input.structuredData, input.successEvaluation);
+
   const data = {
     tenantId: tenant.id,
     channel: input.channel,
@@ -90,6 +165,10 @@ export async function ingestEndOfCallReport(input: IngestReportInput): Promise<C
     summary: input.summary,
     transcript: input.transcript,
     recordingUrl: input.recordingUrl,
+    ...outcome,
+    // Keep the full blob only when present, so a later report lacking it (a
+    // provider retry) never wipes what we captured.
+    ...(input.structuredData ? { structuredData: input.structuredData as Prisma.InputJsonValue } : {}),
   } satisfies Omit<Prisma.CallLogUncheckedCreateInput, 'externalCallId'>;
 
   return prisma.callLog.upsert({

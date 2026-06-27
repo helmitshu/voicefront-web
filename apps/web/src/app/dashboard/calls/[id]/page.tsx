@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { AudioPlayer } from '@/components/calls/AudioPlayer';
 import { TranscriptView } from '@/components/calls/TranscriptView';
+import { CallOutcomePanel } from '@/components/calls/CallOutcome';
 
 const CHANNEL_LABEL: Record<string, string> = {
   phone: 'Phone call',
@@ -158,6 +159,12 @@ export default function CallDetailPage({ params }: { params: { id: string } }) {
 
       <div className="grid gap-6 lg:grid-cols-[1fr_280px]">
         <div className="flex flex-col gap-6">
+          {(call.outcome || call.urgency || call.successScore != null || call.structuredData) && (
+            <Card>
+              <CardHeader title="Outcome" />
+              <CallOutcomePanel call={call} />
+            </Card>
+          )}
           <Card>
             <CardHeader title="AI summary" />
             <p className="whitespace-pre-wrap text-sm leading-relaxed text-ink">
