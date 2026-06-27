@@ -60,6 +60,34 @@ describe('buildAssistantUpdatePayload (persistent assistant)', () => {
     expect(payload.model.messages[0].content).not.toContain('CAPTURING A JOB OR SERVICE REQUEST');
   });
 
+  it('boosts the transcriber on the company name + persona so names are heard right', () => {
+    const payload = buildAssistantUpdatePayload(tenant, settings({ displayName: 'Marcus' }));
+    const kw = payload.transcriber.keywords ?? [];
+    // "Acme Dental" → Acme + Dental, plus the persona — each with an intensity.
+    expect(kw).toContain('Acme:2');
+    expect(kw).toContain('Dental:2');
+    expect(kw).toContain('Marcus:2');
+  });
+
+  it('includes bookable provider names in the transcriber keyterms', () => {
+    const payload = buildAssistantUpdatePayload(tenant, settings(), {
+      providers: [
+        { name: 'Priya Nair', title: null },
+        { name: 'Dr. Lee', title: null },
+      ],
+    });
+    const kw = payload.transcriber.keywords ?? [];
+    expect(kw).toContain('Priya:2');
+    expect(kw).toContain('Nair:2');
+  });
+
+  it('enables denoising, backchanneling, and idle messages', () => {
+    const payload = buildAssistantUpdatePayload(tenant, settings());
+    expect(payload.backgroundDenoisingEnabled).toBe(true);
+    expect(payload.backchannelingEnabled).toBe(true);
+    expect(payload.messagePlan?.idleMessages.length).toBeGreaterThan(0);
+  });
+
   it('attaches the job-capture tool + intake prompt for a trades workspace', () => {
     const trades = { id: 't2', companyName: 'Acme Plumbing', industry: 'CONSTRUCTION' } as Pick<
       Tenant,

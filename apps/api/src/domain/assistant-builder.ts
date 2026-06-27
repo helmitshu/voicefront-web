@@ -57,9 +57,18 @@ export interface TransientAssistant {
   voice: { provider: string; voiceId: string; version?: number };
   /** "office" | "off" | URL — ambient audio mixed into the call. */
   backgroundSound: string;
-  /** `keywords` boost recognition of hard-to-hear words (e.g. the prospect's
-   *  name in the sales demo) — Deepgram nova-2 takes `word:intensity` strings. */
+  /** `keywords` boost recognition of hard-to-hear words (the business name,
+   *  staff/transfer-line names, providers) — Deepgram nova-2 takes
+   *  `word:intensity` strings. This is what stops a caller's "Hakim" coming
+   *  through as "Hakeem/Akeem". */
   transcriber: { provider: 'deepgram'; model: string; language: string; keywords?: string[] };
+  /** Krisp noise cancellation on the caller's audio — cleans job-site/background
+   *  noise before transcription so the agent mishears far less. */
+  backgroundDenoisingEnabled?: boolean;
+  /** Natural "mm-hm / okay" while the caller is talking, so it feels human. */
+  backchannelingEnabled?: boolean;
+  /** Spoken nudges if the caller goes quiet, instead of dead air. */
+  messagePlan?: { idleMessages: string[]; idleTimeoutSeconds: number; idleMessageMaxSpokenCount: number };
   voicemailMessage: string;
   endCallMessage: string;
   maxDurationSeconds: number;
@@ -111,6 +120,42 @@ const JOB_CAPTURE_FILLERS = [
   'Got it — putting this in for the team right away.',
   'Alright, let me get all this down for you.',
 ];
+
+// Warm nudges if the caller goes quiet, so the line never just sits in silence.
+const IDLE_MESSAGES = ['Are you still there?', "No rush at all — just let me know whenever you're ready."];
+
+// Generic tokens not worth boosting in the transcriber (they're already common
+// in everyday speech, so a keyword boost only adds noise).
+const KEYWORD_STOPWORDS = new Set(['the', 'and', 'for', 'inc', 'llc', 'ltd', 'co', 'company', 'group']);
+
+/**
+ * Words worth boosting in the transcriber so Deepgram stops mangling the names
+ * that actually matter on a call — the business name, the staff / transfer-line
+ * names a caller will say, and any bookable providers. Deepgram's `keywords`
+ * param takes single tokens with an optional intensity (`word:2`), so multi-word
+ * names are split into their parts and capped to keep the param sane.
+ */
+function buildTranscriberKeywords(input: {
+  companyName: string;
+  personaName: string;
+  forwardingNumbers: ForwardingNumber[];
+  providers?: ProviderInfo[];
+}): string[] | undefined {
+  const tokens = new Set<string>();
+  const addPhrase = (phrase?: string | null): void => {
+    if (!phrase) return;
+    for (const raw of phrase.split(/\s+/)) {
+      const tok = raw.replace(/[^a-zA-Z'’-]/g, '');
+      if (tok.length >= 3 && !KEYWORD_STOPWORDS.has(tok.toLowerCase())) tokens.add(tok);
+    }
+  };
+  addPhrase(input.companyName);
+  addPhrase(input.personaName);
+  input.forwardingNumbers.forEach((f) => addPhrase(f.label));
+  input.providers?.forEach((p) => addPhrase(p.name));
+  const list = [...tokens].slice(0, 50).map((t) => `${t}:2`);
+  return list.length > 0 ? list : undefined;
+}
 
 interface TransferCallTool {
   type: 'transferCall';
@@ -666,6 +711,18 @@ export function buildTransientAssistant(
   const voiceProvider = options.voice?.provider ?? settings.voiceProvider;
   const voiceId = options.voice?.voiceId ?? settings.voiceId;
 
+  // Transcriber keyterms: an explicit override (the sales demo, boosting the
+  // prospect's name) wins; otherwise auto-build from this tenant's own names so
+  // every real call recognizes the company, staff, and providers.
+  const transcriberKeywords =
+    options.transcriberKeywords ??
+    buildTranscriberKeywords({
+      companyName: tenant.companyName,
+      personaName,
+      forwardingNumbers,
+      providers: options.providers,
+    });
+
   return {
     name: options.assistantName ?? `${tenant.companyName} Receptionist`,
     firstMessage,
@@ -693,10 +750,13 @@ export function buildTransientAssistant(
       provider: 'deepgram',
       model: 'nova-2',
       language: 'en',
-      ...(options.transcriberKeywords && options.transcriberKeywords.length > 0
-        ? { keywords: options.transcriberKeywords }
-        : {}),
+      ...(transcriberKeywords && transcriberKeywords.length > 0 ? { keywords: transcriberKeywords } : {}),
     },
+    // Clean background noise (job sites, wind, traffic) before transcription, and
+    // sound human with light backchanneling + warm idle nudges instead of dead air.
+    backgroundDenoisingEnabled: true,
+    backchannelingEnabled: true,
+    messagePlan: { idleMessages: IDLE_MESSAGES, idleTimeoutSeconds: 12, idleMessageMaxSpokenCount: 2 },
     voicemailMessage: settings.voicemailGreeting,
     // Front-load the meaningful goodbye; Vapi tends to clip the tail on hangup,
     // so "take care now, bye!" is the disposable part that can be safely lost.
@@ -836,6 +896,13 @@ export function buildAssistantUpdatePayload(
   const transferTool = buildTransferTool(forwardingNumbers);
   if (transferTool) tools.push(transferTool);
 
+  const transcriberKeywords = buildTranscriberKeywords({
+    companyName: tenant.companyName,
+    personaName: settings.displayName,
+    forwardingNumbers,
+    providers: options.providers,
+  });
+
   return {
     name: `${tenant.companyName} Receptionist`,
     firstMessage: settings.firstMessage,
@@ -855,7 +922,17 @@ export function buildAssistantUpdatePayload(
     ...(options.serverUrl
       ? { server: { url: options.serverUrl, ...(options.serverSecret ? { secret: options.serverSecret } : {}) } }
       : {}),
-    transcriber: { provider: 'deepgram', model: 'nova-2', language: 'en' },
+    transcriber: {
+      provider: 'deepgram',
+      model: 'nova-2',
+      language: 'en',
+      ...(transcriberKeywords && transcriberKeywords.length > 0 ? { keywords: transcriberKeywords } : {}),
+    },
+    // Clean background noise before transcription, and sound human with light
+    // backchanneling + warm idle nudges instead of dead air — mirrors transient.
+    backgroundDenoisingEnabled: true,
+    backchannelingEnabled: true,
+    messagePlan: { idleMessages: IDLE_MESSAGES, idleTimeoutSeconds: 12, idleMessageMaxSpokenCount: 2 },
     voicemailMessage: settings.voicemailGreeting,
     // Front-load the meaningful goodbye; Vapi tends to clip the tail on hangup,
     // so "take care now, bye!" is the disposable part that can be safely lost.
