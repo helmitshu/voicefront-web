@@ -10,6 +10,7 @@ import { randomSuffix, toSlug } from '../lib/slug';
 import { defaultBusinessHours } from '../domain/agent-config';
 import { industryDefaults, industryPersona } from '../domain/prompt-templates';
 import { getAuth, requireAuth } from '../middleware/auth';
+import { isIndustryOpen, openIndustries } from '../config/env';
 import { resolvePlatformRole } from '../services/platform-admin.service';
 import { consumeAccessCode } from '../services/access-code.service';
 import { getOnboarding, toOnboardingView } from '../services/onboarding.service';
@@ -109,6 +110,15 @@ authRouter.post(
     if (!isOperator && !body.accessCode) {
       throw new HttpError(403, 'An invitation code is required to create an account.', 'CODE_REQUIRED');
     }
+    // Launch gate: only open industries can self-onboard. Operators bypass it,
+    // so the founder can still create a gated-industry workspace for testing.
+    if (!isOperator && !isIndustryOpen(body.industry)) {
+      throw new HttpError(
+        403,
+        'This industry isn’t open for self-signup yet — please contact us to get set up.',
+        'INDUSTRY_NOT_OPEN',
+      );
+    }
 
     const passwordHash = await hashPassword(body.password);
     const persona = industryPersona(body.industry);
@@ -184,6 +194,14 @@ authRouter.post(
     throw lastError instanceof Error
       ? lastError
       : new HttpError(500, 'Could not create your workspace. Please try again.', 'INTERNAL');
+  }),
+);
+
+/** Public: which industries the signup form should offer (launch gate). */
+authRouter.get(
+  '/signup-config',
+  asyncHandler(async (_req, res) => {
+    res.json({ openIndustries });
   }),
 );
 

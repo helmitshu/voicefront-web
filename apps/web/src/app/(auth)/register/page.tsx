@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { z } from 'zod';
-import { ApiError, type Industry } from '@/lib/api';
+import { ApiError, SignupApi, type Industry } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { INDUSTRY_TEMPLATES } from '@/domain/prompt-templates';
 import { Button } from '@/components/ui/Button';
@@ -29,7 +29,27 @@ const INDUSTRY_CARDS: Array<{ value: Industry; icon: string }> = [
 export default function RegisterPage() {
   const { register } = useAuth();
   const router = useRouter();
-  const [industry, setIndustry] = useState<Industry>('CLINIC');
+  // Launch gate: which industries the server allows for self-signup. Default to
+  // trades-only (the safe gated default) until the config loads.
+  const [openIndustries, setOpenIndustries] = useState<Industry[]>(['CONSTRUCTION']);
+  const [industry, setIndustry] = useState<Industry>('CONSTRUCTION');
+
+  useEffect(() => {
+    const controller = new AbortController();
+    SignupApi.config(controller.signal)
+      .then(({ openIndustries: open }) => {
+        if (open.length > 0) {
+          setOpenIndustries(open);
+          setIndustry((current) => (open.includes(current) ? current : open[0]));
+        }
+      })
+      .catch(() => {
+        /* keep the safe trades-only default if the config can't load */
+      });
+    return () => controller.abort();
+  }, []);
+
+  const visibleCards = INDUSTRY_CARDS.filter((c) => openIndustries.includes(c.value));
   const [values, setValues] = useState({
     accessCode: '',
     companyName: '',
@@ -100,34 +120,38 @@ export default function RegisterPage() {
           />
         </div>
 
-        <fieldset>
-          <legend className="mb-2 text-sm font-medium text-ink">What kind of business is this?</legend>
-          <div className="grid grid-cols-2 gap-3">
-            {INDUSTRY_CARDS.map((card) => {
-              const template = INDUSTRY_TEMPLATES[card.value];
-              const selected = industry === card.value;
-              return (
-                <button
-                  key={card.value}
-                  type="button"
-                  onClick={() => setIndustry(card.value)}
-                  aria-pressed={selected}
-                  className={`rounded-2xl border p-4 text-left transition-all ${
-                    selected
-                      ? 'border-signal bg-signal-soft shadow-card'
-                      : 'border-line bg-white hover:border-ink-muted/40'
-                  }`}
-                >
-                  <span aria-hidden className="text-xl">
-                    {card.icon}
-                  </span>
-                  <p className="mt-2 text-sm font-semibold text-ink">{template.title}</p>
-                  <p className="mt-0.5 text-xs leading-snug text-ink-muted">{template.tagline}</p>
-                </button>
-              );
-            })}
-          </div>
-        </fieldset>
+        {/* Industry picker — shown only when more than one is open for signup
+            (the launch gate may restrict this to a single industry). */}
+        {visibleCards.length > 1 && (
+          <fieldset>
+            <legend className="mb-2 text-sm font-medium text-ink">What kind of business is this?</legend>
+            <div className="grid grid-cols-2 gap-3">
+              {visibleCards.map((card) => {
+                const template = INDUSTRY_TEMPLATES[card.value];
+                const selected = industry === card.value;
+                return (
+                  <button
+                    key={card.value}
+                    type="button"
+                    onClick={() => setIndustry(card.value)}
+                    aria-pressed={selected}
+                    className={`rounded-2xl border p-4 text-left transition-all ${
+                      selected
+                        ? 'border-signal bg-signal-soft shadow-card'
+                        : 'border-line bg-white hover:border-ink-muted/40'
+                    }`}
+                  >
+                    <span aria-hidden className="text-xl">
+                      {card.icon}
+                    </span>
+                    <p className="mt-2 text-sm font-semibold text-ink">{template.title}</p>
+                    <p className="mt-0.5 text-xs leading-snug text-ink-muted">{template.tagline}</p>
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
+        )}
 
         <Input
           label="Company name"
@@ -167,6 +191,18 @@ export default function RegisterPage() {
         <Button type="submit" size="lg" loading={submitting} className="mt-2">
           Create workspace
         </Button>
+
+        <p className="text-center text-xs leading-relaxed text-ink-muted">
+          By creating a workspace you agree to our{' '}
+          <Link href="/terms" className="font-medium text-signal-deep hover:underline">
+            Terms of Service
+          </Link>{' '}
+          and{' '}
+          <Link href="/privacy" className="font-medium text-signal-deep hover:underline">
+            Privacy Policy
+          </Link>
+          .
+        </p>
       </form>
 
       <p className="mt-6 text-sm text-ink-muted">
