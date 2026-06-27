@@ -230,10 +230,18 @@ export interface CallDto {
   status: CallStatus;
   summary: string | null;
   hasRecording: boolean;
+  // AI-extracted outcome (null on older calls / demos).
+  intent: string | null;
+  outcome: string | null;
+  urgency: string | null;
+  leadQuality: string | null;
+  appointmentBooked: boolean | null;
+  successScore: number | null;
 }
 
 export interface CallDetailDto extends CallDto {
   transcript: string | null;
+  structuredData: Record<string, unknown> | null;
 }
 
 export interface ListCallsResult {

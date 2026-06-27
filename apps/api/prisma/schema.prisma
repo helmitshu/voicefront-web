@@ -815,6 +815,18 @@ model CallLog {
   /// Provider-hosted recording URL — internal only; tenants stream audio
   /// through the platform's masked media proxy instead.
   recordingUrl      String?    @db.Text @map("recording_url")
+  /// AI-extracted call outcome (Vapi structuredDataPlan). These individual
+  /// columns are the filterable/sortable ones; `structuredData` keeps the full
+  /// blob (callerName, callbackNumber, topic, + anything new) for display and
+  /// forward-compat. All nullable — older calls and demos have none.
+  intent            String?    @map("intent")
+  outcome           String?    @map("outcome")
+  urgency           String?    @map("urgency")
+  leadQuality       String?    @map("lead_quality")
+  appointmentBooked Boolean?   @map("appointment_booked")
+  /// 1–10 quality score (Vapi successEvaluationPlan); null when not scored.
+  successScore      Int?       @map("success_score")
+  structuredData    Json?      @map("structured_data")
   createdAt         DateTime   @default(now()) @map("created_at")
 
   @@index([tenantId, startedAt(sort: Desc)])

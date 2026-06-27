@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { ApiError, CallsApi, type ListCallsResult } from '@/lib/api';
 import { formatCents, formatDateTime, formatDuration, formatPhone } from '@/lib/format';
 import { Card, CallStatusBadge, EmptyState } from '@/components/ui/Card';
+import { CallOutcomeChips } from '@/components/calls/CallOutcome';
 import { Button } from '@/components/ui/Button';
 import { Input, Select } from '@/components/ui/Field';
 import { Spinner } from '@/components/ui/Spinner';
@@ -150,9 +151,12 @@ export default function CallsPage() {
                       <p className="text-sm font-semibold text-ink">{formatPhone(call.callerNumber)}</p>
                       <p className="mt-0.5 text-xs text-ink-muted">{formatDateTime(call.startedAt)}</p>
                     </div>
-                    <p className="col-span-2 line-clamp-2 text-sm leading-relaxed text-ink-muted sm:col-span-1">
-                      {call.summary ?? 'No summary available.'}
-                    </p>
+                    <div className="col-span-2 flex flex-col gap-1.5 sm:col-span-1">
+                      <p className="line-clamp-2 text-sm leading-relaxed text-ink-muted">
+                        {call.summary ?? 'No summary available.'}
+                      </p>
+                      <CallOutcomeChips call={call} />
+                    </div>
                     <div className="hidden w-20 text-right sm:block">
                       <p className="font-mono text-sm text-ink">{formatDuration(call.durationSeconds)}</p>
                       <p className="font-mono text-xs text-ink-muted">{formatCents(call.costCents)}</p>
