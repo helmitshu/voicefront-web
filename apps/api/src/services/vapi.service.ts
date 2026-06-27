@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma';
 import { HttpError } from '../lib/http';
 import { getSettingValue } from './platform-config.service';
+import { resolveWebhookUrl, assertProductionWebhookSafe } from '../lib/webhook-url';
 import { buildAssistantUpdatePayload } from '../domain/assistant-builder';
 import { isFeatureEnabled } from './features.service';
 import { parseServiceAreaZips } from '../domain/prompt-templates';
@@ -124,13 +125,13 @@ export interface RepointResult {
  * since it just sets the URL to whatever PUBLIC_API_URL currently resolves to.
  */
 export async function repointAllPhoneNumbers(): Promise<RepointResult> {
-  const [publicApiUrl, webhookSecret] = await Promise.all([
-    getSettingValue('PUBLIC_API_URL'),
+  const [webhook, webhookSecret] = await Promise.all([
+    resolveWebhookUrl(),
     getSettingValue('VAPI_WEBHOOK_SECRET'),
   ]);
-  if (!publicApiUrl) {
-    throw new HttpError(503, 'PUBLIC_API_URL is not configured, so there is nothing to point numbers at.', 'CONFIG_MISSING');
-  }
+  // Never re-point production numbers onto a tunnel/localhost (the whole point
+  // of this action is to get OFF a tunnel); throws a clear, actionable message.
+  assertProductionWebhookSafe(webhook);
 
   const listRes = await vapiFetch('/phone-number', { method: 'GET' });
   if (!listRes.ok) {
@@ -142,7 +143,7 @@ export async function repointAllPhoneNumbers(): Promise<RepointResult> {
     throw new HttpError(502, 'Vapi returned an unexpected response listing numbers.', 'VAPI_ERROR');
   }
 
-  const server: { url: string; secret?: string } = { url: `${publicApiUrl}/api/vapi/inbound` };
+  const server: { url: string; secret?: string } = { url: webhook.webhookUrl! };
   if (webhookSecret) server.secret = webhookSecret;
 
   const details: Array<{ number: string; ok: boolean }> = [];
@@ -250,23 +251,19 @@ interface VapiCreatePhoneResult {
  * numbers, import a Twilio/BYO number instead (the "add existing" path).
  */
 export async function createPhoneNumberInVapi(opts: { areaCode?: string }): Promise<VapiCreatePhoneResult> {
-  const [publicApiUrl, webhookSecret] = await Promise.all([
-    getSettingValue('PUBLIC_API_URL'),
+  const [webhook, webhookSecret] = await Promise.all([
+    resolveWebhookUrl(),
     getSettingValue('VAPI_WEBHOOK_SECRET'),
   ]);
 
-  if (!publicApiUrl) {
-    throw new HttpError(
-      503,
-      'PUBLIC_API_URL is not configured. Set it under Keys & config first.',
-      'CONFIG_MISSING',
-    );
-  }
+  // Don't mint a production number whose webhook points at a tunnel/localhost —
+  // it would take calls but every tool-call would fail. Clear message in prod.
+  assertProductionWebhookSafe(webhook);
 
   // Vapi's phone-number create is a discriminated union keyed on `provider`;
   // "vapi" gets one of Vapi's own free numbers. The webhook lives in `server`,
   // whose `secret` Vapi echoes back as the X-Vapi-Secret header on each call.
-  const server: { url: string; secret?: string } = { url: `${publicApiUrl}/api/vapi/inbound` };
+  const server: { url: string; secret?: string } = { url: webhook.webhookUrl! };
   if (webhookSecret) server.secret = webhookSecret;
 
   const payload: Record<string, unknown> = { provider: 'vapi', server };

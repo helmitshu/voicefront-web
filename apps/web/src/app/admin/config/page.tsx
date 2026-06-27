@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { AdminApi, ApiError, type AdminSetting } from '@/lib/api';
+import { AdminApi, ApiError, type AdminSetting, type AdminWebhookInfo } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { useToast } from '@/components/ui/Toast';
 import { Badge, Card, EmptyState } from '@/components/ui/Card';
@@ -13,6 +13,7 @@ export default function AdminConfigPage() {
   const { me } = useAuth();
   const { toast } = useToast();
   const [settings, setSettings] = useState<AdminSetting[] | null>(null);
+  const [webhook, setWebhook] = useState<AdminWebhookInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
@@ -24,7 +25,10 @@ export default function AdminConfigPage() {
 
   const load = useCallback(() => {
     AdminApi.settings()
-      .then(({ settings }) => setSettings(settings))
+      .then(({ settings, webhook }) => {
+        setSettings(settings);
+        setWebhook(webhook);
+      })
       .catch((err: unknown) =>
         setError(err instanceof ApiError ? err.message : 'Could not load configuration.'),
       );
@@ -179,13 +183,33 @@ export default function AdminConfigPage() {
         <Card>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div className="max-w-xl">
-              <h3 className="font-display text-[15px] font-semibold tracking-tight text-ink">
-                Production webhooks
-              </h3>
+              <div className="flex items-center gap-2.5">
+                <h3 className="font-display text-[15px] font-semibold tracking-tight text-ink">
+                  Production webhooks
+                </h3>
+                {webhook && webhook.webhookUrl && webhook.productionSafe && (
+                  <Badge tone="signal" dot>Cloud</Badge>
+                )}
+                {webhook && webhook.webhookUrl && !webhook.productionSafe && (
+                  <Badge tone="warning" dot>Tunnel / local</Badge>
+                )}
+                {webhook && !webhook.webhookUrl && (
+                  <Badge tone="warning" dot>Not set</Badge>
+                )}
+              </div>
               <p className="mt-1.5 text-sm leading-relaxed text-ink-muted">
                 Point every Vapi phone number at this cloud server so calls never depend on a local
-                tunnel. Safe to run anytime — it just sets each number’s Server URL to the value above.
+                tunnel. Safe to run anytime — it just sets each number’s Server URL to the address below.
               </p>
+              {webhook && (
+                <p className="mt-2 font-mono text-xs text-ink-muted">
+                  Calls post to:{' '}
+                  <span className="text-ink">{webhook.webhookUrl ?? 'PUBLIC_API_URL not configured'}</span>
+                  {webhook.webhookUrl && !webhook.productionSafe && webhook.reason && (
+                    <span className="block text-[#9a6a1d]">⚠ This is {webhook.reason}.</span>
+                  )}
+                </p>
+              )}
             </div>
             <Button variant="secondary" size="sm" loading={repointBusy} onClick={repointWebhooks}>
               Re-point all numbers

@@ -905,6 +905,24 @@ model ScreenedCallLog {
   @@map("screened_call_logs")
 }
 
+/// Cooperative lease lock so background cron jobs run on EXACTLY ONE API
+/// replica. Each job claims a time-boxed lease keyed by name; a second replica
+/// whose tick fires while the lease is held simply skips. If the leader crashes
+/// mid-run the lease expires (`lockedUntil` passes) and the next tick on any
+/// replica picks the work up — no stuck locks, and no duplicate reminder /
+/// dispatch / reactivation texts once the API is scaled past one instance.
+model JobLock {
+  /// Stable job key, e.g. "reminder-scan", "dispatch-sweep".
+  name        String   @id
+  /// While this is in the future the lease is held; once it passes, it's free.
+  lockedUntil DateTime @map("locked_until")
+  /// Which instance currently holds it (for debugging / safe release).
+  owner       String?
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("job_locks")
+}
+
 model DemoCall {
   id              String    @id @default(cuid())
   /// Links the call to the visitor's session (and thus their DemoLead).
