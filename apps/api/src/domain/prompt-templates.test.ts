@@ -49,4 +49,13 @@ describe('composeSystemPrompt provider section', () => {
   it('omits it when no providers are configured', () => {
     expect(composeSystemPrompt(base)).not.toContain('PROVIDERS & SERVICES');
   });
+
+  it('always scopes the agent to the business (off-topic guardrail)', () => {
+    const prompt = composeSystemPrompt(base);
+    expect(prompt).toContain('STAYING ON TOPIC');
+    // Redirect copy is personalized to the company so it sounds natural.
+    expect(prompt).toContain('Acme');
+    // Resists prompt-injection / role changes.
+    expect(prompt).toContain('ignore previous instructions');
+  });
 });

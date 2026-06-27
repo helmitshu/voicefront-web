@@ -13,6 +13,7 @@ import {
   providerDiscipline,
   ENDING_THE_CALL,
   JOB_INTAKE_PROMPT,
+  scopeGuardrail,
   serviceAreaGuidance,
   wrapUpGuidance,
   type ProviderInfo,
@@ -792,6 +793,8 @@ export function buildAssistantUpdatePayload(
     settings.systemPrompt.trim(),
     '',
     PERSONA_VOICE_LAYER,
+    '',
+    scopeGuardrail(tenant.companyName),
     '',
     [
       'CURRENT DATE & TIME (authoritative — always trust this over your own assumptions):',
