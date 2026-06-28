@@ -1174,10 +1174,10 @@ export const CalendarApi = {
     api<{ ok: true }>(`/api/calendar/${provider.toLowerCase()}`, { method: 'PATCH', body: prefs }),
 };
 
-/** Public signup configuration (launch gate) — which industries can self-onboard. */
+/** Public signup config — which industries require an invitation code. */
 export const SignupApi = {
   config: (signal?: AbortSignal) =>
-    api<{ openIndustries: Industry[] }>('/api/auth/signup-config', { signal }),
+    api<{ inviteOnlyIndustries: Industry[] }>('/api/auth/signup-config', { signal }),
 };
 
 export const CallsApi = {

@@ -58,13 +58,12 @@ const EnvSchema = z.object({
    */
   PLATFORM_ADMIN_EMAILS: z.string().default(''),
   /**
-   * Which industries are open for NEW customer signups, comma-separated.
-   * Launch gate: defaults to trades-only ("CONSTRUCTION") so clinics can't
-   * self-onboard until HIPAA handling is ready. Platform operators bypass this
-   * (so the founder can still create a clinic test workspace). Flip to
-   * "CLINIC,CONSTRUCTION" in one place to open clinics.
+   * Which industries require an invitation code to sign up, comma-separated.
+   * Trades is open self-serve; clinics are invite-only (vetted onboarding,
+   * pending HIPAA handling). Defaults to "CLINIC". Set to "" to open everything,
+   * or "CLINIC,CONSTRUCTION" to make all signups invite-only.
    */
-  OPEN_INDUSTRIES: z.string().default('CONSTRUCTION'),
+  INVITE_ONLY_INDUSTRIES: z.string().default('CLINIC'),
 
   // ── Observability ──────────────────────────────────────────────────────────
   /** Structured-log verbosity. */
@@ -110,16 +109,14 @@ export const corsOrigins = env.CORS_ORIGIN.split(',')
 const VALID_INDUSTRIES = ['CLINIC', 'CONSTRUCTION'] as const;
 export type SignupIndustry = (typeof VALID_INDUSTRIES)[number];
 
-/** Industries open for new customer signups (launch gate). Always non-empty. */
-export const openIndustries: SignupIndustry[] = (() => {
-  const parsed = env.OPEN_INDUSTRIES.split(',')
-    .map((s) => s.trim().toUpperCase())
-    .filter((s): s is SignupIndustry => (VALID_INDUSTRIES as readonly string[]).includes(s));
-  return parsed.length > 0 ? parsed : ['CONSTRUCTION'];
-})();
+/** Industries that require an invitation code to self-sign-up. */
+export const inviteOnlyIndustries: SignupIndustry[] = env.INVITE_ONLY_INDUSTRIES.split(',')
+  .map((s) => s.trim().toUpperCase())
+  .filter((s): s is SignupIndustry => (VALID_INDUSTRIES as readonly string[]).includes(s));
 
-export function isIndustryOpen(industry: string): boolean {
-  return (openIndustries as readonly string[]).includes(industry);
+/** True when the given industry needs an invitation code to sign up. */
+export function requiresInvite(industry: string): boolean {
+  return (inviteOnlyIndustries as readonly string[]).includes(industry);
 }
 
 export const platformAdminEmails = new Set(

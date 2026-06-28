@@ -10,7 +10,7 @@ import { randomSuffix, toSlug } from '../lib/slug';
 import { defaultBusinessHours } from '../domain/agent-config';
 import { industryDefaults, industryPersona } from '../domain/prompt-templates';
 import { getAuth, requireAuth } from '../middleware/auth';
-import { isIndustryOpen, openIndustries } from '../config/env';
+import { requiresInvite, inviteOnlyIndustries } from '../config/env';
 import { resolvePlatformRole } from '../services/platform-admin.service';
 import { consumeAccessCode } from '../services/access-code.service';
 import { getOnboarding, toOnboardingView } from '../services/onboarding.service';
@@ -103,21 +103,13 @@ authRouter.post(
       throw new HttpError(409, 'An account with this email already exists.', 'EMAIL_TAKEN');
     }
 
-    // Signups are invite-only: a vetted prospect enters the one-time code the
-    // founder sent after their demo/call. Platform operators (the founder and
-    // any granted staff) are exempt so they can never be locked out by the gate.
+    // Invitation gate is PER INDUSTRY: clinics are invite-only (a vetted
+    // prospect enters the one-time code the founder sent), trades is open
+    // self-serve. Platform operators (founder + granted staff) always bypass.
     const isOperator = (await resolvePlatformRole(body.email)) !== null;
-    if (!isOperator && !body.accessCode) {
-      throw new HttpError(403, 'An invitation code is required to create an account.', 'CODE_REQUIRED');
-    }
-    // Launch gate: only open industries can self-onboard. Operators bypass it,
-    // so the founder can still create a gated-industry workspace for testing.
-    if (!isOperator && !isIndustryOpen(body.industry)) {
-      throw new HttpError(
-        403,
-        'This industry isn’t open for self-signup yet — please contact us to get set up.',
-        'INDUSTRY_NOT_OPEN',
-      );
+    const needsInvite = !isOperator && requiresInvite(body.industry);
+    if (needsInvite && !body.accessCode) {
+      throw new HttpError(403, 'An invitation code is required to create this kind of account.', 'CODE_REQUIRED');
     }
 
     const passwordHash = await hashPassword(body.password);
@@ -141,8 +133,9 @@ authRouter.post(
           });
           // Spend the invitation atomically with account creation: a failure
           // here rolls back the whole signup, and the conditional update makes
-          // reuse/double-claim impossible. Operators skip the gate entirely.
-          if (!isOperator) {
+          // reuse/double-claim impossible. Only invite-only industries consume a
+          // code; open (trades) signups create without one.
+          if (needsInvite) {
             const consumed = await consumeAccessCode(tx, body.accessCode ?? '', tenant.id);
             if (!consumed) {
               throw new HttpError(403, 'That invitation code is invalid or has already been used.', 'INVALID_CODE');
@@ -197,11 +190,12 @@ authRouter.post(
   }),
 );
 
-/** Public: which industries the signup form should offer (launch gate). */
+/** Public: which industries require an invitation code, so the signup form
+ *  knows when to ask for one (trades is open; clinics are invite-only). */
 authRouter.get(
   '/signup-config',
   asyncHandler(async (_req, res) => {
-    res.json({ openIndustries });
+    res.json({ inviteOnlyIndustries });
   }),
 );
 
