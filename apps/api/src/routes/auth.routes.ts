@@ -14,6 +14,7 @@ import { requiresInvite, inviteOnlyIndustries } from '../config/env';
 import { resolvePlatformRole } from '../services/platform-admin.service';
 import { consumeAccessCode } from '../services/access-code.service';
 import { getOnboarding, toOnboardingView } from '../services/onboarding.service';
+import { getBillingState, type BillingState } from '../services/billing.service';
 
 export const authRouter = Router();
 
@@ -60,6 +61,8 @@ interface MeResponse {
     subscriptionStatus: string;
   };
   onboarding: ReturnType<typeof toOnboardingView>;
+  /** Billing/trial state — drives the "add a card" gate and dashboard banner. */
+  billing: BillingState;
 }
 
 async function buildMe(userId: string): Promise<MeResponse> {
@@ -68,9 +71,10 @@ async function buildMe(userId: string): Promise<MeResponse> {
     include: { tenant: true },
   });
   if (!user) throw new HttpError(401, 'Your account could not be found.', 'UNAUTHENTICATED');
-  const [onboarding, adminRole] = await Promise.all([
+  const [onboarding, adminRole, billing] = await Promise.all([
     getOnboarding(user.tenantId),
     resolvePlatformRole(user.email),
+    getBillingState(user.tenant),
   ]);
   return {
     user: {
@@ -89,6 +93,7 @@ async function buildMe(userId: string): Promise<MeResponse> {
       subscriptionStatus: user.tenant.subscriptionStatus,
     },
     onboarding: toOnboardingView(onboarding),
+    billing,
   };
 }
 

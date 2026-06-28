@@ -147,6 +147,19 @@ model Tenant {
   /// delete is recoverable. A retention job hard-deletes (purges) tenants that
   /// have been soft-deleted past the recovery window. Null = live.
   deletedAt          DateTime?          @map("deleted_at")
+  // ── Billing (Stripe) ──────────────────────────────────────────────────────
+  /// Stripe Customer id, once the workspace has set up billing. Null = no card
+  /// on file yet (signup not finished). Drives the call gate when billing is on.
+  stripeCustomerId     String?   @unique @map("stripe_customer_id")
+  /// Stripe Subscription id for this workspace's plan. Null = not subscribed.
+  stripeSubscriptionId String?   @map("stripe_subscription_id")
+  /// Internal plan id (see domain/plans.ts). Null until subscribed.
+  planId               String?   @map("plan_id")
+  /// Billing currency chosen at checkout ("usd" | "cad").
+  billingCurrency      String?   @map("billing_currency")
+  /// When the free trial ends. Calls pause at this instant (or at the 200-min
+  /// trial cap, whichever comes first) unless the subscription is active.
+  trialEndsAt          DateTime? @map("trial_ends_at")
   createdAt          DateTime           @default(now()) @map("created_at")
   updatedAt          DateTime           @updatedAt @map("updated_at")
 

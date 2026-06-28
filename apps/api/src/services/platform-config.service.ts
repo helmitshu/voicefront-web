@@ -25,6 +25,10 @@ export const SETTING_KEYS = [
   'OUTREACH_FROM_EMAIL',
   'OUTREACH_FROM_NAME',
   'OUTREACH_PHYSICAL_ADDRESS',
+  'STRIPE_SECRET_KEY',
+  'STRIPE_WEBHOOK_SECRET',
+  'STRIPE_PRICE_USD',
+  'STRIPE_PRICE_CAD',
 ] as const;
 export type SettingKey = (typeof SETTING_KEYS)[number];
 
@@ -120,6 +124,34 @@ export const SETTING_META: Record<
     secret: false,
     placeholder: 'Business name, street, city, state ZIP',
   },
+  STRIPE_SECRET_KEY: {
+    label: 'Stripe secret key',
+    description:
+      'From Stripe → Developers → API keys. Powers subscriptions, the 30-day trial, and the customer billing portal. Use a test key (sk_test_…) until you’re ready to charge real cards. Keep this secret.',
+    secret: true,
+    placeholder: 'sk_live_… or sk_test_…',
+  },
+  STRIPE_WEBHOOK_SECRET: {
+    label: 'Stripe webhook signing secret',
+    description:
+      'From the Stripe webhook endpoint you point at <API URL>/api/stripe/webhook. Lets us trust subscription events. Must match the endpoint’s signing secret.',
+    secret: true,
+    placeholder: 'whsec_…',
+  },
+  STRIPE_PRICE_USD: {
+    label: 'Stripe price ID — USD',
+    description:
+      'The recurring Price ID (price_…) for the Professional plan in USD. Create a $250/mo product in Stripe and paste its price ID here.',
+    secret: false,
+    placeholder: 'price_…',
+  },
+  STRIPE_PRICE_CAD: {
+    label: 'Stripe price ID — CAD',
+    description:
+      'The recurring Price ID (price_…) for the Professional plan in CAD (shown to Canadian visitors). Optional — falls back to USD if unset.',
+    secret: false,
+    placeholder: 'price_…',
+  },
 };
 
 function isSettingKey(key: string): key is SettingKey {
@@ -186,6 +218,14 @@ function envFallback(key: SettingKey): string | null {
       return process.env.OUTREACH_FROM_NAME ?? null;
     case 'OUTREACH_PHYSICAL_ADDRESS':
       return process.env.OUTREACH_PHYSICAL_ADDRESS ?? null;
+    case 'STRIPE_SECRET_KEY':
+      return process.env.STRIPE_SECRET_KEY ?? null;
+    case 'STRIPE_WEBHOOK_SECRET':
+      return process.env.STRIPE_WEBHOOK_SECRET ?? null;
+    case 'STRIPE_PRICE_USD':
+      return process.env.STRIPE_PRICE_USD ?? null;
+    case 'STRIPE_PRICE_CAD':
+      return process.env.STRIPE_PRICE_CAD ?? null;
   }
 }
 
@@ -243,6 +283,10 @@ const VALIDATORS: Record<SettingKey, (value: string) => string | null> = {
   OUTREACH_FROM_EMAIL: (v) => (/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? null : 'Enter a valid email address.'),
   OUTREACH_FROM_NAME: () => null,
   OUTREACH_PHYSICAL_ADDRESS: (v) => (v.length >= 5 ? null : 'Enter a real mailing address.'),
+  STRIPE_SECRET_KEY: (v) => (v.startsWith('sk_') ? null : 'Stripe secret keys start with sk_live_ or sk_test_.'),
+  STRIPE_WEBHOOK_SECRET: (v) => (v.startsWith('whsec_') ? null : 'Stripe webhook secrets start with whsec_.'),
+  STRIPE_PRICE_USD: (v) => (v.startsWith('price_') ? null : 'Stripe price IDs start with price_.'),
+  STRIPE_PRICE_CAD: (v) => (v.startsWith('price_') ? null : 'Stripe price IDs start with price_.'),
 };
 
 export async function setSetting(key: SettingKey, rawValue: string, adminEmail: string): Promise<void> {

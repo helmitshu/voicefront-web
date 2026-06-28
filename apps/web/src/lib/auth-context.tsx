@@ -97,7 +97,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const data = await AuthApi.login(input);
     generation.current += 1;
     setToken(data.token);
-    const nextMe: Me = { user: data.user, tenant: data.tenant, onboarding: data.onboarding };
+    const nextMe: Me = { user: data.user, tenant: data.tenant, onboarding: data.onboarding, billing: data.billing };
     setMe(nextMe);
     setStatus('authenticated');
     return nextMe;
@@ -114,7 +114,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const data = await AuthApi.register(input);
       generation.current += 1;
       setToken(data.token);
-      const nextMe: Me = { user: data.user, tenant: data.tenant, onboarding: data.onboarding };
+      const nextMe: Me = { user: data.user, tenant: data.tenant, onboarding: data.onboarding, billing: data.billing };
       setMe(nextMe);
       setStatus('authenticated');
       return nextMe;
