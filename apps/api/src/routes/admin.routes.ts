@@ -68,6 +68,7 @@ import {
   listVapiPhoneNumbers,
   repointAllPhoneNumbers,
   syncAssistantForTenant,
+  syncAllAssistants,
   validateAssistant,
 } from '../services/vapi.service';
 import { resolveWebhookUrl } from '../lib/webhook-url';
@@ -864,6 +865,24 @@ adminRouter.delete(
     await unsetSetting(key);
     await recordAdminAction(adminEmail, 'config.unset', key, {});
     res.json({ ok: true });
+  }),
+);
+
+/* Re-push EVERY persistent assistant's settings to Vapi — one click to roll a
+ * platform-wide change (prompt layer, analysis plan, call-quality config) out
+ * to all existing customers, instead of syncing each workspace by hand.        */
+adminRouter.post(
+  '/assistants/sync-all',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const adminEmail = getAdminEmail(req);
+    const result = await syncAllAssistants();
+    await recordAdminAction(adminEmail, 'assistant.sync_all', null, {
+      total: result.total,
+      synced: result.synced,
+      failed: result.failed,
+    });
+    res.json(result);
   }),
 );
 

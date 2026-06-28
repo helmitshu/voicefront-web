@@ -20,6 +20,7 @@ export default function AdminConfigPage() {
   const [demoEnabled, setDemoEnabled] = useState<boolean | null>(null);
   const [demoBusy, setDemoBusy] = useState(false);
   const [repointBusy, setRepointBusy] = useState(false);
+  const [syncBusy, setSyncBusy] = useState(false);
 
   const isFullAdmin = me?.user.adminRole === 'ADMIN';
 
@@ -52,6 +53,28 @@ export default function AdminConfigPage() {
       toast(err instanceof ApiError ? err.message : 'Could not re-point numbers.', 'error');
     } finally {
       setRepointBusy(false);
+    }
+  }
+
+  async function syncAllAssistants() {
+    if (
+      !window.confirm(
+        'Re-push every workspace’s settings to its Vapi assistant?\n\nUse this after a platform update so all existing customers get the new behaviour. Safe and idempotent.',
+      )
+    ) {
+      return;
+    }
+    setSyncBusy(true);
+    try {
+      const r = await AdminApi.syncAllAssistants();
+      toast(
+        `${r.synced}/${r.total} assistants re-synced${r.failed ? ` (${r.failed} failed)` : ''}.`,
+        r.failed ? 'error' : 'success',
+      );
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not re-sync assistants.', 'error');
+    } finally {
+      setSyncBusy(false);
     }
   }
 
@@ -213,6 +236,24 @@ export default function AdminConfigPage() {
             </div>
             <Button variant="secondary" size="sm" loading={repointBusy} onClick={repointWebhooks}>
               Re-point all numbers
+            </Button>
+          </div>
+        </Card>
+
+        <Card>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="max-w-xl">
+              <h3 className="font-display text-[15px] font-semibold tracking-tight text-ink">
+                Roll out assistant updates
+              </h3>
+              <p className="mt-1.5 text-sm leading-relaxed text-ink-muted">
+                Re-push every workspace’s current settings to its Vapi assistant. Run this after a platform
+                update (new prompt rules, call-quality settings, or call analysis) so existing customers pick
+                up the new behaviour — otherwise only brand-new workspaces get it. Safe and idempotent.
+              </p>
+            </div>
+            <Button variant="secondary" size="sm" loading={syncBusy} onClick={syncAllAssistants}>
+              Re-sync all assistants
             </Button>
           </div>
         </Card>

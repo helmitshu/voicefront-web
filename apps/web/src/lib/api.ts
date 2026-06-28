@@ -640,6 +640,11 @@ export const AdminApi = {
       '/api/admin/migrate-webhooks',
       { method: 'POST' },
     ),
+  syncAllAssistants: () =>
+    api<{ total: number; synced: number; failed: number; details: Array<{ company: string; synced: boolean; reason?: string }> }>(
+      '/api/admin/assistants/sync-all',
+      { method: 'POST' },
+    ),
   salesConfig: (signal?: AbortSignal) =>
     api<SalesConfig>('/api/admin/demo/sales-config', { signal }),
   setSalesConfig: (patch: Partial<SalesConfig>) =>
