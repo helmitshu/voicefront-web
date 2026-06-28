@@ -8,6 +8,7 @@ import { normalizePhone } from '../lib/phone';
 import { buildTransientAssistant } from '../domain/assistant-builder';
 import { ingestEndOfCallReport } from '../services/calllog.service';
 import { isOverMonthlyLimit } from '../services/usage.service';
+import { isCallAllowedForBilling } from '../services/billing.service';
 import { isFeatureEnabled } from '../services/features.service';
 import { parseServiceAreaZips } from '../domain/prompt-templates';
 import { screenInboundCaller, recordScreenedCall } from '../services/screening.service';
@@ -537,6 +538,15 @@ inboundRouter.post(
       }
       if (settings.tenant.isBlocked || settings.tenant.subscriptionStatus === 'CANCELED') {
         res.status(200).json({ error: 'This service is currently unavailable.' });
+        return;
+      }
+      // Billing gate (no-op unless Stripe billing is configured): pause calls
+      // when there's no card on file, the trial has ended, or the 200-minute
+      // trial cap is hit, or payment is past due.
+      const billingGate = await isCallAllowedForBilling(settings.tenantId);
+      if (!billingGate.allowed) {
+        console.warn(`[webhook] assistant-request refused — billing: ${billingGate.reason} (tenant ${settings.tenantId})`);
+        res.status(200).json({ error: 'This receptionist is paused. Please check billing in your dashboard.' });
         return;
       }
       if (!settings.tenant.onboarding?.isActive) {
