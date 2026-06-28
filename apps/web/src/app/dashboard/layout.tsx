@@ -113,6 +113,17 @@ const NAV: NavItem[] = [
       </svg>
     ),
   },
+  {
+    href: '/dashboard/billing',
+    label: 'Billing',
+    exact: false,
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-[18px] w-[18px]">
+        <rect x="2.5" y="4.5" width="15" height="11" rx="2" />
+        <path d="M2.5 8h15" strokeLinecap="round" />
+      </svg>
+    ),
+  },
 ];
 
 function initials(fullName: string): string {

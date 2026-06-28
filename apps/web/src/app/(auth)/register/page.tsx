@@ -4,7 +4,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { z } from 'zod';
-import { ApiError, SignupApi, type Industry } from '@/lib/api';
+import { ApiError, BillingApi, SignupApi, type Industry } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { INDUSTRY_TEMPLATES } from '@/domain/prompt-templates';
 import { Button } from '@/components/ui/Button';
@@ -87,7 +87,14 @@ export default function RegisterPage() {
     try {
       // Only send a code for invite-only industries; trades signs up open.
       const accessCode = codeRequired ? (parsed.data.accessCode ?? '').trim() || undefined : undefined;
-      await register({ ...parsed.data, accessCode, industry });
+      const me = await register({ ...parsed.data, accessCode, industry });
+      // Card required at signup: when billing is on and there's no card yet,
+      // send them straight to Stripe Checkout before onboarding.
+      if (me.billing.enabled && !me.billing.subscribed) {
+        const { url } = await BillingApi.checkout();
+        window.location.href = url;
+        return;
+      }
       router.replace('/onboarding');
     } catch (err) {
       setFormError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.');

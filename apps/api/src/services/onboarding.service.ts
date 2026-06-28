@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { HttpError } from '../lib/http';
 import { claimNumberForTenant } from './phone-pool.service';
 import { createAssistantForTenant } from './vapi.service';
+import { isCallAllowedForBilling } from './billing.service';
 
 export const ONBOARDING_STEPS = ['PROFILE', 'PROMPT', 'VOICE_TEST'] as const;
 export type OnboardingStep = (typeof ONBOARDING_STEPS)[number];
@@ -102,6 +103,13 @@ export async function activate(tenantId: string): Promise<OnboardingStatus> {
     throw new HttpError(409, 'Complete all setup steps before going live.', 'STEP_OUT_OF_ORDER');
   }
   if (status.isActive) return status;
+
+  // Card-at-signup: when billing is on, don't provision a live number / assistant
+  // until there's a payment method on file (no-op when billing is disabled).
+  const billing = await isCallAllowedForBilling(tenantId);
+  if (!billing.allowed) {
+    throw new HttpError(402, billing.reason ?? 'Add a payment method before going live.', 'BILLING_REQUIRED');
+  }
 
   // Self-serve number provisioning: claim a pooled number on the way live.
   // Best-effort — if the pool is empty the customer still activates, and the

@@ -140,6 +140,22 @@ export interface Me {
     subscriptionStatus: string;
   };
   onboarding: OnboardingView;
+  billing: Billing;
+}
+
+/** Billing/trial state. When `enabled` is false, billing never gates anything. */
+export interface Billing {
+  enabled: boolean;
+  subscribed: boolean;
+  status: string;
+  planId: string | null;
+  currency: string | null;
+  trialEndsAt: string | null;
+  trialMinutesUsed: number;
+  trialMinutesCap: number;
+  includedMinutes: number;
+  canTakeCalls: boolean;
+  blockedReason: string | null;
 }
 
 export type AuthResponse = Me & { token: string };
@@ -1178,6 +1194,14 @@ export const CalendarApi = {
 export const SignupApi = {
   config: (signal?: AbortSignal) =>
     api<{ inviteOnlyIndustries: Industry[] }>('/api/auth/signup-config', { signal }),
+};
+
+export const BillingApi = {
+  state: (signal?: AbortSignal) => api<{ billing: Billing }>('/api/billing/state', { signal }),
+  /** Returns a Stripe Checkout URL to redirect to (subscription + 30-day trial). */
+  checkout: () => api<{ url: string }>('/api/billing/checkout', { method: 'POST' }),
+  /** Returns a Stripe Billing Portal URL for managing the card/plan. */
+  portal: () => api<{ url: string }>('/api/billing/portal', { method: 'POST' }),
 };
 
 export const CallsApi = {
