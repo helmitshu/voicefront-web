@@ -11,7 +11,9 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Field';
 
 const RegisterSchema = z.object({
-  accessCode: z.string().trim().min(1, 'Enter the invitation code we sent you'),
+  // Optional here — the invitation requirement is enforced per industry below
+  // (clinics need a code, trades don't).
+  accessCode: z.string().trim().max(40).optional(),
   companyName: z.string().trim().min(2, 'Company name is too short').max(80),
   fullName: z.string().trim().min(2, 'Please enter your name').max(80),
   email: z.string().trim().email('Please enter a valid email'),
@@ -29,27 +31,22 @@ const INDUSTRY_CARDS: Array<{ value: Industry; icon: string }> = [
 export default function RegisterPage() {
   const { register } = useAuth();
   const router = useRouter();
-  // Launch gate: which industries the server allows for self-signup. Default to
-  // trades-only (the safe gated default) until the config loads.
-  const [openIndustries, setOpenIndustries] = useState<Industry[]>(['CONSTRUCTION']);
+  // Which industries require an invitation code. Trades is open; clinics are
+  // invite-only. Default assumes clinic is gated until the config confirms.
+  const [inviteOnly, setInviteOnly] = useState<Industry[]>(['CLINIC']);
   const [industry, setIndustry] = useState<Industry>('CONSTRUCTION');
 
   useEffect(() => {
     const controller = new AbortController();
     SignupApi.config(controller.signal)
-      .then(({ openIndustries: open }) => {
-        if (open.length > 0) {
-          setOpenIndustries(open);
-          setIndustry((current) => (open.includes(current) ? current : open[0]));
-        }
-      })
+      .then(({ inviteOnlyIndustries }) => setInviteOnly(inviteOnlyIndustries))
       .catch(() => {
-        /* keep the safe trades-only default if the config can't load */
+        /* keep the safe default (clinic invite-only) if the config can't load */
       });
     return () => controller.abort();
   }, []);
 
-  const visibleCards = INDUSTRY_CARDS.filter((c) => openIndustries.includes(c.value));
+  const codeRequired = inviteOnly.includes(industry);
   const [values, setValues] = useState({
     accessCode: '',
     companyName: '',
@@ -80,10 +77,17 @@ export default function RegisterPage() {
       setFieldErrors(errors);
       return;
     }
+    // Clinics are invite-only; require the code only for those industries.
+    if (codeRequired && !(parsed.data.accessCode ?? '').trim()) {
+      setFieldErrors({ accessCode: 'Enter the invitation code we sent you' });
+      return;
+    }
     setFieldErrors({});
     setSubmitting(true);
     try {
-      await register({ ...parsed.data, industry });
+      // Only send a code for invite-only industries; trades signs up open.
+      const accessCode = codeRequired ? (parsed.data.accessCode ?? '').trim() || undefined : undefined;
+      await register({ ...parsed.data, accessCode, industry });
       router.replace('/onboarding');
     } catch (err) {
       setFormError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.');
@@ -95,8 +99,8 @@ export default function RegisterPage() {
     <div>
       <h1 className="font-display text-2xl font-semibold text-ink">Create your workspace</h1>
       <p className="mt-1 text-sm text-ink-muted">
-        Your receptionist comes pre-trained for your trade — you&apos;ll hear it answer a real call in
-        under two minutes, then go live. Enter the invitation code from your demo to start.
+        Your receptionist comes pre-trained for your industry — you&apos;ll hear it answer a real call in
+        under two minutes, then go live.
       </p>
 
       <form onSubmit={onSubmit} noValidate className="mt-8 flex flex-col gap-5">
@@ -106,51 +110,51 @@ export default function RegisterPage() {
           </p>
         )}
 
-        <div className="rounded-2xl border border-signal/20 bg-signal-soft/40 p-4">
-          <Input
-            label="Invitation code"
-            value={values.accessCode}
-            onChange={(e) => setField('accessCode', e.target.value.toUpperCase())}
-            error={fieldErrors.accessCode}
-            hint="The one-time code from your demo or sales call."
-            placeholder="VF-XXXX-XXXX"
-            autoComplete="off"
-            autoCapitalize="characters"
-            spellCheck={false}
-          />
-        </div>
+        <fieldset>
+          <legend className="mb-2 text-sm font-medium text-ink">What kind of business is this?</legend>
+          <div className="grid grid-cols-2 gap-3">
+            {INDUSTRY_CARDS.map((card) => {
+              const template = INDUSTRY_TEMPLATES[card.value];
+              const selected = industry === card.value;
+              return (
+                <button
+                  key={card.value}
+                  type="button"
+                  onClick={() => setIndustry(card.value)}
+                  aria-pressed={selected}
+                  className={`rounded-2xl border p-4 text-left transition-all ${
+                    selected
+                      ? 'border-signal bg-signal-soft shadow-card'
+                      : 'border-line bg-white hover:border-ink-muted/40'
+                  }`}
+                >
+                  <span aria-hidden className="text-xl">
+                    {card.icon}
+                  </span>
+                  <p className="mt-2 text-sm font-semibold text-ink">{template.title}</p>
+                  <p className="mt-0.5 text-xs leading-snug text-ink-muted">{template.tagline}</p>
+                </button>
+              );
+            })}
+          </div>
+        </fieldset>
 
-        {/* Industry picker — shown only when more than one is open for signup
-            (the launch gate may restrict this to a single industry). */}
-        {visibleCards.length > 1 && (
-          <fieldset>
-            <legend className="mb-2 text-sm font-medium text-ink">What kind of business is this?</legend>
-            <div className="grid grid-cols-2 gap-3">
-              {visibleCards.map((card) => {
-                const template = INDUSTRY_TEMPLATES[card.value];
-                const selected = industry === card.value;
-                return (
-                  <button
-                    key={card.value}
-                    type="button"
-                    onClick={() => setIndustry(card.value)}
-                    aria-pressed={selected}
-                    className={`rounded-2xl border p-4 text-left transition-all ${
-                      selected
-                        ? 'border-signal bg-signal-soft shadow-card'
-                        : 'border-line bg-white hover:border-ink-muted/40'
-                    }`}
-                  >
-                    <span aria-hidden className="text-xl">
-                      {card.icon}
-                    </span>
-                    <p className="mt-2 text-sm font-semibold text-ink">{template.title}</p>
-                    <p className="mt-0.5 text-xs leading-snug text-ink-muted">{template.tagline}</p>
-                  </button>
-                );
-              })}
-            </div>
-          </fieldset>
+        {/* Invitation code — only for invite-only industries (clinics). Trades
+            is open self-serve, so the field is hidden for it. */}
+        {codeRequired && (
+          <div className="rounded-2xl border border-signal/20 bg-signal-soft/40 p-4">
+            <Input
+              label="Invitation code"
+              value={values.accessCode}
+              onChange={(e) => setField('accessCode', e.target.value.toUpperCase())}
+              error={fieldErrors.accessCode}
+              hint="Clinic workspaces are invite-only — enter the one-time code from your demo or sales call."
+              placeholder="VF-XXXX-XXXX"
+              autoComplete="off"
+              autoCapitalize="characters"
+              spellCheck={false}
+            />
+          </div>
         )}
 
         <Input
