@@ -952,11 +952,18 @@ export function SiteFooter() {
         { href: '/login', label: 'Sign in' },
       ],
     },
+    {
+      title: 'Legal',
+      links: [
+        { href: '/terms', label: 'Terms of Service' },
+        { href: '/privacy', label: 'Privacy Policy' },
+      ],
+    },
   ];
   return (
     <footer className="border-t border-line/60 bg-surface/40 px-6 pb-10 pt-14">
       <div className="mx-auto max-w-6xl">
-        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr]">
+        <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
           <div className="max-w-xs">
             <Link href="/" aria-label="VoiceFront home" className="inline-block">
               <Logo size="sm" />
