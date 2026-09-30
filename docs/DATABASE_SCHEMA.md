@@ -348,17 +348,17 @@ Operator-wide configuration (not encrypted, despite the `valueEnc` column name).
 | `updatedAt` | datetime | not null | Last change |
 
 **Settings in use:**
-- `VAPI_PUBLIC_KEY` — Vapi org public key (safe for browser)
-- `VAPI_WEBHOOK_SECRET` — Vapi webhook signing secret (server-only)
-- `PUBLIC_API_URL` — API base URL (for web app config)
-- `JWT_SECRET` — JWT signing key (server-only)
-- `DEMO_ENABLED` — Is sales demo on? ("true" / "false" text)
-- `DEMO_SALES_AGENT_NAME` — Agent display name (default "Ava")
-- `DEMO_FOUNDER_NAME` — Founder display name (default "our founder")
-- `DEMO_SHOW_CALENDAR` — Show calendar in demo? ("true" / "false" text)
-- `DEMO_NUMBER_US` — US demo caller ID, stored as JSON: `{"id": "...", "number": "..."}`
-- `DEMO_NUMBER_CA` — CA demo caller ID, same JSON format
-- `FOUNDER_TIMEZONE` — Founder's timezone (e.g., "America/Vancouver")
+- `VAPI_PUBLIC_KEY`, Vapi org public key (safe for browser)
+- `VAPI_WEBHOOK_SECRET`, Vapi webhook signing secret (server-only)
+- `PUBLIC_API_URL`, API base URL (for web app config)
+- `JWT_SECRET`, JWT signing key (server-only)
+- `DEMO_ENABLED`, Is sales demo on? ("true" / "false" text)
+- `DEMO_SALES_AGENT_NAME`, Agent display name (default "Ava")
+- `DEMO_FOUNDER_NAME`, Founder display name (default "our founder")
+- `DEMO_SHOW_CALENDAR`, Show calendar in demo? ("true" / "false" text)
+- `DEMO_NUMBER_US`, US demo caller ID, stored as JSON: `{"id": "...", "number": "..."}`
+- `DEMO_NUMBER_CA`, CA demo caller ID, same JSON format
+- `FOUNDER_TIMEZONE`, Founder's timezone (e.g., "America/Vancouver")
 
 ---
 
@@ -416,8 +416,8 @@ INBOUND | OUTBOUND
 | CallLog | tenantId | Tenant.id | CASCADE DELETE |
 | Appointment | tenantId | Tenant.id | CASCADE DELETE |
 | Document | tenantId | Tenant.id | CASCADE DELETE |
-| DemoLead | demoSessionId | (no FK, just UUID) | — |
-| DemoCall | demoSessionId | (no FK, just UUID) | — |
+| DemoLead | demoSessionId | (no FK, just UUID) |  |
+| DemoCall | demoSessionId | (no FK, just UUID) |  |
 
 **Notes:**
 - Cascading deletes mean removing a Tenant wipes all its data (users, calls, appointments)
@@ -428,15 +428,15 @@ INBOUND | OUTBOUND
 ## Indexing Strategy
 
 **High-priority indexes (created):**
-- `CallLog.tenantId` + `CallLog.createdAt DESC` — for paginated call lists
-- `Appointment.tenantId + demoSessionId` — for demo session isolation
-- `AgentSettings.inboundPhoneNumber` — for webhook number→tenant routing
-- `User.tenantId` — for listing users per tenant
+- `CallLog.tenantId` + `CallLog.createdAt DESC`, for paginated call lists
+- `Appointment.tenantId + demoSessionId`, for demo session isolation
+- `AgentSettings.inboundPhoneNumber`, for webhook number→tenant routing
+- `User.tenantId`, for listing users per tenant
 - All primary keys and unique constraints
 
 **Low-priority (no index yet):**
-- `Document.status` — small table, linear scan acceptable
-- `PlatformSetting.key` — tiny table, all settings usually cached
+- `Document.status`, small table, linear scan acceptable
+- `PlatformSetting.key`, tiny table, all settings usually cached
 
 ---
 

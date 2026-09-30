@@ -13,8 +13,8 @@
 - **For tenants:** A branded dashboard to manage their AI receptionist, review calls, set business hours, and configure call handling
 - **For you (the operator):** A sales demo that prospects can watch *live* on a web calendar, plus a founder portal to control the sales experience and book follow-up calls
 - **For prospects:** Two ways to experience the demo:
-  1. **In-browser test** — talk to Ava (the sales agent) in the browser; watch her book appointments in real-time on a sample calendar
-  2. **Outbound call** — Ava calls your phone; same full demo by voice, with caller ID routed by country (US/CA)
+  1. **In-browser test**, talk to Ava (the sales agent) in the browser; watch her book appointments in real-time on a sample calendar
+  2. **Outbound call**, Ava calls your phone; same full demo by voice, with caller ID routed by country (US/CA)
 
 ### The Business Model
 - Multi-tenant SaaS: each clinic/business is a `Tenant` with their own assistant, settings, call logs
@@ -163,7 +163,7 @@ Tenant (the clinic/business)
 │  ├─ timezone (tenant-local)
 │  ├─ source (VOICE_AGENT | MANUAL)
 │  ├─ status (CONFIRMED | CANCELLED | COMPLETED | NO_SHOW)
-│  ├─ providerId (FK → Provider; nullable — null = solo/unassigned)
+│  ├─ providerId (FK → Provider; nullable, null = solo/unassigned)
 │  ├─ serviceId (FK → Service; nullable)
 │  └─ createdAt, updatedAt
 
@@ -171,7 +171,7 @@ Tenant (the clinic/business)
 │  ├─ id (uuid)
 │  ├─ tenantId (FK)
 │  ├─ name (e.g., "Sarah Chen")
-│  ├─ title (e.g., "Dr." — optional)
+│  ├─ title (e.g., "Dr.", optional)
 │  ├─ active (bool; false = hidden from booking)
 │  └─ services (m-n relation to Service via ProviderServices)
 
@@ -240,7 +240,7 @@ FounderEntry (via Appointment model with tenantId = __founder)
 AccessCode (one-time invitation required to create a tenant)
 ├─ id (uuid, PK)
 ├─ code (unique, e.g. "VF-7Q4K-2M9X"; unambiguous charset, case-insensitive)
-├─ label (optional; e.g. "Riverside Dental" — who it's for)
+├─ label (optional; e.g. "Riverside Dental", who it's for)
 ├─ email (optional hint; the customer's email)
 ├─ createdBy (operator email who minted it)
 ├─ usedAt (timestamp; null until consumed)
@@ -411,12 +411,12 @@ Prerequisites for each step:
 
 **What it does:**
 1. Resumes the visitor's isolated session (no re-seeding)
-2. Builds "Ava" — the sales agent:
+2. Builds "Ava", the sales agent:
    - System prompt: `composeSalesPrompt(ctx)` with the sales playbook
    - Voice: Savannah (Vapi V2)
    - Background sound: office ambience
    - Tools: `checkAvailability`, `bookAppointment` (demo clinic), `checkFounderAvailability`, `bookPlanningCall` (founder)
-   - FirstMessage: "Hey {name}! This is Ava with VoiceFront. Real quick — I'm actually one of the AI agents we build..."
+   - FirstMessage: "Hey {name}! This is Ava with VoiceFront. Real quick, I'm actually one of the AI agents we build..."
 3. Tags the assistant with the session ID (so tool-calls land on THIS visitor's calendar)
 4. Returns the assistant + Vapi public key + showCalendar flag
 
@@ -464,7 +464,7 @@ Prerequisites for each step:
 4. When the prospect picks one, calls `bookPlanningCall(prospectName, prospectPhone, date, time)` → creates a 15-min appointment on the founder's calendar
 5. Confirms with the prospect: "Booked: Sarah Chen on Thursday, June 18 at 2pm. Confirm this with the caller."
 
-**Key:** The founder's calendar is a real Tenant (`__founder`) with real Appointments. The booking engine's overlap prevention applies — Ava cannot double-book the founder.
+**Key:** The founder's calendar is a real Tenant (`__founder`) with real Appointments. The booking engine's overlap prevention applies, Ava cannot double-book the founder.
 
 ---
 
@@ -493,10 +493,10 @@ Prerequisites for each step:
 **Page:** `/admin/demo`
 
 **Controls:**
-- **Agent name** — rename Ava (updates in all future calls)
-- **Founder name** — how Ava refers to you (updates in all future calls)
-- **Calendar visibility** — toggle whether prospects see the live sample calendar during the demo
-- **Demo numbers** — dropdowns to assign US and CA caller-IDs from your Vapi account
+- **Agent name**, rename Ava (updates in all future calls)
+- **Founder name**, how Ava refers to you (updates in all future calls)
+- **Calendar visibility**, toggle whether prospects see the live sample calendar during the demo
+- **Demo numbers**, dropdowns to assign US and CA caller-IDs from your Vapi account
 
 **Backend:**
 - Settings stored in PlatformSetting rows (not encrypted, plain text)
@@ -543,21 +543,21 @@ Prerequisites for each step:
 
 #### Public self-service booking (`/api/booking`)
 
-A prospect on the landing page can skip the demo and book a call directly on the **founder's real calendar** — no account, no agent.
+A prospect on the landing page can skip the demo and book a call directly on the **founder's real calendar**, no account, no agent.
 
 - `GET /api/booking/slots?days=14` → `{ timezone, days: [{ date, dayLabel, open, slots: ["HH:MM", …] }] }` (founder availability, founder-local times).
 - `POST /api/booking` → `{ name, businessType, phone, email?, notes?, customSystem?, date, time }`; packs the form fields into the appointment `reason`, books on the `__founder` tenant via the **same booking engine** (advisory-lock double-booking guard), returns `201`. A second booking of the same slot is rejected `SLOT_TAKEN`.
 - Rate-limited separately for reads vs. writes. Bookings appear instantly in the founder's admin calendar (it already polls `__founder`).
-- Frontend: `apps/web/src/components/BookCallSection.tsx` — day chips + time grid + form, timezone-aware, conflict-aware (refreshes on `SLOT_TAKEN`).
+- Frontend: `apps/web/src/components/BookCallSection.tsx`, day chips + time grid + form, timezone-aware, conflict-aware (refreshes on `SLOT_TAKEN`).
 
 #### Invite-only registration (access codes)
 
 Signups are gated behind one-time `AccessCode`s (see data model above).
 
-- **Service:** `apps/api/src/services/access-code.service.ts` — `generateAccessCode`, `normalizeCode`, `consumeAccessCode(tx, code, tenantId)` (atomic), `listAccessCodes`, `revokeAccessCode`.
+- **Service:** `apps/api/src/services/access-code.service.ts`, `generateAccessCode`, `normalizeCode`, `consumeAccessCode(tx, code, tenantId)` (atomic), `listAccessCodes`, `revokeAccessCode`.
 - **Admin endpoints** (full-admin, audit-logged): `GET/POST /admin/access-codes`, `DELETE /admin/access-codes/:id`. UI at `/admin/access-codes` (generate with label + email hint, copy, revoke unused).
 - **Registration gate:** `RegisterSchema` requires `accessCode` for non-operators; consumed inside the signup `$transaction` so a failed signup never burns a code, and a spent/invalid code rolls the whole thing back. Bootstrap/granted platform admins bypass the requirement.
-- ⚠️ **Production note:** prod Postgres starts with **zero** codes — the operator must generate the first invites before any customer can sign up (operators themselves are exempt).
+- ⚠️ **Production note:** prod Postgres starts with **zero** codes, the operator must generate the first invites before any customer can sign up (operators themselves are exempt).
 
 ---
 
@@ -567,9 +567,9 @@ VoiceFront supports both solo businesses (single shared resource) and group prac
 
 #### Entitlement Model
 
-- `Tenant.multiProviderEnabled` — platform operator sets this (full-admin only in the admin panel)
-- `Tenant.multiProviderSelfManage` — if true, the customer can toggle `enabled` from their own `/dashboard/providers` page
-- `AgentSettings.offerProviderChoice` — customer-controlled; if true, the agent proactively lists available providers at the start of a call
+- `Tenant.multiProviderEnabled`, platform operator sets this (full-admin only in the admin panel)
+- `Tenant.multiProviderSelfManage`, if true, the customer can toggle `enabled` from their own `/dashboard/providers` page
+- `AgentSettings.offerProviderChoice`, customer-controlled; if true, the agent proactively lists available providers at the start of a call
 
 #### Booking Resolution (Voice)
 
@@ -577,12 +577,12 @@ VoiceFront supports both solo businesses (single shared resource) and group prac
 2. Service is matched first (sets duration; narrows the qualified provider pool)
 3. Provider is then matched against the qualified pool; if they can't do the service, agent falls back gracefully to first-available
 4. Fuzzy matching: strips titles (Dr., Mr., Prof.), partial substring, shared-word fallback (so "Smith" finds "Dr. Sarah Smith")
-5. First-available auto-assignment runs under the same Postgres advisory lock as solo booking — no double-booking across providers
+5. First-available auto-assignment runs under the same Postgres advisory lock as solo booking, no double-booking across providers
 
 #### Booking Resolution (Manual Calendar Form)
 
 1. Calendar "New" form shows Provider + Service dropdowns when `multiProvider` is true and providers exist
-2. Trusted IDs from the form are resolved by `bookingContextByIds()` — validates they belong to the tenant, derives the provider pool
+2. Trusted IDs from the form are resolved by `bookingContextByIds()`, validates they belong to the tenant, derives the provider pool
 3. When a service is selected, its `durationMinutes` overrides the manual duration selector
 
 #### Voice Tools Added
@@ -597,7 +597,7 @@ VoiceFront supports both solo businesses (single shared resource) and group prac
 
 #### Auto-Sync (Persistent Assistants)
 
-Any mutation to the provider/service roster or `offerProviderChoice` fires `kickResync(tenantId)` — a best-effort, non-blocking call to `syncAssistantForTenant`. This keeps persistent assistants up to date with the live roster without manual operator intervention.
+Any mutation to the provider/service roster or `offerProviderChoice` fires `kickResync(tenantId)`, a best-effort, non-blocking call to `syncAssistantForTenant`. This keeps persistent assistants up to date with the live roster without manual operator intervention.
 
 #### Calendar Day View
 
@@ -609,10 +609,10 @@ When `multiProviderEnabled` is true and 2+ active providers exist, the day panel
 
 The public site is the primary sales surface; it both explains and *demonstrates* the product.
 
-- **"How every call works" console** (`components/WorkflowConsole.tsx`) — a self-driving, no-audio walkthrough: a streaming transcript, a live calendar showing busy/booked/callback states (a pre-blocked slot proves *no double-booking*), and a call summary that resolves to an explicit **outcome** (booked / callback / answered). Three scenarios auto-cycle (new caller, returning customer, quick question) and are click-selectable. State machine driven by per-scenario step lists; runs only when scrolled into view.
-- **Self-book section** — `BookCallSection` (§4.9), plus three explainer cards (no double-booking / new & returning callers / "want it built for you?" → book the founder).
-- **Live in-browser demo** — the interactive `InteractiveDemo` (lead form → choose web/call → live console). Restyled to a light premium card; the transcript is a **fixed-height scrolling box** so the card never grows with the call.
-- **Design system** — `tailwind.config.ts` (teal "signal" accent, soft layered shadows, `ease-smooth` curve) + `globals.css` (display-type tracking, smooth anchor scroll with header offset, focus rings, ambient `bg-aurora-*` / `bg-wave-*` keyframes). Ambient backdrop in `components/WaveBackground.tsx` (blurred aurora blobs + gradient wave ribbons, transform-only/GPU-composited, honors `prefers-reduced-motion`). Buttons are pills app-wide via `components/ui/Button.tsx`.
+- **"How every call works" console** (`components/WorkflowConsole.tsx`), a self-driving, no-audio walkthrough: a streaming transcript, a live calendar showing busy/booked/callback states (a pre-blocked slot proves *no double-booking*), and a call summary that resolves to an explicit **outcome** (booked / callback / answered). Three scenarios auto-cycle (new caller, returning customer, quick question) and are click-selectable. State machine driven by per-scenario step lists; runs only when scrolled into view.
+- **Self-book section**, `BookCallSection` (§4.9), plus three explainer cards (no double-booking / new & returning callers / "want it built for you?" → book the founder).
+- **Live in-browser demo**, the interactive `InteractiveDemo` (lead form → choose web/call → live console). Restyled to a light premium card; the transcript is a **fixed-height scrolling box** so the card never grows with the call.
+- **Design system**, `tailwind.config.ts` (teal "signal" accent, soft layered shadows, `ease-smooth` curve) + `globals.css` (display-type tracking, smooth anchor scroll with header offset, focus rings, ambient `bg-aurora-*` / `bg-wave-*` keyframes). Ambient backdrop in `components/WaveBackground.tsx` (blurred aurora blobs + gradient wave ribbons, transform-only/GPU-composited, honors `prefers-reduced-motion`). Buttons are pills app-wide via `components/ui/Button.tsx`.
 
 > Demo-agent behavior lives in `apps/api/src/domain/sales-agent.ts` (persona, playbook, `set_demo_screen` screen-control, sample-booking discipline). The prompt instructs Ava to **switch the screen before she talks about it** so the calendar never lags the conversation.
 

@@ -8,17 +8,17 @@ In active development. The core platform is live and serving calls; the public s
 
 ## Who it's for
 
-1. **Tenants (clinics, contractors, service businesses)** — a branded dashboard to manage their AI receptionist: onboarding, call-handling settings, voice and hours, knowledge-base documents, usage, and a searchable call history with transcripts and recordings.
-2. **The platform operator** — an admin portal to manage customers, assign voice assistants, review demo calls, manage booking calendars, and issue signup invitations.
-3. **Prospects** — a marketing site that demonstrates the product live: an on-screen workflow, an in-browser voice test, and self-booking for a setup call.
+1. **Tenants (clinics, contractors, service businesses)**, a branded dashboard to manage their AI receptionist: onboarding, call-handling settings, voice and hours, knowledge-base documents, usage, and a searchable call history with transcripts and recordings.
+2. **The platform operator**, an admin portal to manage customers, assign voice assistants, review demo calls, manage booking calendars, and issue signup invitations.
+3. **Prospects**, a marketing site that demonstrates the product live: an on-screen workflow, an in-browser voice test, and self-booking for a setup call.
 
 ## Architecture
 
-- **Web** — Next.js 14 (App Router) + Tailwind
-- **API** — Express + TypeScript + Prisma
-- **Database** — PostgreSQL
-- **Voice** — Vapi (inbound and outbound calls, real-time voice)
-- **Deploy** — Railway · Docker Compose for local development
+- **Web**, Next.js 14 (App Router) + Tailwind
+- **API**, Express + TypeScript + Prisma
+- **Database**, PostgreSQL
+- **Voice**, Vapi (inbound and outbound calls, real-time voice)
+- **Deploy**, Railway · Docker Compose for local development
 
 ```
 voicefront-web/
@@ -34,13 +34,13 @@ voicefront-web/
 
 ## Core platform
 
-- **Multi-tenant SaaS** — tenants (industry, white-label slug, subscription status, usage limits) with role-based users (owner, manager, agent) and per-tenant agent settings.
-- **Auth** — JWT with bcrypt hashing, rate-limited auth routes, hardened headers, CORS allow-list.
-- **Onboarding state machine** — profile, prompt, voice test, active. Server-enforced prerequisites, revisitable steps, and a real in-browser test call before going live.
-- **Transient assistants** — every inbound call composes a voice assistant from the tenant's settings, knowledge base, and calendar, so each business gets its own receptionist without manual Vapi configuration.
-- **Call intelligence** — transcripts, recordings, summaries, and structured outcomes on every call, searchable from the dashboard.
-- **Calendar booking** — books straight into the business's calendar with conflict checking, so the agent never double-books.
-- **Knowledge base** — tenants upload documents (pricing, policies, FAQs) and the receptionist answers from them.
+- **Multi-tenant SaaS**, tenants (industry, white-label slug, subscription status, usage limits) with role-based users (owner, manager, agent) and per-tenant agent settings.
+- **Auth**, JWT with bcrypt hashing, rate-limited auth routes, hardened headers, CORS allow-list.
+- **Onboarding state machine**, profile, prompt, voice test, active. Server-enforced prerequisites, revisitable steps, and a real in-browser test call before going live.
+- **Transient assistants**, every inbound call composes a voice assistant from the tenant's settings, knowledge base, and calendar, so each business gets its own receptionist without manual Vapi configuration.
+- **Call intelligence**, transcripts, recordings, summaries, and structured outcomes on every call, searchable from the dashboard.
+- **Calendar booking**, books straight into the business's calendar with conflict checking, so the agent never double-books.
+- **Knowledge base**, tenants upload documents (pricing, policies, FAQs) and the receptionist answers from them.
 
 ## Local development
 

@@ -13,7 +13,7 @@ forward-only in production via `prisma migrate deploy`.
 
 Production was built with `db push`, so it has all the tables but no Prisma
 migration history. Before the first deploy that runs `migrate deploy`, mark the
-baseline migration as already applied — this writes a history row, it does **not**
+baseline migration as already applied, this writes a history row, it does **not**
 create or alter anything:
 
 ```bash
@@ -36,13 +36,13 @@ long-lived environment (staging) that predates migrations.
   `npm run db:migrate -w apps/api` (Prisma generates a migration + applies it to
   your local DB). Commit the new folder under `prisma/migrations/`.
 - **Production deploy:** the `start` script runs `prisma migrate deploy` before
-  booting — it applies any new, unapplied migrations forward-only.
+  booting, it applies any new, unapplied migrations forward-only.
 - **CI:** the integration job runs `migrate deploy` against a clean Postgres, so
   a migration that doesn't build a valid schema fails CI before it ships.
 
 ## Notes
 
-- `prisma migrate reset` **wipes the database** — never run it against anything
+- `prisma migrate reset` **wipes the database**, never run it against anything
   but a local throwaway DB.
 - Keep migrations small and reviewable. For risky changes (drops, type changes,
   large backfills) prefer an expand/contract sequence over a single destructive
