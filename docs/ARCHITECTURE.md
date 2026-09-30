@@ -331,7 +331,7 @@ Prerequisites for each step:
 4. Builds a fresh Vapi assistant JSON with:
    - The tenant's system prompt (composed with live context: is the office open right now? what's today's date?)
    - A transfer directory (internal label + voicemail, no numbers in the prompt)
-   - Business hours explained in plain English ("we're open Monday–Friday 9am–5pm Pacific")
+   - Business hours explained in plain English ("we're open Monday to Friday 9am to 5pm Pacific")
    - Voice + ambience selected by the tenant
 5. Returns it to Vapi → call connects → agent operates
 6. When the call ends → `end-of-call-report` webhook ingests the call log
@@ -460,7 +460,7 @@ Prerequisites for each step:
 **How Ava books the planning call:**
 1. At the close of the demo, Ava says: "Let me grab you fifteen minutes with [founder name] to set this up."
 2. Calls `checkFounderAvailability(prospectPreferredDate)` → returns the founder's open slots (from their calendar)
-3. Offers 2–3 of the founder's available times
+3. Offers 2 to 3 of the founder's available times
 4. When the prospect picks one, calls `bookPlanningCall(prospectName, prospectPhone, date, time)` → creates a 15-min appointment on the founder's calendar
 5. Confirms with the prospect: "Booked: Sarah Chen on Thursday, June 18 at 2pm. Confirm this with the caller."
 
@@ -510,7 +510,7 @@ Prerequisites for each step:
 
 **Features:**
 - Month grid (click any day to see that day's schedule)
-- Block time: "I'm busy 2–3pm Thursday" → creates a CONFIRMED appointment on the `__founder` tenant
+- Block time: "I'm busy 2 to 3pm Thursday" → creates a CONFIRMED appointment on the `__founder` tenant
 - See booked planning calls (blue) vs. blocks (amber)
 - Remove any entry
 - Timezone-aware (founder's timezone determines what "Thursday 2pm" means)
