@@ -1,1 +1,51 @@
-IyBWb2ljZUZyb250CgpBbiBBSSB2b2ljZSByZWNlcHRpb25pc3QgZm9yIGNsaW5pY3MsIGNvbnRyYWN0b3JzLCBhbmQgc2VydmljZSBidXNpbmVzc2VzLiBJdCBhbnN3ZXJzIGV2ZXJ5IGNhbGwsIGJvb2tzIGFwcG9pbnRtZW50cyBzdHJhaWdodCBpbnRvIHRoZSBjYWxlbmRhciwgYW5zd2VycyBjb21tb24gcXVlc3Rpb25zLCBjYXB0dXJlcyBsZWFkcywgYW5kIHJvdXRlcyB1cmdlbnQgY2FsbHMgdG8gYSBodW1hbi4gQnVpbHQgYXMgYSB3aGl0ZS1sYWJlbCwgbXVsdGktdGVuYW50IFNhYVMgcGxhdGZvcm0uCgojIyBTdGF0dXMKCkluIGFjdGl2ZSBkZXZlbG9wbWVudC4gVGhlIGNvcmUgcGxhdGZvcm0gaXMgbGl2ZSBhbmQgc2VydmluZyBjYWxsczsgdGhlIHB1YmxpYyBzaXRlIGFuZCBvbmJvYXJkaW5nIGZsb3dzIGFyZSBiZWluZyByZWZpbmVkLgoKIyMgV2hvIGl0J3MgZm9yCgoxLiAqKlRlbmFudHMgKGNsaW5pY3MsIGNvbnRyYWN0b3JzLCBzZXJ2aWNlIGJ1c2luZXNzZXMpKiog4oCUIGEgYnJhbmRlZCBkYXNoYm9hcmQgdG8gbWFuYWdlIHRoZWlyIEFJIHJlY2VwdGlvbmlzdDogb25ib2FyZGluZywgY2FsbC1oYW5kbGluZyBzZXR0aW5ncywgdm9pY2UgYW5kIGhvdXJzLCBrbm93bGVkZ2UtYmFzZSBkb2N1bWVudHMsIHVzYWdlLCBhbmQgYSBzZWFyY2hhYmxlIGNhbGwgaGlzdG9yeSB3aXRoIHRyYW5zY3JpcHRzIGFuZCByZWNvcmRpbmdzLgoyLiAqKlRoZSBwbGF0Zm9ybSBvcGVyYXRvcioqIOKAlCBhbiBhZG1pbiBwb3J0YWwgdG8gbWFuYWdlIGN1c3RvbWVycywgYXNzaWduIHZvaWNlIGFzc2lzdGFudHMsIHJldmlldyBkZW1vIGNhbGxzLCBtYW5hZ2UgYm9va2luZyBjYWxlbmRhcnMsIGFuZCBpc3N1ZSBzaWdudXAgaW52aXRhdGlvbnMuCjMuICoqUHJvc3BlY3RzKiog4oCUIGEgbWFya2V0aW5nIHNpdGUgdGhhdCBkZW1vbnN0cmF0ZXMgdGhlIHByb2R1Y3QgbGl2ZTogYW4gb24tc2NyZWVuIHdvcmtmbG93LCBhbiBpbi1icm93c2VyIHZvaWNlIHRlc3QsIGFuZCBzZWxmLWJvb2tpbmcgZm9yIGEgc2V0dXAgY2FsbC4KCiMjIEFyY2hpdGVjdHVyZQoKLSAqKldlYioqIOKAlCBOZXh0LmpzIDE0IChBcHAgUm91dGVyKSArIFRhaWx3aW5kCi0gKipBUEkqKiDigJQgRXhwcmVzcyArIFR5cGVTY3JpcHQgKyBQcmlzbWEKLSAqKkRhdGFiYXNlKiog4oCUIFBvc3RncmVTUUwKLSAqKlZvaWNlKiog4oCUIFZhcGkgKGluYm91bmQgYW5kIG91dGJvdW5kIGNhbGxzLCByZWFsLXRpbWUgdm9pY2UpCi0gKipEZXBsb3kqKiDigJQgUmFpbHdheSDCtyBEb2NrZXIgQ29tcG9zZSBmb3IgbG9jYWwgZGV2ZWxvcG1lbnQKCmBgYAp2b2ljZWZyb250LXdlYi8K4pSc4pSA4pSAIGFwcHMvCuKUgiAgIOKUnOKUgOKUgCBhcGkvICAgICBFeHByZXNzICsgVHlwZVNjcmlwdCArIFByaXNtYSAoUG9zdGdyZVNRTCkgYmFja2VuZArilIIgICDilJTilIDilIAgd2ViLyAgICAgTmV4dC5qcyAxNCAoQXBwIFJvdXRlcikgKyBUYWlsd2luZCBmcm9udGVuZArilJzilIDilIAgZG9jcy8gICAgICAgIEFyY2hpdGVjdHVyZSBoYW5kb2ZmLCBBUEkgcmVmZXJlbmNlLCBEQiBzY2hlbWEK4pSc4pSA4pSAIHNjcmlwdHMvICAgICBMb2NhbCBzZXR1cCBoZWxwZXJzCuKUlOKUgOKUgCBkb2NrZXItY29tcG9zZS55bWwgICBMb2NhbCBQb3N0Z3JlU1FMCmBgYAoKPiAqKkRlZXAgZGl2ZToqKiBbYGRvY3MvQ0xBVURFLm1kYF0oZG9jcy9DTEFVREUubWQpIGlzIHRoZSBmdWxsIGFyY2hpdGVjdHVyZSBhbmQgaGFuZG9mZiBkb2N1bWVudCAoZGF0YSBtb2RlbCwgZXZlcnkgc3lzdGVtLCBkYXRhLWZsb3cgd2Fsa3Rocm91Z2hzLCBkZXBsb3ltZW50LCBkZXNpZ24gZGVjaXNpb25zKS4gW2Bkb2NzL0FQSV9SRUZFUkVOQ0UubWRgXShkb2NzL0FQSV9SRUZFUkVOQ0UubWQpIGFuZCBbYGRvY3MvREFUQUJBU0VfU0NIRU1BLm1kYF0oZG9jcy9EQVRBQkFTRV9TQ0hFTUEubWQpIGNvdmVyIHRoZSBjb250cmFjdCBhbmQgc2NoZW1hIGluIGRldGFpbC4KCiMjIENvcmUgcGxhdGZvcm0KCi0gKipNdWx0aS10ZW5hbnQgU2FhUyoqIOKAlCB0ZW5hbnRzIChpbmR1c3RyeSwgd2hpdGUtbGFiZWwgc2x1Zywgc3Vic2NyaXB0aW9uIHN0YXR1cywgdXNhZ2UgbGltaXRzKSB3aXRoIHJvbGUtYmFzZWQgdXNlcnMgKG93bmVyLCBtYW5hZ2VyLCBhZ2VudCkgYW5kIHBlci10ZW5hbnQgYWdlbnQgc2V0dGluZ3MuCi0gKipBdXRoKiog4oCUIEpXVCB3aXRoIGJjcnlwdCBoYXNoaW5nLCByYXRlLWxpbWl0ZWQgYXV0aCByb3V0ZXMsIGhhcmRlbmVkIGhlYWRlcnMsIENPUlMgYWxsb3ctbGlzdC4KLSAqKk9uYm9hcmRpbmcgc3RhdGUgbWFjaGluZSoqIOKAlCBwcm9maWxlLCBwcm9tcHQsIHZvaWNlIHRlc3QsIGFjdGl2ZS4gU2VydmVyLWVuZm9yY2VkIHByZXJlcXVpc2l0ZXMsIHJldmlzaXRhYmxlIHN0ZXBzLCBhbmQgYSByZWFsIGluLWJyb3dzZXIgdGVzdCBjYWxsIGJlZm9yZSBnb2luZyBsaXZlLgotICoqVHJhbnNpZW50IGFzc2lzdGFudHMqKiDigJQgZXZlcnkgaW5ib3VuZCBjYWxsIGNvbXBvc2VzIGEgdm9pY2UgYXNzaXN0YW50IGZyb20gdGhlIHRlbmFudCdzIHNldHRpbmdzLCBrbm93bGVkZ2UgYmFzZSwgYW5kIGNhbGVuZGFyLCBzbyBlYWNoIGJ1c2luZXNzIGdldHMgaXRzIG93biByZWNlcHRpb25pc3Qgd2l0aG91dCBtYW51YWwgVmFwaSBjb25maWd1cmF0aW9uLgotICoqQ2FsbCBpbnRlbGxpZ2VuY2UqKiDigJQgdHJhbnNjcmlwdHMsIHJlY29yZGluZ3MsIHN1bW1hcmllcywgYW5kIHN0cnVjdHVyZWQgb3V0Y29tZXMgb24gZXZlcnkgY2FsbCwgc2VhcmNoYWJsZSBmcm9tIHRoZSBkYXNoYm9hcmQuCi0gKipDYWxlbmRhciBib29raW5nKiog4oCUIGJvb2tzIHN0cmFpZ2h0IGludG8gdGhlIGJ1c2luZXNzJ3MgY2FsZW5kYXIgd2l0aCBjb25mbGljdCBjaGVja2luZywgc28gdGhlIGFnZW50IG5ldmVyIGRvdWJsZS1ib29rcy4KLSAqKktub3dsZWRnZSBiYXNlKiog4oCUIHRlbmFudHMgdXBsb2FkIGRvY3VtZW50cyAocHJpY2luZywgcG9saWNpZXMsIEZBUXMpIGFuZCB0aGUgcmVjZXB0aW9uaXN0IGFuc3dlcnMgZnJvbSB0aGVtLgoKIyMgTG9jYWwgZGV2ZWxvcG1lbnQKCjEuIENvcHkgdGhlIGV4YW1wbGUgZW52IGZpbGVzOiBgYXBwcy9hcGkvLmVudi5leGFtcGxlYCDihpIgYGFwcHMvYXBpLy5lbnZgLCBgYXBwcy93ZWIvLmVudi5leGFtcGxlYCDihpIgYGFwcHMvd2ViLy5lbnZgLCBhbmQgZmlsbCBpbiB5b3VyIG93biBrZXlzLgoyLiBTdGFydCBQb3N0Z3JlczogYGRvY2tlci1jb21wb3NlIHVwIC1kYAozLiBJbnN0YWxsIGFuZCBydW46IGBucG0gaW5zdGFsbGAsIHRoZW4gYG5wbSBydW4gZGV2YCBmcm9tIHRoZSByZXBvIHJvb3QuCgpObyBzZWNyZXRzIGFyZSBjb21taXR0ZWQgdG8gdGhpcyByZXBvLiBFdmVyeXRoaW5nIHNlbnNpdGl2ZSBsaXZlcyBpbiBgLmVudmAgZmlsZXMsIHdoaWNoIGFyZSBnaXRpZ25vcmVkLgo=
+# VoiceFront
+
+An AI voice receptionist for clinics, contractors, and service businesses. It answers every call, books appointments straight into the calendar, answers common questions, captures leads, and routes urgent calls to a human. Built as a white-label, multi-tenant SaaS platform.
+
+## Status
+
+In active development. The core platform is live and serving calls; the public site and onboarding flows are being refined.
+
+## Who it's for
+
+1. **Tenants (clinics, contractors, service businesses)** — a branded dashboard to manage their AI receptionist: onboarding, call-handling settings, voice and hours, knowledge-base documents, usage, and a searchable call history with transcripts and recordings.
+2. **The platform operator** — an admin portal to manage customers, assign voice assistants, review demo calls, manage booking calendars, and issue signup invitations.
+3. **Prospects** — a marketing site that demonstrates the product live: an on-screen workflow, an in-browser voice test, and self-booking for a setup call.
+
+## Architecture
+
+- **Web** — Next.js 14 (App Router) + Tailwind
+- **API** — Express + TypeScript + Prisma
+- **Database** — PostgreSQL
+- **Voice** — Vapi (inbound and outbound calls, real-time voice)
+- **Deploy** — Railway · Docker Compose for local development
+
+```
+voicefront-web/
+├── apps/
+│   ├── api/     Express + TypeScript + Prisma (PostgreSQL) backend
+│   └── web/     Next.js 14 (App Router) + Tailwind frontend
+├── docs/        Architecture reference, API reference, DB schema
+├── scripts/     Local setup helpers
+└── docker-compose.yml   Local PostgreSQL
+```
+
+> **Deep dive:** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) is the full architecture reference (data model, every system, data-flow walkthroughs, deployment, design decisions). [`docs/API_REFERENCE.md`](docs/API_REFERENCE.md) and [`docs/DATABASE_SCHEMA.md`](docs/DATABASE_SCHEMA.md) cover the contract and schema in detail.
+
+## Core platform
+
+- **Multi-tenant SaaS** — tenants (industry, white-label slug, subscription status, usage limits) with role-based users (owner, manager, agent) and per-tenant agent settings.
+- **Auth** — JWT with bcrypt hashing, rate-limited auth routes, hardened headers, CORS allow-list.
+- **Onboarding state machine** — profile, prompt, voice test, active. Server-enforced prerequisites, revisitable steps, and a real in-browser test call before going live.
+- **Transient assistants** — every inbound call composes a voice assistant from the tenant's settings, knowledge base, and calendar, so each business gets its own receptionist without manual Vapi configuration.
+- **Call intelligence** — transcripts, recordings, summaries, and structured outcomes on every call, searchable from the dashboard.
+- **Calendar booking** — books straight into the business's calendar with conflict checking, so the agent never double-books.
+- **Knowledge base** — tenants upload documents (pricing, policies, FAQs) and the receptionist answers from them.
+
+## Local development
+
+1. Copy the example env files: `apps/api/.env.example` → `apps/api/.env`, `apps/web/.env.example` → `apps/web/.env`, and fill in your own keys.
+2. Start Postgres: `docker-compose up -d`
+3. Install and run: `npm install`, then `npm run dev` from the repo root.
+
+No secrets are committed to this repo. Everything sensitive lives in `.env` files, which are gitignored.
