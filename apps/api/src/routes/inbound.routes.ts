@@ -286,26 +286,36 @@ async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolC
       } else if (name === 'checkFounderAvailability') {
         // Founder planning-call tools target the FOUNDER's own calendar (sales
         // demo close), not the demo clinic — handled independently of settings.
-        const { date } = AvailabilityArgsSchema.parse(args);
-        const slots = await founderAvailability(date);
-        if (!slots.open) {
-          result = `The founder isn't available on ${slots.dayLabel}. Offer the next business day instead.`;
-        } else if (slots.freeSlots.length === 0) {
-          result = `The founder is fully booked on ${slots.dayLabel}. Offer another day.`;
+        // A demo payload must carry a session the demo flow actually created;
+        // forged demo_<anything> ids get a polite refusal instead of a peek at
+        // the founder's real availability.
+        if (demoSessionId && !(await isKnownDemoSession(demoSessionId))) {
+          result = "I can't pull up the calendar right now. Leave your details and the founder will reach out.";
         } else {
-          const spoken = slots.freeSlots.map(to12h).join(', ');
-          result = `The founder's open times on ${slots.dayLabel}: ${spoken}. Offer two or three closest to what the prospect wants.`;
+          const { date } = AvailabilityArgsSchema.parse(args);
+          const slots = await founderAvailability(date);
+          if (!slots.open) {
+            result = `The founder isn't available on ${slots.dayLabel}. Offer the next business day instead.`;
+          } else if (slots.freeSlots.length === 0) {
+            result = `The founder is fully booked on ${slots.dayLabel}. Offer another day.`;
+          } else {
+            const spoken = slots.freeSlots.map(to12h).join(', ');
+            result = `The founder's open times on ${slots.dayLabel}: ${spoken}. Offer two or three closest to what the prospect wants.`;
+          }
         }
       } else if (name === 'bookPlanningCall') {
-        const booking = BookingArgsSchema.parse(args);
-        const entry = await bookFounderCall({
-          customerName: booking.customerName,
-          customerPhone: booking.customerPhone ?? null,
-          reason: booking.reason ?? 'Planning call',
-          date: booking.date,
-          time: booking.time,
-          externalCallId: message.call?.id ?? null,
-        });
+        if (demoSessionId && !(await isKnownDemoSession(demoSessionId))) {
+          result = "I couldn't lock that in. Leave your details and the founder will confirm a time with you directly.";
+        } else {
+          const booking = BookingArgsSchema.parse(args);
+          const entry = await bookFounderCall({
+            customerName: booking.customerName,
+            customerPhone: booking.customerPhone ?? null,
+            reason: booking.reason ?? 'Planning call',
+            date: booking.date,
+            time: booking.time,
+            externalCallId: message.call?.id ?? null,
+          });
         const dayLabel = new Intl.DateTimeFormat('en-US', {
           timeZone: entry.timezone,
           weekday: 'long',
@@ -313,6 +323,7 @@ async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolC
           day: 'numeric',
         }).format(new Date(entry.startsAt));
         result = `Booked a planning call with the founder for ${entry.label} on ${dayLabel} at ${to12h(entry.local.time)}. Confirm this with the prospect.`;
+        }
       } else if (!settings || !tenantId) {
         result = "I'm sorry, I can't reach the calendar right now. Let me take a message instead.";
       } else if (name === 'checkAvailability') {
@@ -492,11 +503,40 @@ async function findTenantByNumber(rawNumber: string | undefined) {
   return settings;
 }
 
+/**
+ * Demo-sandbox tenant lookup. The phone number inside an unauthenticated demo
+ * payload is attacker-controlled, so demo requests must never resolve a tenant
+ * by number — they always get the isolated demo tenant. Same shape as
+ * findTenantByNumber so the assistant-request branch below stays uniform.
+ */
+async function findDemoTenantSettings() {
+  const bundle = await getOrCreateDemoTenant();
+  return prisma.agentSettings.findUnique({
+    where: { tenantId: bundle.tenant.id },
+    include: { tenant: { include: { onboarding: true } } },
+  });
+}
+
+/**
+ * True when the demo session id belongs to a session the demo flow actually
+ * created (a captured lead or a seeded calendar exists for it). Forged
+ * demo_<anything> ids fail this, which is what keeps unauthenticated demo
+ * payloads from reaching founder-facing tools or polluting demo records.
+ */
+async function isKnownDemoSession(sessionId: string | null | undefined): Promise<boolean> {
+  if (!sessionId) return false;
+  const [lead, appointment] = await Promise.all([
+    prisma.demoLead.findFirst({ where: { demoSessionId: sessionId }, select: { id: true } }),
+    prisma.appointment.findFirst({ where: { demoSessionId: sessionId }, select: { id: true } }),
+  ]);
+  return lead !== null || appointment !== null;
+}
+
 /** Pull a demo session id out of the raw webhook body, if present. Public
  * landing-page demo calls carry one and have no webhook secret (we never ship
  * the secret to a browser); they're allowed through but sandboxed to the demo
  * tenant in the handlers below, so a forged demo call can't touch real data. */
-function peekDemoSessionId(body: unknown): string | null {
+export function peekDemoSessionId(body: unknown): string | null {
   const msg = (body as { message?: Record<string, unknown> })?.message;
   if (!msg) return null;
   const fromAssistant = (msg.assistant as { metadata?: { demoSessionId?: unknown } })?.metadata?.demoSessionId;
@@ -528,7 +568,12 @@ inboundRouter.post(
     if (message.type === 'assistant-request') {
       const parsed = AssistantRequestSchema.safeParse(message);
       const number = parsed.success ? parsed.data.phoneNumber?.number : undefined;
-      const settings = await findTenantByNumber(number);
+      // Demo sandbox: the number in an unauthenticated demo payload is
+      // attacker-controlled, so it is never used for tenant lookup. Demo
+      // traffic gets the isolated demo tenant (the demo number maps to it
+      // anyway), which keeps a forged demo_ payload from pulling any real
+      // tenant's config — and its webhook secret — out of this endpoint.
+      const settings = isDemo ? await findDemoTenantSettings() : await findTenantByNumber(number);
 
       if (!settings) {
         console.warn(`[webhook] assistant-request for unmapped number: ${number ?? 'unknown'}`);
@@ -621,7 +666,11 @@ inboundRouter.post(
       const areaZips = serviceAreaOn ? parseServiceAreaZips(settings.serviceAreaZips) : [];
       const assistant = buildTransientAssistant(settings.tenant, settings, 'phone', new Date(), {
         serverUrl: publicApiUrl ? `${publicApiUrl}/api/vapi/inbound` : undefined,
-        serverSecret: webhookSecret ?? undefined,
+        // Never embed the shared secret in a demo response: demo server
+        // messages are unauthenticated by design (the isDemo bypass above), so
+        // a secret here would hand it to whoever forged the demo payload. Demo
+        // assistants reach this webhook through the bypass instead.
+        serverSecret: isDemo ? undefined : (webhookSecret ?? undefined),
         knowledgeFileIds: documents.map((d) => d.vapiFileId),
         ...(multiProviderTenant && providers.length > 1
           ? { providers, services, offerProviderChoice: settings.offerProviderChoice }
@@ -655,8 +704,15 @@ inboundRouter.post(
 
       // Demo calls are never billed as real CallLogs, but we DO capture the
       // transcript/recording so the founder can review how the sales agent did.
+      // Only sessions the demo flow actually created are captured — forged
+      // demo_<anything> ids would otherwise let anyone pollute the founder's
+      // review queue with junk rows.
       const demoSessionId =
         report.assistant?.metadata?.demoSessionId ?? report.call?.assistant?.metadata?.demoSessionId;
+      if (demoSessionId && !(await isKnownDemoSession(demoSessionId))) {
+        res.status(200).json({});
+        return;
+      }
       if (demoSessionId) {
         try {
           await captureDemoCall({

@@ -1,6 +1,9 @@
 import { Router } from 'express';
+import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
 import { asyncHandler, HttpError } from '../lib/http';
+import { env } from '../config/env';
+import { prisma } from '../lib/prisma';
 import { getSettingValue } from '../services/platform-config.service';
 import { buildTransientAssistant, type CallChannel } from '../domain/assistant-builder';
 import { E164_REGEX } from '../lib/phone';
@@ -38,6 +41,67 @@ import { utcToZonedParts } from '../services/appointment.service';
  * expose only the Vapi *public* web key (safe by design) and an isolated,
  * throwaway demo calendar — never any real tenant data.
  */
+
+/* ------------------------- abuse protection ------------------------- */
+/* These endpoints are fully public and the outbound "get a call" flow spends
+ * real Vapi minutes, so they get layered limits: per-IP throttles on the
+ * expensive actions plus a per-session cap so rotating session ids doesn't
+ * help an attacker. */
+
+const leadLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: { message: 'Too many demo requests. Please wait a few minutes.', code: 'RATE_LIMITED' } },
+});
+
+const callIpLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: { message: 'Too many demo calls. Please wait a while before trying again.', code: 'RATE_LIMITED' } },
+});
+
+const callSessionLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 3,
+  keyGenerator: (req) =>
+    `${clientIp(req) ?? 'unknown'}:${(req.body as { sessionId?: unknown } | undefined)?.sessionId ?? 'none'}`,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: { message: 'This demo session has used its calls. Start a fresh demo to try again.', code: 'RATE_LIMITED' } },
+});
+
+/**
+ * Cloudflare Turnstile check for the lead form (bot protection on the entry
+ * gate). Env-gated: when TURNSTILE_SECRET_KEY is unset the check is skipped
+ * and a warning is logged once in production so the gap stays visible.
+ */
+let turnstileWarned = false;
+export async function verifyTurnstile(token: string | undefined, ip: string | null): Promise<boolean> {
+  const secret = env.TURNSTILE_SECRET_KEY;
+  if (!secret) {
+    if (env.NODE_ENV === 'production' && !turnstileWarned) {
+      turnstileWarned = true;
+      console.warn('[demo] TURNSTILE_SECRET_KEY is not set — lead form has no bot check.');
+    }
+    return true;
+  }
+  if (!token) return false;
+  try {
+    const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ secret, response: token, ...(ip ? { remoteip: ip } : {}) }),
+    });
+    const data = (await res.json()) as { success?: boolean };
+    return data.success === true;
+  } catch {
+    return false;
+  }
+}
 export const demoRouter = Router();
 
 const SessionSchema = z.object({ sessionId: z.string().min(3).max(80).startsWith('demo_') });
@@ -153,6 +217,8 @@ const LeadSchema = z.object({
   phone: z.string().trim().min(7).max(32),
   industry: z.enum(['clinic', 'contractor', 'other']).default('other'),
   businessName: z.string().trim().max(60).optional(),
+  /** Cloudflare Turnstile token from the lead form; verified when configured. */
+  turnstileToken: z.string().max(2048).optional(),
 });
 
 /**
@@ -162,11 +228,15 @@ const LeadSchema = z.object({
  */
 demoRouter.post(
   '/lead',
+  leadLimiter,
   asyncHandler(async (req, res) => {
     if (!(await isDemoEnabled())) {
       throw new HttpError(403, 'The demo is currently turned off.', 'DEMO_DISABLED');
     }
-    const { name, email, phone, industry, businessName } = LeadSchema.parse(req.body ?? {});
+    const { name, email, phone, industry, businessName, turnstileToken } = LeadSchema.parse(req.body ?? {});
+    if (!(await verifyTurnstile(turnstileToken, clientIp(req)))) {
+      throw new HttpError(403, 'Bot check failed. Please try again.', 'BOT_CHECK_FAILED');
+    }
     const gate = await evaluateGate(clientIp(req), phone);
     const session = await startDemoSession(industry, businessName ?? null);
     const lead = await createDemoLead({
@@ -252,11 +322,24 @@ const CallSchema = z.object({
  */
 demoRouter.post(
   '/call',
+  callIpLimiter,
+  callSessionLimiter,
   asyncHandler(async (req, res) => {
     if (!(await isDemoEnabled())) {
       throw new HttpError(403, 'The demo is currently turned off.', 'DEMO_DISABLED');
     }
     const body = CallSchema.parse(req.body ?? {});
+
+    // The call must belong to a session the demo flow actually created (lead
+    // captured on the site). Forged session ids can't spend Vapi minutes.
+    const lead = await prisma.demoLead.findFirst({
+      where: { demoSessionId: body.sessionId },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+    if (!lead) {
+      throw new HttpError(403, 'Start the demo from the website first.', 'UNKNOWN_SESSION');
+    }
 
     const gate = await evaluateGate(clientIp(req), body.phone);
     if (!gate.callAllowed) {
