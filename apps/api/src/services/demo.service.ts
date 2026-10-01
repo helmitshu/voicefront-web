@@ -321,6 +321,14 @@ export async function getOrCreateDemoTenant(): Promise<DemoTenantBundle> {
     include: { agentSettings: true },
   });
   if (existing?.agentSettings) {
+    // The sandbox tenant must look like a fully activated workspace to the
+    // webhook gates (which the demo bypass now routes through): without an
+    // active onboarding row every demo assistant-request would be refused.
+    await prisma.onboardingStatus.upsert({
+      where: { tenantId: existing.id },
+      update: { isActive: true },
+      create: { tenantId: existing.id, isActive: true },
+    });
     return { tenant: existing, settings: existing.agentSettings };
   }
 
@@ -344,6 +352,9 @@ export async function getOrCreateDemoTenant(): Promise<DemoTenantBundle> {
       },
     },
     include: { agentSettings: true },
+  });
+  await prisma.onboardingStatus.create({
+    data: { tenantId: created.id, isActive: true },
   });
   return { tenant: created, settings: created.agentSettings! };
 }
