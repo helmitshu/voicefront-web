@@ -75,6 +75,13 @@ const EnvSchema = z.object({
   SENTRY_DSN: z.string().optional(),
   /** Override the environment tag Sentry shows (defaults to NODE_ENV). */
   SENTRY_ENVIRONMENT: z.string().optional(),
+  /**
+   * Cloudflare Turnstile secret key for bot protection on the public demo
+   * lead form. Optional — when unset, the Turnstile check is skipped (a
+   * warning is logged in production). Create a Turnstile site in the
+   * Cloudflare dashboard and paste the secret here to switch it on.
+   */
+  TURNSTILE_SECRET_KEY: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
