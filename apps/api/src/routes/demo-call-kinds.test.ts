@@ -245,6 +245,37 @@ describe('POST /api/demo/call demo kinds', () => {
     expect(prompt).toContain('held in this demo');
   });
 
+  it('receptionist with a long clinic name still places the call, assistant name within Vapi\u2019s 40-char cap', async () => {
+    // 58 characters: under the API's own 60-char input cap, but the composed
+    // assistant name ("Maya · <clinic> receptionist (demo)") runs to 85 and
+    // Vapi rejects names over 40, which used to fail the call step outright.
+    const longName = 'Modern Top Rated Dentist And Orthodontics Center Vancouver';
+    const { status, json } = await postCall({
+      sessionId: 'demo_longname',
+      leadId: 'lead_1',
+      name: 'Jordan Reyes',
+      phone: '+1 (604) 555-0182',
+      demoKind: 'receptionist',
+      facts: {
+        businessName: longName,
+        hours: ['Monday to Friday, 8 AM to 5 PM'],
+        services: ['Cleanings', 'Crowns'],
+        address: '2145 West 4th Avenue, Vancouver',
+      },
+    });
+
+    expect(status).toBe(200);
+    expect(json.callId).toBe('call_abc');
+    expect(placeOutboundCall).toHaveBeenCalledOnce();
+    const arg = placeOutboundCall.mock.calls[0]?.[0] as {
+      assistant: { name: string; firstMessage: string };
+    };
+    expect(arg.assistant.name.length).toBeLessThanOrEqual(40);
+    // Only the Vapi display name is capped; the clinic identity the caller
+    // hears (opener, prompt, facts) keeps the full name.
+    expect(arg.assistant.firstMessage).toContain(longName);
+  });
+
   it('without demoKind, still builds the sales assistant (Ava) exactly as before', async () => {
     const { status, json } = await postCall({
       sessionId: 'demo_sales',
