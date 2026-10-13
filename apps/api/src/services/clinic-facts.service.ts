@@ -89,23 +89,46 @@ const NAMED_ENTITIES: Record<string, string> = {
   quot: '"',
   apos: "'",
   nbsp: ' ',
+  ndash: '–',
+  mdash: '—',
+  lsquo: '‘',
+  rsquo: '’',
+  ldquo: '“',
+  rdquo: '”',
+  copy: '©',
+  reg: '®',
+  trade: '™',
+  hellip: '…',
+  middot: '·',
 };
 
+/**
+ * Decodes HTML entities in ONE pass over the source: a single regex with
+ * a replacement function never rescans its own output, so each "&...;"
+ * is decoded at most once — a double-encoded "&amp;ndash;" yields the
+ * literal text "&ndash;", not an en dash. Unknown names and malformed or
+ * out-of-range numeric references pass through unchanged.
+ *
+ * Applied exactly once per extraction path: where page text is derived
+ * (visiblePageText) and where text is captured from raw HTML
+ * (extractTitle). cleanText deliberately does NOT decode — every value it
+ * receives has already been decoded by one of those two.
+ */
 function decodeEntities(text: string): string {
-  return text
-    .replace(/&#(\d{1,5});/g, (_m, code: string) => {
-      const n = Number(code);
-      return n > 0 && n < 0x110000 ? String.fromCodePoint(n) : ' ';
-    })
-    .replace(/&(#x[0-9a-fA-F]{1,6});/g, (_m, hex: string) => {
-      const n = parseInt(hex.slice(2), 16);
-      return n > 0 && n < 0x110000 ? String.fromCodePoint(n) : ' ';
-    })
-    .replace(/&([a-zA-Z]+);/g, (m, name: string) => NAMED_ENTITIES[name.toLowerCase()] ?? m);
+  return text.replace(
+    /&(?:#(\d{1,7})|#[xX]([0-9a-fA-F]{1,6})|([a-zA-Z][a-zA-Z0-9]*));/g,
+    (match, decimal: string | undefined, hex: string | undefined, name: string | undefined) => {
+      if (decimal !== undefined || hex !== undefined) {
+        const n = decimal !== undefined ? Number(decimal) : parseInt(hex as string, 16);
+        return n > 0 && n <= 0x10ffff ? String.fromCodePoint(n) : match;
+      }
+      return NAMED_ENTITIES[(name as string).toLowerCase()] ?? match;
+    },
+  );
 }
 
 function cleanText(value: string, max: number): string {
-  return decodeEntities(value).replace(/\s+/g, ' ').trim().slice(0, max);
+  return value.replace(/\s+/g, ' ').trim().slice(0, max);
 }
 
 function extractTitle(html: string): string | undefined {
@@ -281,6 +304,11 @@ function coerceAiFacts(parsed: unknown): AiClinicFacts | null {
  * One model call with a hard timeout. Returns null on ANY failure (HTTP
  * error, abort, malformed body) — the caller always keeps the rules
  * result, so this layer can only improve the facts, never break them.
+ * Every failure is logged with the [clinic-facts-ai] prefix (status and a
+ * short body snippet, error name/message, or a parse note) so a dead key
+ * or a quota wall is visible in server logs instead of silently degrading
+ * every pull to the rules result. The API key and the page text are never
+ * logged.
  */
 async function extractFactsWithAi(pageText: string, apiKey: string): Promise<AiClinicFacts | null> {
   const controller = new AbortController();
@@ -303,17 +331,41 @@ async function extractFactsWithAi(pageText: string, apiKey: string): Promise<AiC
         },
       }),
     });
-    if (!res.ok) return null;
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      console.warn(`[clinic-facts-ai] Gemini request failed, status ${res.status}: ${body.slice(0, 200)}`);
+      return null;
+    }
     const data = (await res.json()) as {
       candidates?: Array<{ content?: { parts?: Array<{ text?: unknown }> } }>;
     };
     const parts = data.candidates?.[0]?.content?.parts;
-    if (!Array.isArray(parts)) return null;
+    if (!Array.isArray(parts)) {
+      console.warn('[clinic-facts-ai] Gemini response had no content parts; keeping the rules facts.');
+      return null;
+    }
     // Gemini returns the JSON payload as text across one or more parts.
     const content = parts.map((part) => (typeof part?.text === 'string' ? part.text : '')).join('');
-    if (!content) return null;
-    return coerceAiFacts(JSON.parse(content));
-  } catch {
+    if (!content) {
+      console.warn('[clinic-facts-ai] Gemini response content was empty; keeping the rules facts.');
+      return null;
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch {
+      console.warn('[clinic-facts-ai] Gemini response was not valid JSON; keeping the rules facts.');
+      return null;
+    }
+    const facts = coerceAiFacts(parsed);
+    if (!facts) {
+      console.warn('[clinic-facts-ai] Gemini response JSON did not match the facts shape; keeping the rules facts.');
+    }
+    return facts;
+  } catch (err) {
+    console.warn(
+      `[clinic-facts-ai] Gemini request error: ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`,
+    );
     return null;
   } finally {
     clearTimeout(timer);
@@ -381,7 +433,10 @@ async function enhanceWithAi(html: string, rules: ClinicFacts): Promise<ClinicFa
     if (!ai) return null;
     const merged = mergeFacts(rules, ai);
     return merged.businessName || merged.phone ? merged : null;
-  } catch {
+  } catch (err) {
+    console.warn(
+      `[clinic-facts-ai] AI pass failed unexpectedly: ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`,
+    );
     return null;
   }
 }

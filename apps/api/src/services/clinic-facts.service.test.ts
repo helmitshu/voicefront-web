@@ -108,6 +108,46 @@ describe('extractClinicFacts', () => {
     const html = '<html><head><title>Riverside Dental - Burnaby</title></head><body></body></html>';
     expect(extractClinicFacts(html, 'https://riverside.example').businessName).toBe('Riverside Dental');
   });
+
+  it('decodes HTML entities in the title and hours, leaving no entity sequences behind', () => {
+    const html = `<!doctype html>
+<html>
+<head>
+  <meta property="og:title" content="Bright Path Dental &amp; Wellness &#39;Studio&#39; | Langley Dentist" />
+  <title>Bright Path Dental &amp; Wellness</title>
+</head>
+<body>
+  <p>Call us at (604) 555-0117 to book.</p>
+  <p>2145 West 4th Avenue, Vancouver, BC</p>
+  <p>Monday &ndash; Friday: 9:00 AM &ndash; 5:00 PM</p>
+  <p>Saturday: 9:00 AM &ndash; 2:00 PM &amp; by appointment</p>
+  <p>Cleanings, exams, fillings and teeth whitening&hellip; and more.</p>
+</body>
+</html>`;
+    const entityFacts = extractClinicFacts(html, 'https://brightpath.example');
+    expect(entityFacts.businessName).toBe("Bright Path Dental & Wellness 'Studio'");
+    expect(entityFacts.hours?.[0]).toBe('Monday – Friday: 9:00 AM – 5:00 PM');
+    expect(entityFacts.hours?.[1]).toBe('Saturday: 9:00 AM – 2:00 PM & by appointment');
+    // No "&...;" sequence may survive in ANY extracted field — a voice
+    // agent would read it aloud letter by letter.
+    expect(JSON.stringify(entityFacts)).not.toMatch(/&(?:[a-zA-Z][a-zA-Z0-9]*|#\d+|#[xX][0-9a-fA-F]+);/);
+  });
+
+  it('decodes only once: a double-encoded &amp;ndash; stays literal text, not an en dash', () => {
+    // The page source literally displays the text "&ndash;" (that is what
+    // "&amp;ndash;" renders as), so the facts must carry "&ndash;" too.
+    const html = `<!doctype html>
+<html>
+<head><title>Literal Signs Dental</title></head>
+<body>
+  <p>Monday &amp;ndash; Friday: 9:00 AM to 5:00 PM</p>
+  <p>Cleanings and exams.</p>
+</body>
+</html>`;
+    const literalFacts = extractClinicFacts(html, 'https://literal.example');
+    expect(literalFacts.hours?.[0]).toBe('Monday &ndash; Friday: 9:00 AM to 5:00 PM');
+    expect(literalFacts.hours?.[0]).not.toContain('–');
+  });
 });
 
 /**
@@ -267,6 +307,23 @@ describe('fetchClinicFacts with the AI reading layer', () => {
     stubFetch(async () => new Response('server error', { status: 500 }));
     const facts = await fetchClinicFacts(PAGE_URL);
     expect(facts).toEqual(extractClinicFacts(PROSE_HTML, PAGE_URL));
+  });
+
+  it('logs the HTTP status when the model call fails, and still returns the rules result', async () => {
+    const { fetchClinicFacts } = await loadService('test-gemini-key');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    try {
+      stubFetch(
+        async () => new Response('{"error":{"message":"API key not valid"}}', { status: 400 }),
+      );
+      const facts = await fetchClinicFacts(PAGE_URL);
+      expect(facts).toEqual(extractClinicFacts(PROSE_HTML, PAGE_URL));
+      const logged = warn.mock.calls.map((args) => args.map(String).join(' ')).join('\n');
+      expect(logged).toContain('[clinic-facts-ai]');
+      expect(logged).toContain('400');
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it('falls back to the rules result when the model returns malformed JSON', async () => {
