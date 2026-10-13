@@ -488,6 +488,8 @@ export interface CreateLeadInput {
   phoneCountry: string | null;
   industry?: string;
   businessName?: string | null;
+  /** The clinic website the prospect supplied, for the personalized demo. */
+  websiteUrl?: string | null;
   mode?: string;
 }
 
@@ -503,6 +505,7 @@ export async function createDemoLead(input: CreateLeadInput) {
       phoneCountry: input.phoneCountry,
       industry: normalizeIndustry(input.industry),
       businessName: input.businessName?.trim() || null,
+      websiteUrl: input.websiteUrl?.trim() || null,
       mode: input.mode ?? 'pending',
     },
   });
