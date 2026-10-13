@@ -281,12 +281,13 @@ function factsFromJson(value: unknown): Record<string, unknown> | null {
 
 /**
  * Builds Maya — the prospect's OWN receptionist — for the personalized demo.
- * Same session bundle and booking tools as the sales path, but she IS the
- * golden agent: the golden prompt, the full golden voice tuning, and the
- * golden call mechanics (temperature, transcriber, speaking plans, silence
- * timeout) are pinned explicitly so the demo can never drift from the
- * production agent's behaviour. No founder/screen tooling, and a hard
- * three-minute cap (this is a taste of the product, not the product).
+ * Same session bundle and booking tools as the sales path, but she runs the
+ * retuned demo standard (v2): the golden prompt and guardrails, with the
+ * voice, the Deepgram Flux transcriber, and the speaking plans adjusted
+ * past the production golden agent per the human-likeness research. All of
+ * it is pinned explicitly so the demo can never silently drift back to
+ * builder defaults. No founder/screen tooling, and a hard five-minute cap
+ * (this is a taste of the product, not the product).
  */
 async function buildReceptionistAssistant(
   session: Awaited<ReturnType<typeof startDemoSession>>,
@@ -326,21 +327,26 @@ async function buildReceptionistAssistant(
     backgroundSound: 'office',
     includeFounderBooking: false,
     includeScreenControl: false,
-    // Golden parity: pin the golden agent's call mechanics so the demo
-    // behaves exactly like the production agent, not like builder defaults.
+    // Demo standard (v2): pin Maya's retuned call mechanics explicitly,
+    // not builder defaults. Flux takes an end-of-turn threshold, not the
+    // Nova endpointing timer, and smart endpointing stays off in the start
+    // plan so it cannot override Flux's own turn detection.
     temperature: GOLDEN_DEMO_TEMPERATURE,
     transcriberModel: GOLDEN_DEMO_TRANSCRIBER.model,
-    transcriberEndpointing: GOLDEN_DEMO_TRANSCRIBER.endpointing,
+    transcriberEotThreshold: GOLDEN_DEMO_TRANSCRIBER.eotThreshold,
     startSpeakingPlan: GOLDEN_DEMO_START_SPEAKING_PLAN,
     stopSpeakingPlan: GOLDEN_DEMO_STOP_SPEAKING_PLAN,
     silenceTimeoutSeconds: GOLDEN_DEMO_SILENCE_TIMEOUT_SECONDS,
+    // Noise cleaning on the prospect's audio, pinned explicitly: Maya
+    // hears the caller through street and office noise, not raw phone audio.
+    backgroundDenoisingEnabled: true,
     transcriberKeywords: receptionistKeywords(clinicName, prospectName ?? leadRow.name),
   });
   assistant.metadata = { ...assistant.metadata, demoSessionId: session.sessionId };
   assistant.firstMessage = receptionistOpener(ctx);
   // The builder's stock end-call line names the demo tenant, not the clinic.
   assistant.endCallMessage = `Thanks so much for calling ${clinicName}, take care now, bye!`;
-  assistant.maxDurationSeconds = 180;
+  assistant.maxDurationSeconds = 300;
   return assistant;
 }
 

@@ -12,7 +12,7 @@ import express from 'express';
  *  - the per-destination cap (2 demo calls per number per 24h) refuses with
  *    429 NUMBER_CAP before any call is placed, for either kind;
  *  - demoKind 'receptionist' places the call with a Maya assistant dressed
- *    in the clinic's facts (golden voice, clinic opener, 180s cap);
+ *    in the clinic's facts (golden voice, clinic opener, 300s cap);
  *  - no demoKind still builds the sales assistant (Ava), unchanged;
  *  - a forged session id is still 403 UNKNOWN_SESSION.
  */
@@ -206,7 +206,7 @@ describe('POST /api/demo/call demo kinds', () => {
     expect(placeOutboundCall).not.toHaveBeenCalled();
   });
 
-  it('receptionist happy path: Maya calls, dressed in the clinic facts, golden voice, 180s cap', async () => {
+  it('receptionist happy path: Maya calls, dressed in the clinic facts, golden voice, 300s cap', async () => {
     const { status, json } = await postCall({
       sessionId: 'demo_happy',
       leadId: 'lead_1',
@@ -232,10 +232,24 @@ describe('POST /api/demo/call demo kinds', () => {
         maxDurationSeconds: number;
         silenceTimeoutSeconds?: number;
         backchannelingEnabled?: boolean;
+        backgroundDenoisingEnabled?: boolean;
         backgroundSound: string;
         startSpeakingPlan?: { waitSeconds: number; smartEndpointingEnabled: boolean };
-        stopSpeakingPlan?: { numWords: number; voiceSeconds: number; backoffSeconds: number };
-        transcriber: { provider: string; model: string; language: string; endpointing?: number; keywords?: string[] };
+        stopSpeakingPlan?: {
+          numWords: number;
+          voiceSeconds: number;
+          backoffSeconds: number;
+          acknowledgementPhrases?: string[];
+        };
+        transcriber: {
+          provider: string;
+          model: string;
+          language: string;
+          endpointing?: number;
+          eotThreshold?: number;
+          keywords?: string[];
+          keyterm?: string[];
+        };
         voice: Record<string, unknown>;
         model: { temperature: number; messages: Array<{ content: string }> };
         metadata: { demoSessionId?: string };
@@ -244,40 +258,59 @@ describe('POST /api/demo/call demo kinds', () => {
     expect(arg.customerNumber).toBe('+16045550182');
     expect(arg.assistant.firstMessage).toContain('Maple Dental Studio');
     expect(arg.assistant.firstMessage).toContain('VoiceFront demo you asked for');
-    // The demo agent IS the golden agent: full voice tuning, not just the id.
+    // The demo agent runs the retuned standard (v2): full voice tuning,
+    // not just the id.
     expect(arg.assistant.voice).toEqual({
       provider: '11labs',
       voiceId: 'cgSgspJ2msm6clMCkdW9',
       model: 'eleven_turbo_v2_5',
-      stability: 0.5,
+      stability: 0.4,
       similarityBoost: 0.75,
       style: 0.3,
       useSpeakerBoost: true,
-      optimizeStreamingLatency: 2,
+      speed: 1.1,
+      optimizeStreamingLatency: 3,
     });
-    expect(arg.assistant.maxDurationSeconds).toBe(180);
+    expect(arg.assistant.maxDurationSeconds).toBe(300);
     expect(arg.assistant.metadata.demoSessionId).toBe('demo_happy');
-    // Golden call mechanics, pinned end to end.
+    // Demo-standard (v2) call mechanics, pinned end to end.
     expect(arg.assistant.model.temperature).toBe(0.55);
     expect(arg.assistant.transcriber.provider).toBe('deepgram');
-    expect(arg.assistant.transcriber.model).toBe('nova-3');
+    expect(arg.assistant.transcriber.model).toBe('flux-general-en');
     expect(arg.assistant.transcriber.language).toBe('en');
-    expect(arg.assistant.transcriber.endpointing).toBe(500);
-    expect(arg.assistant.transcriber.keywords).toEqual(
-      expect.arrayContaining(['dental:2', 'cleaning:2', 'Maya:2', 'Invisalign:2', 'Maple:2', 'Studio:2']),
+    expect(arg.assistant.transcriber.endpointing).toBeUndefined();
+    expect(arg.assistant.transcriber.eotThreshold).toBe(0.8);
+    // Flux renders the clinic boosts as plain `keyterm` entries.
+    expect(arg.assistant.transcriber.keywords).toBeUndefined();
+    expect(arg.assistant.transcriber.keyterm).toEqual(
+      expect.arrayContaining(['dental', 'cleaning', 'Maya', 'Invisalign', 'Maple', 'Studio']),
     );
-    expect(arg.assistant.startSpeakingPlan).toEqual({ waitSeconds: 0.3, smartEndpointingEnabled: true });
-    expect(arg.assistant.stopSpeakingPlan).toEqual({ numWords: 3, voiceSeconds: 0.3, backoffSeconds: 0.7 });
+    // Smart endpointing stays off so it cannot override Flux's turn
+    // detection; the acknowledgement phrases ride in the stop plan.
+    expect(arg.assistant.startSpeakingPlan).toEqual({ waitSeconds: 0.3, smartEndpointingEnabled: false });
+    expect(arg.assistant.stopSpeakingPlan).toEqual({
+      numWords: 2,
+      voiceSeconds: 0.2,
+      backoffSeconds: 0.6,
+      acknowledgementPhrases: ['okay', 'uh-huh', 'yeah', 'mm-hmm'],
+    });
     expect(arg.assistant.silenceTimeoutSeconds).toBe(30);
     expect(arg.assistant.backchannelingEnabled).toBe(true);
+    // Noise cleaning on the prospect's audio, pinned on the receptionist path.
+    expect(arg.assistant.backgroundDenoisingEnabled).toBe(true);
     expect(arg.assistant.backgroundSound).toBe('office');
     expect(arg.assistant.firstMessageMode).toBe('assistant-speaks-first');
     const prompt = arg.assistant.model.messages[0]?.content ?? '';
     expect(prompt).toContain('Maple Dental Studio');
     expect(prompt).toContain('held in this demo');
-    // The fragment rule rides along: no booking a time off a cut-off word.
+    // The fragment rule rides along: no booking a time off a cut-off word,
+    // and a bare approval of a list of times is not a booking either.
     expect(prompt).toContain('NEVER BOOK A TIME THE CALLER DID NOT CLEARLY CHOOSE');
+    expect(prompt).toContain('Shall I hold 2 PM for you?');
     expect(prompt).toContain('happy and professional');
+    // The v2 delivery guidance rides along: short turns, ellipsis pauses.
+    expect(prompt).toContain('Use an ellipsis as your pause button');
+    expect(prompt).toContain('one or two short sentences, never a paragraph');
   });
 
   it('receptionist with a long clinic name still places the call, assistant name within Vapi\u2019s 40-char cap', async () => {
