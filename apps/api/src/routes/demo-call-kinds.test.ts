@@ -228,21 +228,56 @@ describe('POST /api/demo/call demo kinds', () => {
       customerNumber: string;
       assistant: {
         firstMessage: string;
+        firstMessageMode?: string;
         maxDurationSeconds: number;
-        voice: { provider: string; voiceId: string };
-        model: { messages: Array<{ content: string }> };
+        silenceTimeoutSeconds?: number;
+        backchannelingEnabled?: boolean;
+        backgroundSound: string;
+        startSpeakingPlan?: { waitSeconds: number; smartEndpointingEnabled: boolean };
+        stopSpeakingPlan?: { numWords: number; voiceSeconds: number; backoffSeconds: number };
+        transcriber: { provider: string; model: string; language: string; endpointing?: number; keywords?: string[] };
+        voice: Record<string, unknown>;
+        model: { temperature: number; messages: Array<{ content: string }> };
         metadata: { demoSessionId?: string };
       };
     };
     expect(arg.customerNumber).toBe('+16045550182');
     expect(arg.assistant.firstMessage).toContain('Maple Dental Studio');
     expect(arg.assistant.firstMessage).toContain('VoiceFront demo you asked for');
-    expect(arg.assistant.voice).toEqual({ provider: '11labs', voiceId: 'cgSgspJ2msm6clMCkdW9' });
+    // The demo agent IS the golden agent: full voice tuning, not just the id.
+    expect(arg.assistant.voice).toEqual({
+      provider: '11labs',
+      voiceId: 'cgSgspJ2msm6clMCkdW9',
+      model: 'eleven_turbo_v2_5',
+      stability: 0.5,
+      similarityBoost: 0.75,
+      style: 0.3,
+      useSpeakerBoost: true,
+      optimizeStreamingLatency: 2,
+    });
     expect(arg.assistant.maxDurationSeconds).toBe(180);
     expect(arg.assistant.metadata.demoSessionId).toBe('demo_happy');
+    // Golden call mechanics, pinned end to end.
+    expect(arg.assistant.model.temperature).toBe(0.55);
+    expect(arg.assistant.transcriber.provider).toBe('deepgram');
+    expect(arg.assistant.transcriber.model).toBe('nova-3');
+    expect(arg.assistant.transcriber.language).toBe('en');
+    expect(arg.assistant.transcriber.endpointing).toBe(500);
+    expect(arg.assistant.transcriber.keywords).toEqual(
+      expect.arrayContaining(['dental:2', 'cleaning:2', 'Maya:2', 'Invisalign:2', 'Maple:2', 'Studio:2']),
+    );
+    expect(arg.assistant.startSpeakingPlan).toEqual({ waitSeconds: 0.3, smartEndpointingEnabled: true });
+    expect(arg.assistant.stopSpeakingPlan).toEqual({ numWords: 3, voiceSeconds: 0.3, backoffSeconds: 0.7 });
+    expect(arg.assistant.silenceTimeoutSeconds).toBe(30);
+    expect(arg.assistant.backchannelingEnabled).toBe(true);
+    expect(arg.assistant.backgroundSound).toBe('office');
+    expect(arg.assistant.firstMessageMode).toBe('assistant-speaks-first');
     const prompt = arg.assistant.model.messages[0]?.content ?? '';
     expect(prompt).toContain('Maple Dental Studio');
     expect(prompt).toContain('held in this demo');
+    // The fragment rule rides along: no booking a time off a cut-off word.
+    expect(prompt).toContain('NEVER BOOK A TIME THE CALLER DID NOT CLEARLY CHOOSE');
+    expect(prompt).toContain('happy and professional');
   });
 
   it('receptionist with a long clinic name still places the call, assistant name within Vapi\u2019s 40-char cap', async () => {
@@ -288,12 +323,28 @@ describe('POST /api/demo/call demo kinds', () => {
     expect(json.callId).toBe('call_abc');
     expect(placeOutboundCall).toHaveBeenCalledOnce();
     const arg = placeOutboundCall.mock.calls[0]?.[0] as {
-      assistant: { name: string; firstMessage: string; model: { messages: Array<{ content: string }> } };
+      assistant: {
+        name: string;
+        firstMessage: string;
+        voice: Record<string, unknown>;
+        transcriber: { model: string; endpointing?: number };
+        startSpeakingPlan?: { waitSeconds: number; smartEndpointingEnabled: boolean };
+        stopSpeakingPlan?: { numWords: number; voiceSeconds: number; backoffSeconds: number };
+        model: { temperature: number; messages: Array<{ content: string }> };
+      };
     };
     expect(arg.assistant.name).toContain('Ava');
     // salesOpener with a known first name.
     expect(arg.assistant.firstMessage).toBe('Hi — is this Jordan?');
     expect(arg.assistant.model.messages[0]?.content).toContain('VoiceFront');
+    // The golden-parity work must not leak into Ava: her voice, temperature,
+    // transcriber and speaking plans stay exactly the builder defaults.
+    expect(arg.assistant.voice).toEqual({ provider: 'vapi', voiceId: 'Savannah', version: 2 });
+    expect(arg.assistant.model.temperature).toBe(0.65);
+    expect(arg.assistant.transcriber.model).toBe('nova-2');
+    expect(arg.assistant.transcriber.endpointing).toBeUndefined();
+    expect(arg.assistant.startSpeakingPlan).toEqual({ waitSeconds: 0.6, smartEndpointingEnabled: true });
+    expect(arg.assistant.stopSpeakingPlan).toEqual({ numWords: 3, voiceSeconds: 0.3, backoffSeconds: 1.0 });
   });
 
   it('still refuses a forged session with 403 UNKNOWN_SESSION', async () => {

@@ -41,6 +41,12 @@ import {
   sanitizeDemoText,
   sanitizeReceptionistFacts,
   GOLDEN_DEMO_VOICE,
+  GOLDEN_DEMO_TEMPERATURE,
+  GOLDEN_DEMO_TRANSCRIBER,
+  GOLDEN_DEMO_START_SPEAKING_PLAN,
+  GOLDEN_DEMO_STOP_SPEAKING_PLAN,
+  GOLDEN_DEMO_SILENCE_TIMEOUT_SECONDS,
+  GOLDEN_DEMO_KEYWORDS,
   type ReceptionistContext,
 } from '../domain/receptionist-demo';
 import { fetchClinicFacts, type ClinicFacts } from '../services/clinic-facts.service';
@@ -251,6 +257,21 @@ async function countRecentDemoCallsTo(customerNumber: string): Promise<number> {
   });
 }
 
+/**
+ * Transcriber boosts for the receptionist demo: the golden dental set, plus
+ * tokens from the clinic's own name and the prospect's name — the words most
+ * likely to be mis-heard on the call. Deduped case-insensitively (the clinic
+ * name often contributes its own "Dental").
+ */
+function receptionistKeywords(clinicName: string, prospectName?: string): string[] {
+  const byWord = new Map<string, string>();
+  for (const kw of [...GOLDEN_DEMO_KEYWORDS, ...nameKeywords(clinicName), ...nameKeywords(prospectName)]) {
+    const word = kw.split(':')[0]?.toLowerCase();
+    if (word && !byWord.has(word)) byWord.set(word, kw);
+  }
+  return [...byWord.values()];
+}
+
 /** Facts stored on a lead come back as untyped JSON — narrow to a plain object. */
 function factsFromJson(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value)
@@ -260,8 +281,11 @@ function factsFromJson(value: unknown): Record<string, unknown> | null {
 
 /**
  * Builds Maya — the prospect's OWN receptionist — for the personalized demo.
- * Same session bundle and booking tools as the sales path, but the golden
- * receptionist prompt and voice, no founder/screen tooling, and a hard
+ * Same session bundle and booking tools as the sales path, but she IS the
+ * golden agent: the golden prompt, the full golden voice tuning, and the
+ * golden call mechanics (temperature, transcriber, speaking plans, silence
+ * timeout) are pinned explicitly so the demo can never drift from the
+ * production agent's behaviour. No founder/screen tooling, and a hard
  * three-minute cap (this is a taste of the product, not the product).
  */
 async function buildReceptionistAssistant(
@@ -302,7 +326,15 @@ async function buildReceptionistAssistant(
     backgroundSound: 'office',
     includeFounderBooking: false,
     includeScreenControl: false,
-    transcriberKeywords: nameKeywords(prospectName ?? leadRow.name),
+    // Golden parity: pin the golden agent's call mechanics so the demo
+    // behaves exactly like the production agent, not like builder defaults.
+    temperature: GOLDEN_DEMO_TEMPERATURE,
+    transcriberModel: GOLDEN_DEMO_TRANSCRIBER.model,
+    transcriberEndpointing: GOLDEN_DEMO_TRANSCRIBER.endpointing,
+    startSpeakingPlan: GOLDEN_DEMO_START_SPEAKING_PLAN,
+    stopSpeakingPlan: GOLDEN_DEMO_STOP_SPEAKING_PLAN,
+    silenceTimeoutSeconds: GOLDEN_DEMO_SILENCE_TIMEOUT_SECONDS,
+    transcriberKeywords: receptionistKeywords(clinicName, prospectName ?? leadRow.name),
   });
   assistant.metadata = { ...assistant.metadata, demoSessionId: session.sessionId };
   assistant.firstMessage = receptionistOpener(ctx);
