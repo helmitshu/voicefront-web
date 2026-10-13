@@ -850,6 +850,11 @@ model DemoLead {
   /// Optional business name the prospect typed on the form. When present it's
   /// shown on the sample calendar instead of the generic industry placeholder.
   businessName  String?  @map("business_name")
+  /// The clinic website the lead supplied (personalized receptionist demo).
+  /// Facts pulled from it live in factsJson and are prompt DATA, never
+  /// instructions.
+  websiteUrl    String?  @map("website_url")
+  factsJson     Json?    @map("facts_json")
   /// Which demo mode they're entering ("web" or "call").
   mode          String   // "web" or "call"
   createdAt     DateTime @default(now()) @map("created_at")
