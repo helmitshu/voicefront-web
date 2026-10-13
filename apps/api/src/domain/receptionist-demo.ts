@@ -12,40 +12,68 @@
  */
 
 /**
- * The golden agent's voice, in full — ElevenLabs Jessica on the Turbo model
- * with the exact tuning the production golden agent (Vapi 523577bd) ships:
- * stability 0.5, similarity 0.75, style 0.3, speaker boost on, streaming
- * latency 2. The voiceId alone is NOT the golden voice; these fields are
- * what make her sound like her.
+ * The demo voice, in full — ElevenLabs Jessica on the Turbo model. These
+ * constants began as the production golden agent's exact configuration
+ * (Vapi 523577bd); they are now the RETUNED DEMO STANDARD (v2), adjusted
+ * past the golden agent per the 2026-10-13 human-likeness research, so
+ * they no longer claim byte-parity with it. Jessica stays on Turbo here —
+ * a Flash v2.5 ear test is a separate, later decision. Stability is down
+ * to 0.40 and speed up to 1.1 for a less monotone read, similarity 0.75,
+ * style 0.3, speaker boost on, streaming latency 3. The voiceId alone is
+ * NOT the voice; these fields are what make her sound like her.
  */
 export const GOLDEN_DEMO_VOICE = {
   provider: '11labs',
   voiceId: 'cgSgspJ2msm6clMCkdW9',
   model: 'eleven_turbo_v2_5',
-  stability: 0.5,
+  stability: 0.4,
   similarityBoost: 0.75,
   style: 0.3,
   useSpeakerBoost: true,
-  optimizeStreamingLatency: 2,
+  speed: 1.1,
+  optimizeStreamingLatency: 3,
 };
 
-/** The golden agent's model temperature (gpt-4o). */
+/** The model temperature (gpt-4o), retained from the golden agent. */
 export const GOLDEN_DEMO_TEMPERATURE = 0.55;
 
-/** The golden agent's transcriber: Deepgram nova-3, 500ms endpointing. */
-export const GOLDEN_DEMO_TRANSCRIBER = { model: 'nova-3', endpointing: 500 };
+/**
+ * The demo transcriber (standard v2): Deepgram Flux (flux-general-en), the
+ * conversational model whose end-of-turn detection lives inside the model
+ * instead of a silence timer. `eotThreshold` is Vapi's documented Flux
+ * field — how confident Flux must be that the caller has finished before
+ * the turn closes (0.8 on a 0-1 scale). Vocabulary boosting rides along
+ * as Deepgram `keyterm` (plain terms, no intensity suffixes), which the
+ * builder emits in place of the Nova `keywords` field for Flux models.
+ */
+export const GOLDEN_DEMO_TRANSCRIBER = { model: 'flux-general-en', eotThreshold: 0.8 };
 
-/** The golden agent's speaking plans: she answers 0.3s after the caller
- *  finishes (smart endpointing on), and a caller needs 3 words / 0.3s of
- *  voice to interrupt her, with a 0.7s backoff before she resumes. */
-export const GOLDEN_DEMO_START_SPEAKING_PLAN = { waitSeconds: 0.3, smartEndpointingEnabled: true };
-export const GOLDEN_DEMO_STOP_SPEAKING_PLAN = { numWords: 3, voiceSeconds: 0.3, backoffSeconds: 0.7 };
+/**
+ * The demo speaking plans (standard v2, retuned from the golden agent's).
+ * Start: she answers 0.3s after the caller finishes, and smart endpointing
+ * stays OFF on purpose — per Vapi's own documentation, any smart
+ * endpointing plan silently overrides Flux's end-of-turn detection, which
+ * is the whole reason the demo runs Flux. Stop: a caller needs 2 words /
+ * 0.2s of voice to interrupt her and she resumes after a 0.6s backoff;
+ * `acknowledgementPhrases` is the documented stopSpeakingPlan field for
+ * phrases that NEVER interrupt the assistant, even when the word count is
+ * met — a caller's "yeah" or "mm-hmm" is backchannel, not a barge-in.
+ */
+export const GOLDEN_DEMO_START_SPEAKING_PLAN = { waitSeconds: 0.3, smartEndpointingEnabled: false };
+export const GOLDEN_DEMO_STOP_SPEAKING_PLAN = {
+  numWords: 2,
+  voiceSeconds: 0.2,
+  backoffSeconds: 0.6,
+  acknowledgementPhrases: ['okay', 'uh-huh', 'yeah', 'mm-hmm'],
+};
 
-/** The golden agent's silence timeout (seconds of total silence). */
+/** Silence timeout in seconds, retained from the golden agent. */
 export const GOLDEN_DEMO_SILENCE_TIMEOUT_SECONDS = 30;
 
 /** Dental words the transcriber is boosted on for every demo call, before
- *  the clinic's own name tokens are added. */
+ *  the clinic's own name tokens are added. Written in Deepgram
+ *  `word:intensity` form; the builder renders them as plain `keyterm`
+ *  entries for the Flux transcriber. */
 export const GOLDEN_DEMO_KEYWORDS = ['dental:2', 'cleaning:2', 'Maya:2', 'Invisalign:2'];
 
 /** Facts about the prospect's clinic, pulled from their website (or confirmed
@@ -147,7 +175,8 @@ const MAYA_VOICE_LAYER = [
   '- If the caller jokes or chats, share the moment briefly and warmly, laugh along in words ("Ha, I love that."), then steer back. Do not bulldoze past a human moment to get to the next question.',
   '- Use gentle thinking sounds sparingly when you are about to check something: "Hmm, let me see..." said once, then quiet.',
   '- Mirror the caller\'s energy: warm and chatty if they are, quick and efficient if they are in a hurry.',
-  '- Keep every reply to one or two short sentences. Ask for exactly ONE piece of information per turn, then stop and wait. Never bundle questions.',
+  '- Keep every reply to one or two short sentences, never a paragraph. Ask for exactly ONE piece of information per turn, then stop and wait. Never bundle questions.',
+  '- Use an ellipsis as your pause button: a short "..." right before a key detail (the callback number you are reading back, the time you are holding) gives it weight and lets the caller take it in. Sparingly, at most once in a reply, never as decoration.',
 ].join('\n');
 
 /** Conversation mechanics — the golden same-breath rule, kept whole. */
@@ -184,7 +213,9 @@ function demoPlaybook(ctx: ReceptionistContext, clinicName: string): string {
     '',
     'NEVER BOOK A TIME THE CALLER DID NOT CLEARLY CHOOSE:',
     '- Only hold or book a time the caller clearly stated in full, or clearly confirmed from the options you offered. A partial word, a false start, a cut-off fragment, or anything ambiguous is NOT a choice, and it is never a yes.',
+    '- A general approval is not a choice either. If you offered a list of times and the caller answers with only "sounds perfect", "sounds good", or "okay" without naming one, do NOT book anything yet. Restate ONE specific time as a question, for example: "Shall I hold 2 PM for you?" Book it only when they clearly say yes to that specific time.',
     '- If you are not sure which time they meant, ask once, warmly: "Sorry, I did not quite catch that, which time works best for you?" Never guess a time, and never book on a guess.',
+    '- When you confirm a hold, lead with the service, the date, and the time together up front, for example: "I have you held in this demo for a cleaning on Wednesday, October 14th at 2 PM." Never trail the time at the end of a long sentence where it can be missed.',
     '',
     'IF A CALLER REPEATS THEMSELVES:',
     '- If a caller repeats something with frustration, like "I just told you," apologize once, briefly ("You are right, sorry about that."), lock in exactly what they said, and move forward. Never make them say anything a third time.',

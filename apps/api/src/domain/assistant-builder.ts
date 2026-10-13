@@ -58,23 +58,35 @@ export interface TransientAssistant {
     provider: string;
     voiceId: string;
     version?: number;
-    /** ElevenLabs tuning (the golden voice profile: model, stability, …) —
-     *  only present when an override supplies it; other voices omit it. */
+    /** ElevenLabs tuning (model, stability, speed, …) — only present when
+     *  an override supplies it; other voices omit it. */
     model?: string;
     stability?: number;
     similarityBoost?: number;
     style?: number;
     useSpeakerBoost?: boolean;
+    speed?: number;
     optimizeStreamingLatency?: number;
   };
   /** "office" | "off" | URL — ambient audio mixed into the call. */
   backgroundSound: string;
   /** `keywords` boost recognition of hard-to-hear words (the business name,
-   *  staff/transfer-line names, providers) — Deepgram takes `word:intensity`
-   *  strings. This is what stops a caller's "Hakim" coming through as
-   *  "Hakeem/Akeem". `endpointing` (ms of caller silence before a turn is
-   *  considered finished) is only sent when an override pins it. */
-  transcriber: { provider: 'deepgram'; model: string; language: string; keywords?: string[]; endpointing?: number };
+   *  staff/transfer-line names, providers) — Deepgram's Nova models take
+   *  `word:intensity` strings. This is what stops a caller's "Hakim" coming
+   *  through as "Hakeem/Akeem". Deepgram's Flux models take the same list
+   *  as `keyterm` instead (plain terms, no intensity suffix) plus an
+   *  `eotThreshold` (0-1 end-of-turn confidence). `endpointing` (ms of
+   *  caller silence before a turn is considered finished) is only sent when
+   *  an override pins it. */
+  transcriber: {
+    provider: 'deepgram';
+    model: string;
+    language: string;
+    keywords?: string[];
+    keyterm?: string[];
+    endpointing?: number;
+    eotThreshold?: number;
+  };
   /** Krisp noise cancellation on the caller's audio — cleans job-site/background
    *  noise before transcription so the agent mishears far less. */
   backgroundDenoisingEnabled?: boolean;
@@ -106,8 +118,14 @@ export interface TransientAssistant {
   artifactPlan: { recordingEnabled: boolean };
   /** How quickly the agent starts talking once the caller stops. */
   startSpeakingPlan?: { waitSeconds: number; smartEndpointingEnabled: boolean };
-  /** Lets the caller interrupt the agent (barge-in), like a real conversation. */
-  stopSpeakingPlan?: { numWords: number; voiceSeconds: number; backoffSeconds: number };
+  /** Lets the caller interrupt the agent (barge-in), like a real conversation.
+   *  `acknowledgementPhrases` never interrupt, even when the word count is met. */
+  stopSpeakingPlan?: {
+    numWords: number;
+    voiceSeconds: number;
+    backoffSeconds: number;
+    acknowledgementPhrases?: string[];
+  };
   /** Gives the model a tool to actually hang up once the call is done. */
   endCallFunctionEnabled?: boolean;
   /** Spoken-phrase fallbacks that also trigger a hang-up. */
@@ -727,23 +745,36 @@ export function buildTransientAssistant(
       similarityBoost?: number;
       style?: number;
       useSpeakerBoost?: boolean;
+      speed?: number;
       optimizeStreamingLatency?: number;
     };
     /** Override the model temperature (default 0.65). The personalized demo
-     *  pins the golden agent's 0.55. */
+     *  pins 0.55, retained from the golden agent. */
     temperature?: number;
-    /** Override the Deepgram transcriber model (default 'nova-2'; the golden
-     *  agent runs 'nova-3'). */
+    /** Override the Deepgram transcriber model (default 'nova-2'; the
+     *  personalized demo runs Flux, 'flux-general-en'). */
     transcriberModel?: string;
-    /** Pin the transcriber endpointing in ms (omitted = provider default;
-     *  the golden agent runs 500). */
+    /** Pin the transcriber endpointing in ms (omitted = provider default). */
     transcriberEndpointing?: number;
+    /** Pin Deepgram Flux's end-of-turn confidence threshold, 0-1 (only
+     *  meaningful with a Flux transcriber model; omitted = not sent). */
+    transcriberEotThreshold?: number;
     /** Override the speaking plans (defaults are the long-standing tuned
-     *  values; the personalized demo pins the golden agent's plans). */
+     *  values; the personalized demo pins its retuned v2 plans). */
     startSpeakingPlan?: { waitSeconds: number; smartEndpointingEnabled: boolean };
-    stopSpeakingPlan?: { numWords: number; voiceSeconds: number; backoffSeconds: number };
+    stopSpeakingPlan?: {
+      numWords: number;
+      voiceSeconds: number;
+      backoffSeconds: number;
+      acknowledgementPhrases?: string[];
+    };
     /** Override the silence timeout (default: the tenant's saved setting). */
     silenceTimeoutSeconds?: number;
+    /** Override background (Krisp) denoising of the caller's audio. Default:
+     *  on, as it has always been for transient assistants — the personalized
+     *  demo passes it explicitly so Maya's noise cleaning is pinned to the
+     *  golden configuration rather than inherited by accident. */
+    backgroundDenoisingEnabled?: boolean;
     /** Replace the composed receptionist system prompt entirely — used by the
      * landing-page SALES demo, which has its own persona and playbook. */
     systemPromptOverride?: string;
@@ -848,6 +879,12 @@ export function buildTransientAssistant(
       providers: options.providers,
     });
 
+  // Deepgram's conversational (Flux) models render the vocabulary boost
+  // differently from the Nova models: `keyterm` (plain terms) instead of
+  // `keywords` (`word:intensity` strings). Same merged list, per-model field.
+  const transcriberModel = options.transcriberModel ?? 'nova-2';
+  const isFluxTranscriber = transcriberModel.startsWith('flux');
+
   return {
     name: capAssistantName(options.assistantName ?? `${tenant.companyName} Receptionist`),
     firstMessage,
@@ -878,6 +915,7 @@ export function buildTransientAssistant(
             ...(options.voice?.useSpeakerBoost !== undefined
               ? { useSpeakerBoost: options.voice.useSpeakerBoost }
               : {}),
+            ...(options.voice?.speed !== undefined ? { speed: options.voice.speed } : {}),
             ...(options.voice?.optimizeStreamingLatency !== undefined
               ? { optimizeStreamingLatency: options.voice.optimizeStreamingLatency }
               : {}),
@@ -890,14 +928,20 @@ export function buildTransientAssistant(
       : {}),
     transcriber: {
       provider: 'deepgram',
-      model: options.transcriberModel ?? 'nova-2',
+      model: transcriberModel,
       language: 'en',
       ...(options.transcriberEndpointing !== undefined ? { endpointing: options.transcriberEndpointing } : {}),
-      ...(transcriberKeywords && transcriberKeywords.length > 0 ? { keywords: transcriberKeywords } : {}),
+      ...(options.transcriberEotThreshold !== undefined ? { eotThreshold: options.transcriberEotThreshold } : {}),
+      ...(transcriberKeywords && transcriberKeywords.length > 0
+        ? isFluxTranscriber
+          ? { keyterm: [...new Set(transcriberKeywords.map((kw) => kw.replace(/:\d+$/, '')))] }
+          : { keywords: transcriberKeywords }
+        : {}),
     },
     // Clean background noise (job sites, wind, traffic) before transcription, and
     // sound human with light backchanneling + warm idle nudges instead of dead air.
-    backgroundDenoisingEnabled: true,
+    // Denoising defaults on exactly as before; an override can only restate it.
+    backgroundDenoisingEnabled: options.backgroundDenoisingEnabled ?? true,
     backchannelingEnabled: true,
     messagePlan: { idleMessages: IDLE_MESSAGES, idleTimeoutSeconds: 12, idleMessageMaxSpokenCount: 2 },
     voicemailMessage: settings.voicemailGreeting,
@@ -938,8 +982,8 @@ export function buildTransientAssistant(
     // wait floor (0.6s) cuts the laggy gap before she replies. Faster resume
     // after an interruption too. numWords:3 still guards against twitchy cut-ins.
     // An override (the personalized demo) can pin different plans wholesale —
-    // it pins the golden agent's, which answer sooner (0.3s) and resume faster
-    // after an interruption (0.7s backoff).
+    // it pins the demo standard (v2), which answers sooner (0.3s) and resumes
+    // faster after an interruption (0.6s backoff).
     startSpeakingPlan: options.startSpeakingPlan ?? { waitSeconds: 0.6, smartEndpointingEnabled: true },
     stopSpeakingPlan: options.stopSpeakingPlan ?? { numWords: 3, voiceSeconds: 0.3, backoffSeconds: 1.0 },
     // Let the agent hang up once the caller is done. endCallPhrases is forced

@@ -132,44 +132,77 @@ describe('capAssistantName (Vapi caps assistant names at 40 characters)', () => 
   });
 });
 
-describe('buildTransientAssistant golden-parity overrides', () => {
-  const GOLDEN_VOICE = {
+describe('buildTransientAssistant demo-standard (v2) overrides', () => {
+  const DEMO_VOICE = {
     provider: '11labs',
     voiceId: 'cgSgspJ2msm6clMCkdW9',
     model: 'eleven_turbo_v2_5',
-    stability: 0.5,
+    stability: 0.4,
     similarityBoost: 0.75,
     style: 0.3,
     useSpeakerBoost: true,
-    optimizeStreamingLatency: 2,
+    speed: 1.1,
+    optimizeStreamingLatency: 3,
   };
 
-  it('pins every golden field onto the built assistant', () => {
+  it('pins every demo-standard (v2) field onto the built assistant', () => {
     const assistant = buildTransientAssistant(tenant, settings(), 'phone', new Date(), {
       systemPromptOverride: 'You are Maya.',
-      voice: GOLDEN_VOICE,
+      voice: DEMO_VOICE,
       backgroundSound: 'office',
       temperature: 0.55,
-      transcriberModel: 'nova-3',
-      transcriberEndpointing: 500,
-      startSpeakingPlan: { waitSeconds: 0.3, smartEndpointingEnabled: true },
-      stopSpeakingPlan: { numWords: 3, voiceSeconds: 0.3, backoffSeconds: 0.7 },
+      transcriberModel: 'flux-general-en',
+      transcriberEotThreshold: 0.8,
+      transcriberKeywords: ['dental:2', 'Maple:2'],
+      startSpeakingPlan: { waitSeconds: 0.3, smartEndpointingEnabled: false },
+      stopSpeakingPlan: {
+        numWords: 2,
+        voiceSeconds: 0.2,
+        backoffSeconds: 0.6,
+        acknowledgementPhrases: ['okay', 'uh-huh', 'yeah', 'mm-hmm'],
+      },
       silenceTimeoutSeconds: 30,
+      backgroundDenoisingEnabled: true,
     });
-    expect(assistant.voice).toEqual(GOLDEN_VOICE);
+    expect(assistant.voice).toEqual(DEMO_VOICE);
     expect(assistant.model.provider).toBe('openai');
     expect(assistant.model.model).toBe('gpt-4o');
     expect(assistant.model.temperature).toBe(0.55);
     expect(assistant.transcriber.provider).toBe('deepgram');
-    expect(assistant.transcriber.model).toBe('nova-3');
+    expect(assistant.transcriber.model).toBe('flux-general-en');
     expect(assistant.transcriber.language).toBe('en');
-    expect(assistant.transcriber.endpointing).toBe(500);
-    expect(assistant.startSpeakingPlan).toEqual({ waitSeconds: 0.3, smartEndpointingEnabled: true });
-    expect(assistant.stopSpeakingPlan).toEqual({ numWords: 3, voiceSeconds: 0.3, backoffSeconds: 0.7 });
+    expect(assistant.transcriber.endpointing).toBeUndefined();
+    expect(assistant.transcriber.eotThreshold).toBe(0.8);
+    // Flux takes the vocabulary as plain `keyterm` entries — the Nova
+    // `keywords` field and its `:intensity` suffixes stay off the wire.
+    expect(assistant.transcriber.keywords).toBeUndefined();
+    expect(assistant.transcriber.keyterm).toEqual(['dental', 'Maple']);
+    expect(assistant.startSpeakingPlan).toEqual({ waitSeconds: 0.3, smartEndpointingEnabled: false });
+    expect(assistant.stopSpeakingPlan).toEqual({
+      numWords: 2,
+      voiceSeconds: 0.2,
+      backoffSeconds: 0.6,
+      acknowledgementPhrases: ['okay', 'uh-huh', 'yeah', 'mm-hmm'],
+    });
     expect(assistant.silenceTimeoutSeconds).toBe(30);
     expect(assistant.backchannelingEnabled).toBe(true);
+    expect(assistant.backgroundDenoisingEnabled).toBe(true);
     expect(assistant.backgroundSound).toBe('office');
     expect(assistant.firstMessageMode).toBe('assistant-speaks-first');
+  });
+
+  it('a Nova transcriber model still renders the boosts as `keywords`', () => {
+    const assistant = buildTransientAssistant(tenant, settings(), 'phone', new Date(), {
+      systemPromptOverride: 'You are Maya.',
+      transcriberModel: 'nova-3',
+      transcriberEndpointing: 500,
+      transcriberKeywords: ['dental:2'],
+    });
+    expect(assistant.transcriber.model).toBe('nova-3');
+    expect(assistant.transcriber.endpointing).toBe(500);
+    expect(assistant.transcriber.eotThreshold).toBeUndefined();
+    expect(assistant.transcriber.keywords).toEqual(['dental:2']);
+    expect(assistant.transcriber.keyterm).toBeUndefined();
   });
 
   it('without the overrides, every field keeps its long-standing default', () => {
@@ -189,6 +222,9 @@ describe('buildTransientAssistant golden-parity overrides', () => {
     expect(assistant.startSpeakingPlan).toEqual({ waitSeconds: 0.6, smartEndpointingEnabled: true });
     expect(assistant.stopSpeakingPlan).toEqual({ numWords: 3, voiceSeconds: 0.3, backoffSeconds: 1.0 });
     expect(assistant.silenceTimeoutSeconds).toBe(45);
+    // Denoising has always been on for transient assistants (it is part of
+    // the sales demo's current payload too); the override only restates it.
+    expect(assistant.backgroundDenoisingEnabled).toBe(true);
   });
 
   it('a vapi voice override still serializes as the V2 voice, tuning fields ignored', () => {

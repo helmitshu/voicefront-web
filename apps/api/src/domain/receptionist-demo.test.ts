@@ -38,26 +38,34 @@ function makeCtx(overrides: Partial<ReceptionistContext> = {}): ReceptionistCont
 }
 
 describe('GOLDEN_DEMO_VOICE', () => {
-  it('is the golden agent voice in full (ElevenLabs Jessica, golden tuning)', () => {
+  it('is the demo standard (v2) voice in full (ElevenLabs Jessica, retuned)', () => {
     expect(GOLDEN_DEMO_VOICE).toEqual({
       provider: '11labs',
       voiceId: 'cgSgspJ2msm6clMCkdW9',
       model: 'eleven_turbo_v2_5',
-      stability: 0.5,
+      stability: 0.4,
       similarityBoost: 0.75,
       style: 0.3,
       useSpeakerBoost: true,
-      optimizeStreamingLatency: 2,
+      speed: 1.1,
+      optimizeStreamingLatency: 3,
     });
   });
 });
 
-describe('golden parity constants', () => {
-  it('match the production golden agent (Vapi 523577bd)', () => {
+describe('demo standard (v2) constants', () => {
+  it('pin the retuned standard, not the old golden agent byte for byte', () => {
     expect(GOLDEN_DEMO_TEMPERATURE).toBe(0.55);
-    expect(GOLDEN_DEMO_TRANSCRIBER).toEqual({ model: 'nova-3', endpointing: 500 });
-    expect(GOLDEN_DEMO_START_SPEAKING_PLAN).toEqual({ waitSeconds: 0.3, smartEndpointingEnabled: true });
-    expect(GOLDEN_DEMO_STOP_SPEAKING_PLAN).toEqual({ numWords: 3, voiceSeconds: 0.3, backoffSeconds: 0.7 });
+    expect(GOLDEN_DEMO_TRANSCRIBER).toEqual({ model: 'flux-general-en', eotThreshold: 0.8 });
+    // Smart endpointing stays OFF: any smart plan would silently override
+    // Flux's own end-of-turn detection.
+    expect(GOLDEN_DEMO_START_SPEAKING_PLAN).toEqual({ waitSeconds: 0.3, smartEndpointingEnabled: false });
+    expect(GOLDEN_DEMO_STOP_SPEAKING_PLAN).toEqual({
+      numWords: 2,
+      voiceSeconds: 0.2,
+      backoffSeconds: 0.6,
+      acknowledgementPhrases: ['okay', 'uh-huh', 'yeah', 'mm-hmm'],
+    });
     expect(GOLDEN_DEMO_SILENCE_TIMEOUT_SECONDS).toBe(30);
     expect(GOLDEN_DEMO_KEYWORDS).toEqual(['dental:2', 'cleaning:2', 'Maya:2', 'Invisalign:2']);
   });
@@ -105,6 +113,14 @@ describe('composeReceptionistPrompt', () => {
     expect(prompt).toContain('Mirror the caller\'s energy');
   });
 
+  it('keeps turns short and uses an ellipsis as the pause button', () => {
+    expect(prompt).toContain('one or two short sentences, never a paragraph');
+    expect(prompt).toContain('Use an ellipsis as your pause button');
+    expect(prompt).toContain('right before a key detail');
+    expect(prompt).toContain('the callback number you are reading back');
+    expect(prompt).toContain('at most once in a reply');
+  });
+
   it('carries the golden same-breath rule (a filler-only reply is a failed turn)', () => {
     expect(prompt).toContain('CONVERSATION MECHANICS');
     expect(prompt).toContain('the filler and the answer must come in the SAME reply, in one breath');
@@ -117,6 +133,17 @@ describe('composeReceptionistPrompt', () => {
     expect(prompt).toContain('is NOT a choice');
     expect(prompt).toContain('Never guess a time, and never book on a guess');
     expect(prompt).toContain('which time works best for you?');
+  });
+
+  it('treats a general approval as no choice, and leads the hold with service, date, and time', () => {
+    expect(prompt).toContain('A general approval is not a choice either');
+    expect(prompt).toContain('"sounds perfect", "sounds good", or "okay" without naming one');
+    expect(prompt).toContain('Restate ONE specific time as a question');
+    expect(prompt).toContain('Shall I hold 2 PM for you?');
+    expect(prompt).toContain('Book it only when they clearly say yes to that specific time');
+    expect(prompt).toContain('lead with the service, the date, and the time together up front');
+    expect(prompt).toContain('I have you held in this demo for a cleaning on Wednesday, October 14th at 2 PM');
+    expect(prompt).toContain('Never trail the time at the end of a long sentence');
   });
 
   it('keeps the call compact and the closing short', () => {
