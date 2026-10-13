@@ -7,8 +7,10 @@ import { Spinner } from '@/components/ui/Spinner';
 import {
   DemoApi,
   ApiError,
+  type ClinicFacts,
   type DemoAppointment,
   type DemoDay,
+  type DemoKind,
   type DemoLeadResponse,
   type DemoIndustry,
   type DemoCallSummary,
@@ -233,7 +235,7 @@ function gridTimes(day: DemoDay): string[] {
   return out;
 }
 
-type DemoView = 'form' | 'choose' | 'web' | 'call';
+type DemoView = 'form' | 'confirm' | 'choose' | 'web' | 'call';
 
 /** Lead-capture form state. `industry` starts unset so the user must pick one. */
 interface DemoFormState {
@@ -243,6 +245,20 @@ interface DemoFormState {
   industry: DemoIndustry | null;
   /** Optional — when given, shown on the demo calendar instead of a placeholder. */
   businessName: string;
+  /** Optional clinic website; only used by the receptionist demo kind. */
+  website: string;
+}
+
+/** Editable state for the confirm step: the facts Maya will use, pre-filled
+ *  from what was pulled off the clinic website (or blank when the pull found
+ *  nothing). Hours and services are kept as single text fields for editing. */
+interface ConfirmFactsState {
+  clinicName: string;
+  hours: string;
+  services: string;
+  address: string;
+  /** True when at least one field was pre-filled from the website pull. */
+  pulledFacts: boolean;
 }
 
 /** The guided stages Ava walks the prospect through; the right panel follows. */
@@ -293,15 +309,25 @@ const DEMO_INDUSTRIES: Array<{ key: DemoIndustry; label: string; hint: string }>
   { key: 'other', label: 'Something else', hint: 'Salon, law, services' },
 ];
 
+/** The two demo kinds the prospect can pick between. */
+const DEMO_KINDS: Array<{ key: DemoKind; label: string; hint: string }> = [
+  { key: 'receptionist', label: 'Hear your clinic answered', hint: 'Maya calls you as your clinic' },
+  { key: 'sales', label: 'Hear the pitch', hint: 'Ava walks you through VoiceFront' },
+];
+
 function DemoLeadForm({
   form,
   setForm,
+  demoKind,
+  setDemoKind,
   submitting,
   error,
   onSubmit,
 }: {
   form: DemoFormState;
   setForm: React.Dispatch<React.SetStateAction<DemoFormState>>;
+  demoKind: DemoKind;
+  setDemoKind: (kind: DemoKind) => void;
   submitting: boolean;
   error: string | null;
   onSubmit: (e: React.FormEvent) => void;
@@ -320,6 +346,36 @@ function DemoLeadForm({
             Drop your details and she’ll walk you through exactly how VoiceFront answers, books, and
             never double-books — tuned to your line of work.
           </p>
+        </div>
+
+        {/* Demo kind: the receptionist demo is the headline experience. */}
+        <div className="mt-1 flex flex-col gap-1.5 text-left">
+          <span className="text-xs font-semibold uppercase tracking-[0.12em] text-white/45">
+            Which demo do you want?
+          </span>
+          <div className="grid grid-cols-2 gap-2">
+            {DEMO_KINDS.map((opt) => {
+              const selected = demoKind === opt.key;
+              return (
+                <button
+                  key={opt.key}
+                  type="button"
+                  onClick={() => setDemoKind(opt.key)}
+                  aria-pressed={selected}
+                  className={`flex flex-col items-start gap-0.5 rounded-xl border px-3 py-2.5 text-left transition-all duration-200 ${
+                    selected
+                      ? 'border-signal-soft/70 bg-signal/20 ring-1 ring-inset ring-signal/40'
+                      : 'border-white/12 bg-white/[0.05] hover:border-white/25 hover:bg-white/[0.08]'
+                  }`}
+                >
+                  <span className={`text-[13px] font-semibold ${selected ? 'text-white' : 'text-white/80'}`}>
+                    {opt.label}
+                  </span>
+                  <span className="text-[11px] leading-tight text-white/40">{opt.hint}</span>
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         <div className="mt-1 flex flex-col gap-3.5">
@@ -399,6 +455,31 @@ function DemoLeadForm({
               We’ll put it on the demo calendar so it feels like yours. Leave blank and we’ll use a sample.
             </span>
           </label>
+
+          {/* Receptionist kind only: the clinic website Maya dresses in. */}
+          {demoKind === 'receptionist' && (
+            <label className="flex flex-col gap-1.5 text-left">
+              <span className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.12em] text-white/45">
+                Clinic website
+                <span className="rounded-full bg-white/10 px-1.5 py-0.5 text-[10px] font-medium normal-case tracking-normal text-white/40">
+                  optional
+                </span>
+              </span>
+              <input
+                type="url"
+                value={form.website}
+                onChange={(e) => setForm((f) => ({ ...f, website: e.target.value }))}
+                placeholder="https://yourclinic.ca"
+                autoComplete="url"
+                maxLength={300}
+                className="rounded-xl border border-white/15 bg-white/[0.06] px-4 py-3 text-[15px] text-white placeholder:text-white/30 outline-none transition-colors focus:border-signal-soft/70 focus:bg-white/[0.09]"
+              />
+              <span className="text-[11px] leading-tight text-white/35">
+                We pull your hours and services from it, so Maya sounds like she works there. You can fix
+                anything on the next screen.
+              </span>
+            </label>
+          )}
         </div>
 
         <button
@@ -417,15 +498,120 @@ function DemoLeadForm({
   );
 }
 
+/* --------------------- demo: confirm the clinic facts -------------------- */
+
+/**
+ * The receptionist demo's review step: the prospect sees exactly which facts
+ * Maya will speak from (pulled from their website) and can fix any of them.
+ * What they confirm here is what /call sends, and the server re-sanitizes it.
+ */
+function DemoConfirmFacts({
+  facts,
+  setFacts,
+  onContinue,
+  onBack,
+}: {
+  facts: ConfirmFactsState;
+  setFacts: React.Dispatch<React.SetStateAction<ConfirmFactsState>>;
+  onContinue: () => void;
+  onBack: () => void;
+}) {
+  const inputClass =
+    'rounded-xl border border-white/15 bg-white/[0.06] px-4 py-3 text-[15px] text-white placeholder:text-white/30 outline-none transition-colors focus:border-signal-soft/70 focus:bg-white/[0.09]';
+  const labelClass = 'text-xs font-semibold uppercase tracking-[0.12em] text-white/45';
+  return (
+    <div className="mx-auto max-w-xl">
+      <div className="flex flex-col gap-4 rounded-3xl border border-white/10 bg-white/[0.04] p-7 backdrop-blur sm:p-9">
+        <div className="text-center">
+          <h3 className="font-display text-[22px] font-semibold tracking-tight text-white">
+            Before Maya calls, check her homework
+          </h3>
+          <p className="mx-auto mt-2 max-w-md text-sm leading-relaxed text-white/55">
+            {facts.pulledFacts
+              ? 'We pulled this from your website. Fix anything that looks off.'
+              : 'We could not pull details from your website. Add what you would like Maya to use, or leave it general.'}
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-3.5">
+          <label className="flex flex-col gap-1.5 text-left">
+            <span className={labelClass}>Clinic name</span>
+            <input
+              type="text"
+              value={facts.clinicName}
+              onChange={(e) => setFacts((f) => ({ ...f, clinicName: e.target.value }))}
+              placeholder="e.g. Maple Dental Studio"
+              maxLength={60}
+              className={inputClass}
+            />
+          </label>
+          <label className="flex flex-col gap-1.5 text-left">
+            <span className={labelClass}>Hours, one line per day or range</span>
+            <textarea
+              value={facts.hours}
+              onChange={(e) => setFacts((f) => ({ ...f, hours: e.target.value }))}
+              placeholder={'Monday to Friday: 8:00 AM to 5:00 PM\nSaturday: 9:00 AM to 2:00 PM'}
+              rows={3}
+              className={`${inputClass} resize-y`}
+            />
+          </label>
+          <label className="flex flex-col gap-1.5 text-left">
+            <span className={labelClass}>Services, separated by commas</span>
+            <input
+              type="text"
+              value={facts.services}
+              onChange={(e) => setFacts((f) => ({ ...f, services: e.target.value }))}
+              placeholder="Cleanings, Exams, Fillings, Crowns"
+              className={inputClass}
+            />
+          </label>
+          <label className="flex flex-col gap-1.5 text-left">
+            <span className={labelClass}>Address</span>
+            <input
+              type="text"
+              value={facts.address}
+              onChange={(e) => setFacts((f) => ({ ...f, address: e.target.value }))}
+              placeholder="2145 West 4th Avenue, Vancouver"
+              maxLength={120}
+              className={inputClass}
+            />
+          </label>
+        </div>
+
+        <button
+          type="button"
+          onClick={onContinue}
+          className="mt-1 rounded-full bg-white px-7 py-3.5 text-[15px] font-semibold text-ink shadow-lift transition-transform hover:-translate-y-0.5"
+        >
+          Looks right, continue
+        </button>
+        <div className="text-center">
+          <button
+            type="button"
+            onClick={onBack}
+            className="text-xs font-medium text-white/40 transition-colors hover:text-white/70"
+          >
+            ‹ Use different details
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* --------------------------- demo: choose a mode -------------------------- */
 
 function DemoModeChoice({
   lead,
+  demoKind,
+  clinicName,
   onWeb,
   onCall,
   onBack,
 }: {
   lead: DemoLeadResponse;
+  demoKind: DemoKind;
+  clinicName: string;
   onWeb: () => void;
   onCall: () => void;
   onBack: () => void;
@@ -471,7 +657,9 @@ function DemoModeChoice({
               </span>
               <span className="text-[16px] font-semibold text-white">Get a call</span>
               <span className="text-[13px] leading-snug text-white/55">
-                We’ll ring your phone in a few seconds so you hear it like a real customer would.
+                {demoKind === 'receptionist'
+                  ? `We’ll ring your phone in a few seconds and Maya will answer as the front desk at ${clinicName || 'your clinic'}.`
+                  : 'We’ll ring your phone in a few seconds so you hear it like a real customer would.'}
               </span>
             </button>
           ) : (
@@ -487,6 +675,12 @@ function DemoModeChoice({
             </div>
           )}
         </div>
+
+        {demoKind === 'receptionist' && (
+          <p className="mt-4 text-center text-[12px] leading-relaxed text-white/40">
+            The receptionist demo runs by phone only. The in-browser test above is the pitch demo with Ava.
+          </p>
+        )}
 
         <div className="mt-5 text-center">
           <button
@@ -513,14 +707,23 @@ type CallState =
 
 function DemoCallView({
   lead,
+  demoKind,
+  facts,
+  clinicName,
   onBack,
   onWeb,
 }: {
   lead: DemoLeadResponse;
+  demoKind: DemoKind;
+  /** The facts the prospect confirmed on the review step (receptionist
+   *  kind only); sent with the call so Maya uses exactly these. */
+  facts: ClinicFacts | null;
+  clinicName: string;
   onBack: () => void;
   onWeb: () => void;
 }) {
   const [state, setState] = useState<CallState>({ status: 'idle' });
+  const receptionist = demoKind === 'receptionist';
 
   async function dial() {
     setState({ status: 'dialing' });
@@ -530,6 +733,7 @@ function DemoCallView({
         leadId: lead.leadId,
         name: lead.name,
         phone: lead.phone,
+        ...(receptionist ? { demoKind, ...(facts ? { facts } : {}) } : {}),
       });
       setState({ status: 'ringing', fromNumber: res.fromNumber });
     } catch (err) {
@@ -564,9 +768,19 @@ function DemoCallView({
               Your phone’s about to ring
             </h3>
             <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-white/60">
-              We’re calling <span className="font-semibold text-white">{lead.phone}</span> from{' '}
-              <span className="font-mono text-white/80">{state.fromNumber}</span>. Pick up and say hi to Ava — she’ll
-              take it from there.
+              {receptionist ? (
+                <>
+                  We’re calling <span className="font-semibold text-white">{lead.phone}</span> from{' '}
+                  <span className="font-mono text-white/80">{state.fromNumber}</span>. Pick up and talk to Maya like
+                  a patient would. Ask for a cleaning, or try a tricky question.
+                </>
+              ) : (
+                <>
+                  We’re calling <span className="font-semibold text-white">{lead.phone}</span> from{' '}
+                  <span className="font-mono text-white/80">{state.fromNumber}</span>. Pick up and say hi to Ava — she’ll
+                  take it from there.
+                </>
+              )}
             </p>
           </>
         ) : state.status === 'unavailable' ? (
@@ -575,18 +789,29 @@ function DemoCallView({
               Phone demo isn’t live yet
             </h3>
             <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-white/60">
-              We’re finishing the outbound calling setup. The in-browser test is fully live in the meantime — same
-              Ava, same demo.
+              {receptionist
+                ? 'We’re finishing the outbound calling setup. The in-browser pitch demo with Ava is fully live in the meantime.'
+                : 'We’re finishing the outbound calling setup. The in-browser test is fully live in the meantime — same Ava, same demo.'}
             </p>
           </>
         ) : (
           <>
             <h3 className="mt-5 font-display text-[20px] font-semibold tracking-tight text-white">
-              Get a call from Ava
+              {receptionist ? 'Hear Maya answer for your clinic' : 'Get a call from Ava'}
             </h3>
             <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-white/60">
-              We’ll ring <span className="font-semibold text-white">{lead.phone}</span> right now. Pick up and run the
-              whole demo by voice — booking, double-booking, the works.
+              {receptionist ? (
+                <>
+                  We’ll ring <span className="font-semibold text-white">{lead.phone}</span> right now. Maya will
+                  greet you as the front desk at {clinicName || 'your clinic'} and book you a short pretend
+                  appointment. Nothing is added to a real calendar.
+                </>
+              ) : (
+                <>
+                  We’ll ring <span className="font-semibold text-white">{lead.phone}</span> right now. Pick up and run
+                  the whole demo by voice — booking, double-booking, the works.
+                </>
+              )}
             </p>
             {state.status === 'error' && (
               <p className="mx-auto mt-3 max-w-sm text-sm text-rose-300/90">{state.message}</p>
@@ -974,7 +1199,19 @@ export function InteractiveDemo() {
     phone: '',
     industry: null,
     businessName: '',
+    website: '',
   });
+  // The receptionist demo is the default: it is the product, not the pitch.
+  const [demoKind, setDemoKind] = useState<DemoKind>('receptionist');
+  const [confirmFacts, setConfirmFacts] = useState<ConfirmFactsState>({
+    clinicName: '',
+    hours: '',
+    services: '',
+    address: '',
+    pulledFacts: false,
+  });
+  // What the prospect confirmed on the review step; sent with the demo call.
+  const [confirmedFacts, setConfirmedFacts] = useState<ClinicFacts | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -1064,18 +1301,42 @@ export function InteractiveDemo() {
     setSubmitting(true);
     try {
       const businessName = form.businessName.trim();
+      const website = form.website.trim();
       const res = await DemoApi.lead({
         name,
         email,
         phone,
         industry: form.industry,
         ...(businessName ? { businessName } : {}),
+        ...(demoKind === 'receptionist' && website ? { websiteUrl: website } : {}),
       });
       setLead(res);
       setSessionId(res.sessionId);
       setDay(res.day);
       setAppointments(res.appointments);
-      setView('choose');
+      if (demoKind === 'receptionist') {
+        // Pull the clinic facts for the confirm step. A failed pull is not
+        // an error for the prospect: they land on the same step with blank
+        // fields and a note.
+        let pulled: ClinicFacts | null = null;
+        if (website) {
+          try {
+            pulled = (await DemoApi.clinicFacts({ sessionId: res.sessionId, websiteUrl: website })).facts;
+          } catch {
+            pulled = null;
+          }
+        }
+        setConfirmFacts({
+          clinicName: pulled?.businessName ?? businessName,
+          hours: (pulled?.hours ?? []).join('\n'),
+          services: (pulled?.services ?? []).join(', '),
+          address: pulled?.address ?? '',
+          pulledFacts: pulled !== null && Object.keys(pulled).length > 0,
+        });
+        setView('confirm');
+      } else {
+        setView('choose');
+      }
     } catch (err) {
       if (err instanceof ApiError && err.code === 'DEMO_DISABLED') {
         setFormError('The demo is currently turned off — please check back soon.');
@@ -1087,6 +1348,26 @@ export function InteractiveDemo() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  /** Confirm step done: freeze the edited facts into the shape /call sends. */
+  function confirmContinue() {
+    const splitLines = (text: string) =>
+      text
+        .split(/[\n,]+/)
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+    const clinicName = confirmFacts.clinicName.trim();
+    const hours = splitLines(confirmFacts.hours);
+    const services = splitLines(confirmFacts.services);
+    const address = confirmFacts.address.trim();
+    setConfirmedFacts({
+      ...(clinicName ? { businessName: clinicName } : {}),
+      ...(hours.length > 0 ? { hours } : {}),
+      ...(services.length > 0 ? { services } : {}),
+      ...(address ? { address } : {}),
+    });
+    setView('choose');
   }
 
   function chooseWeb() {
@@ -1180,9 +1461,25 @@ export function InteractiveDemo() {
         <DemoLeadForm
           form={form}
           setForm={setForm}
+          demoKind={demoKind}
+          setDemoKind={setDemoKind}
           submitting={submitting}
           error={formError}
           onSubmit={submitLead}
+        />
+      </div>
+    );
+  }
+
+  // --------------------- gate: confirm the clinic facts ---------------------
+  if (view === 'confirm' && lead) {
+    return (
+      <div key="confirm" className="animate-fade-up">
+        <DemoConfirmFacts
+          facts={confirmFacts}
+          setFacts={setConfirmFacts}
+          onContinue={confirmContinue}
+          onBack={() => setView('form')}
         />
       </div>
     );
@@ -1194,6 +1491,8 @@ export function InteractiveDemo() {
       <div key="choose" className="animate-fade-up">
         <DemoModeChoice
           lead={lead}
+          demoKind={demoKind}
+          clinicName={confirmedFacts?.businessName ?? ''}
           onWeb={chooseWeb}
           onCall={() => setView('call')}
           onBack={() => setView('form')}
@@ -1206,7 +1505,14 @@ export function InteractiveDemo() {
   if (view === 'call' && lead) {
     return (
       <div key="call" className="animate-fade-up">
-        <DemoCallView lead={lead} onBack={() => setView('choose')} onWeb={chooseWeb} />
+        <DemoCallView
+          lead={lead}
+          demoKind={demoKind}
+          facts={confirmedFacts}
+          clinicName={confirmedFacts?.businessName ?? ''}
+          onBack={() => setView('choose')}
+          onWeb={chooseWeb}
+        />
       </div>
     );
   }
