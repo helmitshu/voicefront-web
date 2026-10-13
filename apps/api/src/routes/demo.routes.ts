@@ -228,10 +228,36 @@ function phoneKey(raw: string | null | undefined): string {
   return digits.slice(-10);
 }
 
+/** Default per-destination cap: demo calls to one number in 24 hours. */
+const DEMO_CALLS_PER_NUMBER_PER_DAY = 2;
+
+/**
+ * Founder testing allowance: when the demo lead is the founder himself,
+ * testing against his own phone, the per-destination cap rises so he can
+ * iterate on the demo without locking himself out (his instruction, after
+ * the default cap refused his third test call of the day). BOTH halves
+ * must match at once — his email on the lead AND his own number as the
+ * destination — because triggering the higher cap requires receiving the
+ * calls on the founder's own phone: a stranger typing his email with
+ * their number, or his number with their email, gains nothing and stays
+ * at the default cap.
+ */
+const DEMO_OWNER_EMAIL = 'helmitshu@gmail.com';
+const DEMO_OWNER_PHONE = '+1 514 431 5049';
+const DEMO_OWNER_CALLS_PER_DAY = 5;
+
+/** True when this call is the founder testing the demo against himself. */
+function isDemoOwnerTest(leadEmail: string | null | undefined, customerNumber: string): boolean {
+  const email = (leadEmail ?? '').trim().toLowerCase();
+  return email === DEMO_OWNER_EMAIL && phoneKey(customerNumber) === phoneKey(DEMO_OWNER_PHONE);
+}
+
 /**
  * Per-destination daily cap on demo calls (anti-robocall discipline): at
- * most 2 completed demo calls to any one number in 24 hours, across all
- * sessions and both demo kinds.
+ * most DEMO_CALLS_PER_NUMBER_PER_DAY completed demo calls to any one
+ * number in 24 hours, across all sessions and both demo kinds (the
+ * founder's own test pair gets DEMO_OWNER_CALLS_PER_DAY, see
+ * isDemoOwnerTest).
  *
  * Approximation, by schema: DemoCall rows carry no destination number (they
  * are written at call end from the webhook), so the count joins through
@@ -541,7 +567,7 @@ demoRouter.post(
     const lead = await prisma.demoLead.findFirst({
       where: { demoSessionId: body.sessionId },
       orderBy: { createdAt: 'desc' },
-      select: { id: true, name: true, businessName: true, factsJson: true },
+      select: { id: true, name: true, email: true, businessName: true, factsJson: true },
     });
     if (!lead) {
       throw new HttpError(403, 'Start the demo from the website first.', 'UNKNOWN_SESSION');
@@ -559,9 +585,14 @@ demoRouter.post(
       throw new HttpError(400, "That phone number doesn't look right. Double-check it and try again.", 'BAD_PHONE');
     }
 
-    // Per-destination cap: any number gets at most 2 demo calls a day, no
-    // matter how many sessions or IPs ask (see countRecentDemoCallsTo).
-    if ((await countRecentDemoCallsTo(customerNumber)) >= 2) {
+    // Per-destination cap: any number gets at most
+    // DEMO_CALLS_PER_NUMBER_PER_DAY demo calls a day, no matter how many
+    // sessions or IPs ask (see countRecentDemoCallsTo). The founder's own
+    // test pair (his lead email + his phone) gets DEMO_OWNER_CALLS_PER_DAY.
+    const callCap = isDemoOwnerTest(lead.email, customerNumber)
+      ? DEMO_OWNER_CALLS_PER_DAY
+      : DEMO_CALLS_PER_NUMBER_PER_DAY;
+    if ((await countRecentDemoCallsTo(customerNumber)) >= callCap) {
       throw new HttpError(429, 'This number has already received its demo calls today.', 'NUMBER_CAP');
     }
 

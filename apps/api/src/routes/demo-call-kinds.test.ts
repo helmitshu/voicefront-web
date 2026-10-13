@@ -11,6 +11,9 @@ import express from 'express';
  * Pinned behaviour:
  *  - the per-destination cap (2 demo calls per number per 24h) refuses with
  *    429 NUMBER_CAP before any call is placed, for either kind;
+ *  - the founder's own test pair (his lead email AND his own phone number,
+ *    both at once) gets 5 calls per 24h instead; either half on its own
+ *    stays at 2;
  *  - demoKind 'receptionist' places the call with a Maya assistant dressed
  *    in the clinic's facts (golden voice, clinic opener, 300s cap);
  *  - no demoKind still builds the sales assistant (Ava), unchanged;
@@ -128,6 +131,7 @@ function fakeSession(sessionId: string) {
 const LEAD_ROW = {
   id: 'lead_1',
   name: 'Jordan Reyes',
+  email: 'jordan@example.com',
   businessName: 'Maple Dental Studio',
   factsJson: {
     businessName: 'Maple Dental Studio',
@@ -143,6 +147,10 @@ let base = '';
 
 beforeAll(async () => {
   const app = express();
+  // Trust the forwarded header so the route's per-IP limiter sees the
+  // distinct test IP each postCall sends (without this, every request in
+  // the file shares the socket IP and the limiter caps the whole file).
+  app.set('trust proxy', true);
   app.use(express.json());
   app.use('/api/demo', demoRouter);
   app.use(errorHandler);
@@ -179,9 +187,14 @@ beforeEach(() => {
 let ipCounter = 0;
 async function postCall(body: Record<string, unknown>) {
   ipCounter += 1;
+  const testIp = `10.99.0.${ipCounter}`;
   const res = await fetch(`${base}/api/demo/call`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-test-ip': `10.99.0.${ipCounter}` },
+    headers: {
+      'content-type': 'application/json',
+      'x-test-ip': testIp,
+      'x-forwarded-for': testIp,
+    },
     body: JSON.stringify(body),
   });
   return { status: res.status, json: (await res.json()) as Record<string, any> };
@@ -198,6 +211,79 @@ describe('POST /api/demo/call demo kinds', () => {
       leadId: 'lead_1',
       name: 'Jordan Reyes',
       phone: '+1 (604) 555-0182',
+      demoKind: 'receptionist',
+    });
+
+    expect(status).toBe(429);
+    expect(json.error?.code).toBe('NUMBER_CAP');
+    expect(placeOutboundCall).not.toHaveBeenCalled();
+  });
+
+  it('owner test pair (his email + his number) places calls 3, 4 and 5, refused on the 6th', async () => {
+    // Mixed case and stray spaces: the email compare trims and lowercases.
+    demoLeadFindFirst.mockResolvedValue({ ...LEAD_ROW, email: '  Helmitshu@Gmail.com  ' });
+    // Calls to his number are counted through leads carrying that number.
+    demoLeadFindMany.mockResolvedValue([{ demoSessionId: 'demo_self', phone: '+15144315049' }]);
+
+    // 2, 3 or 4 calls already placed today: the next one still goes
+    // through (those are his 3rd, 4th and 5th). The destination is typed
+    // without the country code; the digit comparison must still match.
+    for (const placed of [2, 3, 4]) {
+      demoCallCount.mockResolvedValue(placed);
+      const { status, json } = await postCall({
+        sessionId: 'demo_owner',
+        leadId: 'lead_1',
+        name: 'Hakim',
+        phone: '514-431-5049',
+        demoKind: 'receptionist',
+      });
+      expect(status).toBe(200);
+      expect(json.callId).toBe('call_abc');
+    }
+    expect(placeOutboundCall).toHaveBeenCalledTimes(3);
+
+    // 5 already placed: the 6th is refused, same as anyone else's cap.
+    demoCallCount.mockResolvedValue(5);
+    const { status, json } = await postCall({
+      sessionId: 'demo_owner',
+      leadId: 'lead_1',
+      name: 'Hakim',
+      phone: '514-431-5049',
+      demoKind: 'receptionist',
+    });
+    expect(status).toBe(429);
+    expect(json.error?.code).toBe('NUMBER_CAP');
+    expect(placeOutboundCall).toHaveBeenCalledTimes(3);
+  });
+
+  it('owner email with a different destination still caps at 2', async () => {
+    demoLeadFindFirst.mockResolvedValue({ ...LEAD_ROW, email: 'helmitshu@gmail.com' });
+    demoLeadFindMany.mockResolvedValue([{ demoSessionId: 'demo_other', phone: '+16045550182' }]);
+    demoCallCount.mockResolvedValue(2);
+
+    const { status, json } = await postCall({
+      sessionId: 'demo_owneremail',
+      leadId: 'lead_1',
+      name: 'Hakim',
+      phone: '+1 (604) 555-0182',
+      demoKind: 'receptionist',
+    });
+
+    expect(status).toBe(429);
+    expect(json.error?.code).toBe('NUMBER_CAP');
+    expect(placeOutboundCall).not.toHaveBeenCalled();
+  });
+
+  it('a different email calling the owner number still caps at 2', async () => {
+    demoLeadFindFirst.mockResolvedValue({ ...LEAD_ROW, email: 'someone.else@example.com' });
+    demoLeadFindMany.mockResolvedValue([{ demoSessionId: 'demo_self', phone: '+15144315049' }]);
+    demoCallCount.mockResolvedValue(2);
+
+    const { status, json } = await postCall({
+      sessionId: 'demo_ownernumber',
+      leadId: 'lead_1',
+      name: 'Jordan Reyes',
+      phone: '+1 (514) 431-5049',
       demoKind: 'receptionist',
     });
 
