@@ -1322,6 +1322,20 @@ export interface DemoSessionResponse {
   /** Founder toggle: whether to show the live sample calendar to the prospect. */
   showCalendar: boolean;
 }
+/** Which demo the prospect asked for: Ava's pitch, or Maya answering as
+ *  the receptionist for the prospect's own clinic (phone only). */
+export type DemoKind = 'sales' | 'receptionist';
+
+/** Public clinic facts pulled from the prospect's website (or confirmed by
+ *  the prospect on the review step). Mirrors the API's ClinicFacts. */
+export interface ClinicFacts {
+  businessName?: string;
+  phone?: string;
+  address?: string;
+  hours?: string[];
+  services?: string[];
+}
+
 export interface DemoLeadInput {
   name: string;
   email: string;
@@ -1329,6 +1343,9 @@ export interface DemoLeadInput {
   industry: DemoIndustry;
   /** Optional: the prospect's own business name, shown on the sample calendar. */
   businessName?: string;
+  /** Optional: the clinic's website, used to pull facts for the
+   *  personalized receptionist demo. */
+  websiteUrl?: string;
 }
 export interface DemoLeadResponse {
   leadId: string;
@@ -1363,6 +1380,18 @@ export interface DemoNumbers {
   us: VapiNumberOption | null;
   ca: VapiNumberOption | null;
 }
+export interface DemoCallInput {
+  sessionId: string;
+  leadId?: string;
+  name?: string;
+  phone: string;
+  /** Defaults to 'sales' server-side when omitted. */
+  demoKind?: DemoKind;
+  /** The facts the prospect confirmed on the review step (receptionist
+   *  kind only). The server re-sanitizes them before use. */
+  facts?: ClinicFacts;
+}
+
 export interface DemoCallResponse {
   ok: boolean;
   callId: string;
@@ -1386,8 +1415,10 @@ export const DemoApi = {
     api<DemoLeadResponse>('/api/demo/lead', { method: 'POST', body: input }),
   start: (input: DemoStartInput = {}) =>
     api<DemoSessionResponse>('/api/demo/session', { method: 'POST', body: input }),
-  call: (input: { sessionId: string; leadId?: string; name?: string; phone: string }) =>
+  call: (input: DemoCallInput) =>
     api<DemoCallResponse>('/api/demo/call', { method: 'POST', body: input }),
+  clinicFacts: (input: { sessionId: string; websiteUrl: string }) =>
+    api<{ facts: ClinicFacts | null }>('/api/demo/clinic-facts', { method: 'POST', body: input }),
   appointments: (sessionId: string) =>
     api<{ appointments: DemoAppointment[]; screen: DemoScreen | null; summary: DemoCallSummary | null }>(
       `/api/demo/appointments?sessionId=${encodeURIComponent(sessionId)}`,
