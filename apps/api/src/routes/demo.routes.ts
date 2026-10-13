@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { asyncHandler, HttpError } from '../lib/http';
 import { env } from '../config/env';
 import { prisma } from '../lib/prisma';
 import { getSettingValue } from '../services/platform-config.service';
-import { buildTransientAssistant, type CallChannel } from '../domain/assistant-builder';
+import { buildTransientAssistant, type CallChannel, type TransientAssistant } from '../domain/assistant-builder';
 import { E164_REGEX } from '../lib/phone';
 import {
   startDemoSession,
@@ -34,6 +35,15 @@ import {
   SALES_PERSONA,
   type SalesContext,
 } from '../domain/sales-agent';
+import {
+  composeReceptionistPrompt,
+  receptionistOpener,
+  sanitizeDemoText,
+  sanitizeReceptionistFacts,
+  GOLDEN_DEMO_VOICE,
+  type ReceptionistContext,
+} from '../domain/receptionist-demo';
+import { fetchClinicFacts, type ClinicFacts } from '../services/clinic-facts.service';
 import { utcToZonedParts } from '../services/appointment.service';
 
 /**
@@ -203,6 +213,105 @@ async function buildSalesAssistant(
   return { assistant, sales };
 }
 
+/**
+ * Normalizes a phone to its last 10 digits so the same destination matches
+ * across formats ("+1 (604) 555-0182" vs "6045550182").
+ */
+function phoneKey(raw: string | null | undefined): string {
+  const digits = (raw ?? '').replace(/\D/g, '');
+  return digits.slice(-10);
+}
+
+/**
+ * Per-destination daily cap on demo calls (anti-robocall discipline): at
+ * most 2 completed demo calls to any one number in 24 hours, across all
+ * sessions and both demo kinds.
+ *
+ * Approximation, by schema: DemoCall rows carry no destination number (they
+ * are written at call end from the webhook), so the count joins through
+ * DemoLead.phone — leads created in the last 24h whose normalized number
+ * matches, then DemoCall rows on those sessions in the same window. Calls
+ * still in flight have no DemoCall row yet and are not counted; the IP and
+ * session rate limiters above bound that gap.
+ */
+async function countRecentDemoCallsTo(customerNumber: string): Promise<number> {
+  const since = new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const target = phoneKey(customerNumber);
+  if (!target) return 0;
+  const leads = await prisma.demoLead.findMany({
+    where: { createdAt: { gte: since } },
+    select: { demoSessionId: true, phone: true },
+  });
+  const sessionIds = [
+    ...new Set(leads.filter((l) => phoneKey(l.phone) === target).map((l) => l.demoSessionId)),
+  ];
+  if (sessionIds.length === 0) return 0;
+  return prisma.demoCall.count({
+    where: { demoSessionId: { in: sessionIds }, createdAt: { gte: since } },
+  });
+}
+
+/** Facts stored on a lead come back as untyped JSON — narrow to a plain object. */
+function factsFromJson(value: unknown): Record<string, unknown> | null {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+/**
+ * Builds Maya — the prospect's OWN receptionist — for the personalized demo.
+ * Same session bundle and booking tools as the sales path, but the golden
+ * receptionist prompt and voice, no founder/screen tooling, and a hard
+ * three-minute cap (this is a taste of the product, not the product).
+ */
+async function buildReceptionistAssistant(
+  session: Awaited<ReturnType<typeof startDemoSession>>,
+  leadRow: { name: string; businessName: string | null; factsJson: unknown },
+  prospectName: string | undefined,
+  confirmedFacts: ClinicFacts | undefined,
+): Promise<TransientAssistant> {
+  const tz = session.bundle.settings.timezone;
+  const now = new Date();
+  const localToday = {
+    date: utcToZonedParts(now, tz).date,
+    weekday: new Intl.DateTimeFormat('en-US', { timeZone: tz, weekday: 'long' }).format(now),
+  };
+  const storedFacts = factsFromJson(leadRow.factsJson) as ClinicFacts | null;
+  // The prospect's confirm-step edits win over what the scraper stored; both
+  // are re-sanitized here regardless of what the client sent.
+  const facts = sanitizeReceptionistFacts(confirmedFacts ?? storedFacts);
+  const clinicName =
+    sanitizeDemoText(confirmedFacts?.businessName, 60) ||
+    sanitizeDemoText(storedFacts?.businessName, 60) ||
+    sanitizeDemoText(leadRow.businessName, 60) ||
+    'the clinic';
+  const ctx: ReceptionistContext = {
+    clinicName,
+    facts,
+    prospectFirstName: firstName(prospectName ?? leadRow.name),
+    timezone: tz,
+    localToday,
+    displayDay: { date: session.day.date, label: session.day.dayLabel },
+  };
+  const publicApiUrl = await getSettingValue('PUBLIC_API_URL');
+  const assistant = buildTransientAssistant(session.bundle.tenant, session.bundle.settings, 'phone', now, {
+    serverUrl: publicApiUrl ? `${publicApiUrl}/api/vapi/inbound` : undefined,
+    systemPromptOverride: composeReceptionistPrompt(ctx),
+    assistantName: `Maya · ${clinicName} receptionist (demo)`,
+    voice: GOLDEN_DEMO_VOICE,
+    backgroundSound: 'office',
+    includeFounderBooking: false,
+    includeScreenControl: false,
+    transcriberKeywords: nameKeywords(prospectName ?? leadRow.name),
+  });
+  assistant.metadata = { ...assistant.metadata, demoSessionId: session.sessionId };
+  assistant.firstMessage = receptionistOpener(ctx);
+  // The builder's stock end-call line names the demo tenant, not the clinic.
+  assistant.endCallMessage = `Thanks so much for calling ${clinicName}, take care now, bye!`;
+  assistant.maxDurationSeconds = 180;
+  return assistant;
+}
+
 /** Whether the landing-page demo is currently switched on (founder toggle). */
 demoRouter.get(
   '/status',
@@ -217,6 +326,10 @@ const LeadSchema = z.object({
   phone: z.string().trim().min(7).max(32),
   industry: z.enum(['clinic', 'contractor', 'other']).default('other'),
   businessName: z.string().trim().max(60).optional(),
+  /** The clinic's website, for the personalized receptionist demo. The
+   *  server fetches it (SSRF-guarded) via /demo/clinic-facts after this
+   *  lead is created; it is never fetched from an unauthenticated URL alone. */
+  websiteUrl: z.string().trim().url().max(300).optional(),
   /** Cloudflare Turnstile token from the lead form; verified when configured. */
   turnstileToken: z.string().max(2048).optional(),
 });
@@ -233,7 +346,7 @@ demoRouter.post(
     if (!(await isDemoEnabled())) {
       throw new HttpError(403, 'The demo is currently turned off.', 'DEMO_DISABLED');
     }
-    const { name, email, phone, industry, businessName, turnstileToken } = LeadSchema.parse(req.body ?? {});
+    const { name, email, phone, industry, businessName, websiteUrl, turnstileToken } = LeadSchema.parse(req.body ?? {});
     if (!(await verifyTurnstile(turnstileToken, clientIp(req)))) {
       throw new HttpError(403, 'Bot check failed. Please try again.', 'BOT_CHECK_FAILED');
     }
@@ -248,6 +361,7 @@ demoRouter.post(
       phoneCountry: gate.phone.country,
       industry,
       businessName,
+      websiteUrl: websiteUrl ?? null,
     });
     res.json({
       leadId: lead.id,
@@ -261,6 +375,46 @@ demoRouter.post(
       day: session.day,
       appointments: session.appointments,
     });
+  }),
+);
+
+const ClinicFactsSchema = z.object({
+  sessionId: z.string().min(3).max(80).startsWith('demo_'),
+  websiteUrl: z.string().trim().url().max(300),
+});
+
+/**
+ * Pulls public facts from the lead's clinic website for the personalized
+ * demo. Session-gated exactly like /call: the URL is only ever fetched for
+ * a session the demo flow actually created, and the fetch itself is
+ * SSRF-guarded (see clinic-facts.service). The result (or null) is stored
+ * on the lead; the prospect confirms or corrects it before the call, and
+ * /call re-sanitizes whatever it ends up using.
+ */
+demoRouter.post(
+  '/clinic-facts',
+  leadLimiter,
+  asyncHandler(async (req, res) => {
+    if (!(await isDemoEnabled())) {
+      throw new HttpError(403, 'The demo is currently turned off.', 'DEMO_DISABLED');
+    }
+    const body = ClinicFactsSchema.parse(req.body ?? {});
+    const lead = await prisma.demoLead.findFirst({
+      where: { demoSessionId: body.sessionId },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+    if (!lead) {
+      throw new HttpError(403, 'Start the demo from the website first.', 'UNKNOWN_SESSION');
+    }
+    const facts = await fetchClinicFacts(body.websiteUrl);
+    await prisma.demoLead.update({
+      where: { id: lead.id },
+      data: {
+        factsJson: facts === null ? Prisma.JsonNull : (facts as unknown as Prisma.InputJsonValue),
+      },
+    });
+    res.json({ facts });
   }),
 );
 
@@ -312,6 +466,20 @@ const CallSchema = z.object({
   leadId: z.string().min(1).max(40).optional(),
   name: z.string().trim().max(80).optional(),
   phone: z.string().trim().min(7).max(32),
+  /** Which demo the prospect asked for: Ava's pitch (default) or Maya
+   *  answering as their own clinic's receptionist. */
+  demoKind: z.enum(['sales', 'receptionist']).default('sales'),
+  /** The facts the prospect confirmed on the review step. Length caps
+   *  mirror the prompt sanitizer; the server re-sanitizes regardless. */
+  facts: z
+    .object({
+      businessName: z.string().max(60).optional(),
+      hours: z.array(z.string().max(120)).max(7).optional(),
+      services: z.array(z.string().max(60)).max(12).optional(),
+      address: z.string().max(120).optional(),
+      phone: z.string().max(32).optional(),
+    })
+    .optional(),
 });
 
 /**
@@ -335,10 +503,13 @@ demoRouter.post(
     const lead = await prisma.demoLead.findFirst({
       where: { demoSessionId: body.sessionId },
       orderBy: { createdAt: 'desc' },
-      select: { id: true },
+      select: { id: true, name: true, businessName: true, factsJson: true },
     });
     if (!lead) {
       throw new HttpError(403, 'Start the demo from the website first.', 'UNKNOWN_SESSION');
+    }
+    if (body.demoKind === 'receptionist' && env.PERSONALIZED_DEMO_ENABLED === 'false') {
+      throw new HttpError(403, 'The personalized demo is currently turned off.', 'PERSONALIZED_DEMO_DISABLED');
     }
 
     const gate = await evaluateGate(clientIp(req), body.phone);
@@ -350,6 +521,12 @@ demoRouter.post(
       throw new HttpError(400, "That phone number doesn't look right. Double-check it and try again.", 'BAD_PHONE');
     }
 
+    // Per-destination cap: any number gets at most 2 demo calls a day, no
+    // matter how many sessions or IPs ask (see countRecentDemoCallsTo).
+    if ((await countRecentDemoCallsTo(customerNumber)) >= 2) {
+      throw new HttpError(429, 'This number has already received its demo calls today.', 'NUMBER_CAP');
+    }
+
     const numbers = await getDemoNumbers();
     const callerId = pickDemoCallerId(numbers, gate.ipCountry);
     if (!callerId) {
@@ -357,7 +534,12 @@ demoRouter.post(
     }
 
     const session = await resumeDemoSession(body.sessionId);
-    const { assistant } = await buildSalesAssistant(session, body.name, 'phone');
+    let assistant: TransientAssistant;
+    if (body.demoKind === 'receptionist') {
+      assistant = await buildReceptionistAssistant(session, lead, body.name, body.facts);
+    } else {
+      ({ assistant } = await buildSalesAssistant(session, body.name, 'phone'));
+    }
 
     const call = await placeOutboundCall({
       phoneNumberId: callerId.id,
