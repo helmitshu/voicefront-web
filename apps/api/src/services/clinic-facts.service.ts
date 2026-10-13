@@ -145,6 +145,229 @@ function extractTitle(html: string): string | undefined {
   return name.length >= 3 ? name : undefined;
 }
 
+/**
+ * og:site_name is the site's own declared brand name ("Smile Craft
+ * Dental"), unlike og:title, which on a subpage is that page's heading
+ * ("New Patients in Langley"). When present it is the most trustworthy
+ * name on the page, so it outranks every title source. It is a single
+ * atomic value, so no segment splitting.
+ */
+function extractSiteName(html: string): string | undefined {
+  const meta =
+    html.match(/<meta[^>]+property=["']og:site_name["'][^>]*content=["']([^"']+)["']/i) ??
+    html.match(/<meta[^>]+content=["']([^"']+)["'][^>]*property=["']og:site_name["']/i);
+  if (!meta?.[1]) return undefined;
+  const name = cleanText(decodeEntities(meta[1]), 80);
+  return name.length >= 3 ? name : undefined;
+}
+
+/* ------------------------- JSON-LD structured data ------------------------ */
+/**
+ * Many clinic sites embed schema.org JSON-LD (LocalBusiness / Dentist)
+ * with the exact name, telephone, address, and opening hours — the site
+ * stating its own facts in machine-readable form. Parsed defensively:
+ * blocks that are not valid JSON, or that do not describe a business, are
+ * ignored, and nothing here can throw.
+ */
+
+interface JsonLdBusiness {
+  name?: string;
+  phone?: string;
+  address?: string;
+  hours?: string[];
+}
+
+const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const;
+const DAY_CODE_TO_NAME: Record<string, string> = {
+  mo: 'Monday',
+  tu: 'Tuesday',
+  we: 'Wednesday',
+  th: 'Thursday',
+  fr: 'Friday',
+  sa: 'Saturday',
+  su: 'Sunday',
+};
+
+function jsonLdString(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined;
+}
+
+/** "09:30" -> "9:30 AM"; "18:00" -> "6:00 PM". Undefined when malformed. */
+function to12HourTime(value: string): string | undefined {
+  const m = value.trim().match(/^(\d{1,2}):(\d{2})(?::\d{2})?$/);
+  if (!m) return undefined;
+  const hour = Number(m[1]);
+  const minute = Number(m[2]);
+  if (hour > 23 || minute > 59) return undefined;
+  const suffix = hour < 12 ? 'AM' : 'PM';
+  const hour12 = hour % 12 === 0 ? 12 : hour % 12;
+  return `${hour12}:${m[2]} ${suffix}`;
+}
+
+/** Day values arrive as full names ("Monday"), schema.org URLs
+ *  ("https://schema.org/Monday"), or two-letter codes ("Mo"). */
+function normalizeDayName(value: unknown): string | undefined {
+  const raw = jsonLdString(value);
+  if (!raw) return undefined;
+  const tail = raw.slice(raw.lastIndexOf('/') + 1).trim().toLowerCase();
+  const byName = DAY_NAMES.find((d) => d.toLowerCase() === tail);
+  if (byName) return byName;
+  return DAY_CODE_TO_NAME[tail.slice(0, 2)];
+}
+
+/** Days in week order; a contiguous run of 2+ renders as "Monday to Friday". */
+function renderDaySet(days: string[]): string {
+  const ordered = DAY_NAMES.filter((d) => days.includes(d));
+  const indexes = ordered.map((d) => DAY_NAMES.indexOf(d));
+  const contiguous = indexes.every((v, i) => i === 0 || v === indexes[i - 1]! + 1);
+  if (ordered.length >= 2 && contiguous) return `${ordered[0]} to ${ordered[ordered.length - 1]}`;
+  return ordered.join(', ');
+}
+
+function renderJsonLdHours(biz: Record<string, unknown>): string[] | undefined {
+  const lines: string[] = [];
+  const push = (line: string | undefined) => {
+    if (line) {
+      const clean = cleanText(line, 120);
+      if (clean && !lines.includes(clean)) lines.push(clean);
+    }
+  };
+
+  // openingHoursSpecification: [{ dayOfWeek, opens, closes }, ...] —
+  // grouped by identical opens/closes so a Mon–Fri block renders as one line.
+  const spec = biz.openingHoursSpecification;
+  if (Array.isArray(spec)) {
+    const groups = new Map<string, { days: string[]; opens: string; closes: string }>();
+    for (const entry of spec) {
+      if (!entry || typeof entry !== 'object') continue;
+      const e = entry as Record<string, unknown>;
+      const opens = typeof e.opens === 'string' ? to12HourTime(e.opens) : undefined;
+      const closes = typeof e.closes === 'string' ? to12HourTime(e.closes) : undefined;
+      if (!opens || !closes) continue;
+      const rawDays = Array.isArray(e.dayOfWeek) ? e.dayOfWeek : [e.dayOfWeek];
+      const days = rawDays.map(normalizeDayName).filter((d): d is string => d !== undefined);
+      if (days.length === 0) continue;
+      const key = `${opens}|${closes}`;
+      const group = groups.get(key) ?? { days: [], opens, closes };
+      group.days.push(...days);
+      groups.set(key, group);
+    }
+    for (const group of groups.values()) {
+      push(`${renderDaySet(group.days)}: ${group.opens} to ${group.closes}`);
+    }
+  }
+
+  // openingHours: "Mo-Fr 09:30-18:00" strings (or plain text on some sites).
+  if (lines.length === 0) {
+    const rawList = Array.isArray(biz.openingHours) ? biz.openingHours : [biz.openingHours];
+    for (const raw of rawList) {
+      const value = jsonLdString(raw);
+      if (!value) continue;
+      const m = value.match(
+        /^([A-Za-z]{2})(?:\s*-\s*([A-Za-z]{2}))?\s+(\d{1,2}:\d{2})\s*-\s*(\d{1,2}:\d{2})$/,
+      );
+      const startDay = m ? DAY_CODE_TO_NAME[(m[1] as string).toLowerCase()] : undefined;
+      const endDay = m?.[2] ? DAY_CODE_TO_NAME[m[2].toLowerCase()] : undefined;
+      const opens = m ? to12HourTime(m[3] as string) : undefined;
+      const closes = m ? to12HourTime(m[4] as string) : undefined;
+      if (startDay && opens && closes) {
+        const days =
+          endDay && endDay !== startDay
+            ? DAY_NAMES.slice(DAY_NAMES.indexOf(startDay as (typeof DAY_NAMES)[number]), DAY_NAMES.indexOf(endDay as (typeof DAY_NAMES)[number]) + 1)
+            : [startDay];
+        push(`${renderDaySet(days as string[])}: ${opens} to ${closes}`);
+      } else {
+        push(value);
+      }
+    }
+  }
+
+  return lines.length > 0 ? lines.slice(0, 7) : undefined;
+}
+
+function renderJsonLdAddress(value: unknown): string | undefined {
+  if (typeof value === 'string') {
+    const clean = cleanText(decodeEntities(value), 120);
+    return clean || undefined;
+  }
+  if (value && typeof value === 'object') {
+    const addr = value as Record<string, unknown>;
+    const parts = [addr.streetAddress, addr.addressLocality, addr.addressRegion, addr.postalCode]
+      .map(jsonLdString)
+      .filter((p): p is string => p !== undefined)
+      .map((p) => decodeEntities(p));
+    if (parts.length === 0) return undefined;
+    const clean = cleanText(parts.join(', '), 120);
+    return clean || undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Extracts the first local-business JSON-LD block on the page. A block
+ * qualifies when it carries a name AND at least one of telephone, address,
+ * or opening hours — a bare Organization block for the web developer does
+ * not. Null when the page has no qualifying block.
+ */
+function extractJsonLdBusiness(html: string): JsonLdBusiness | null {
+  const blocks = html.matchAll(/<script[^>]+type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi);
+  for (const block of blocks) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse((block[1] ?? '').trim());
+    } catch {
+      continue; // invalid JSON is ignored, never fatal
+    }
+    const candidates: unknown[] = [];
+    if (Array.isArray(parsed)) candidates.push(...parsed);
+    else if (parsed && typeof parsed === 'object') {
+      candidates.push(parsed);
+      const graph = (parsed as Record<string, unknown>)['@graph'];
+      if (Array.isArray(graph)) candidates.push(...graph);
+    }
+    for (const candidate of candidates) {
+      if (!candidate || typeof candidate !== 'object') continue;
+      const biz = candidate as Record<string, unknown>;
+      const name = jsonLdString(biz.name);
+      if (!name) continue;
+      const hasContact = Boolean(
+        jsonLdString(biz.telephone) ?? biz.address ?? biz.openingHours ?? biz.openingHoursSpecification,
+      );
+      if (!hasContact) continue;
+
+      const out: JsonLdBusiness = {};
+      const cleanName = cleanText(decodeEntities(name), 80);
+      if (cleanName.length >= 3) out.name = cleanName;
+      const telephone = jsonLdString(biz.telephone);
+      if (telephone) {
+        // The same NANP pattern the text extractor uses decides whether
+        // this is a dialable North American number.
+        const m = telephone.match(PHONE_RE);
+        if (m) out.phone = cleanText(m[0], 32);
+      }
+      out.address = renderJsonLdAddress(biz.address);
+      out.hours = renderJsonLdHours(biz);
+      if (!out.name && !out.phone && !out.address && !out.hours) continue;
+      return out;
+    }
+  }
+  return null;
+}
+
+/**
+ * A compact labeled rendering of the JSON-LD facts, appended to the text
+ * the AI pass reads and marked as structured data, so the model sees the
+ * site's own machine-readable facts next to its prose.
+ */
+function renderStructuredDataText(biz: JsonLdBusiness): string {
+  const lines = ['Structured data from the site (JSON-LD):'];
+  if (biz.name) lines.push(`Name: ${biz.name}`);
+  if (biz.phone) lines.push(`Phone: ${biz.phone}`);
+  if (biz.address) lines.push(`Address: ${biz.address}`);
+  if (biz.hours && biz.hours.length > 0) lines.push(`Hours: ${biz.hours.join('; ')}`);
+  return lines.join('\n');
+}
+
 /** The dental services lexicon the extractor matches against page text. */
 const SERVICE_LEXICON: Array<{ label: string; patterns: string[] }> = [
   { label: 'Cleanings', patterns: ['cleaning'] },
@@ -187,16 +410,45 @@ function visiblePageText(html: string): string {
   return decodeEntities(withBreaks.replace(/<[^>]+>/g, ' '));
 }
 
+/** Which source produced the business name, strongest first. The homepage
+ *  merge needs the provenance: a subpage's title-derived name ("New
+ *  Patients in Langley") must yield to the homepage's declared brand,
+ *  while a subpage's own og:site_name / JSON-LD name must not. */
+type NameSource = 'siteName' | 'jsonLd' | 'title';
+
+interface DetailedFacts {
+  facts: ClinicFacts;
+  nameSource: NameSource | null;
+  /** Labeled JSON-LD rendering for the AI pass (null when none found). */
+  structuredText: string | null;
+}
+
 /**
- * Pure extraction from fetched HTML. `pageUrl` is accepted for interface
- * stability (future canonical/host checks) and is not currently needed by
- * the heuristics. Every returned string is length-capped.
+ * Full single-page extraction with name provenance. Name priority on one
+ * page: og:site_name (the declared brand), then the JSON-LD business name,
+ * then og:title / <title>. The JSON-LD telephone is the preferred phone
+ * candidate (same NANP check); its address and hours only fill fields the
+ * visible text did not produce.
  */
-export function extractClinicFacts(html: string, pageUrl: string): ClinicFacts {
-  void pageUrl;
+function extractDetailedFacts(html: string): DetailedFacts {
   const facts: ClinicFacts = {};
-  const businessName = extractTitle(html);
-  if (businessName) facts.businessName = businessName;
+  const jsonLd = extractJsonLdBusiness(html);
+
+  let nameSource: NameSource | null = null;
+  const siteName = extractSiteName(html);
+  if (siteName) {
+    facts.businessName = siteName;
+    nameSource = 'siteName';
+  } else if (jsonLd?.name) {
+    facts.businessName = jsonLd.name;
+    nameSource = 'jsonLd';
+  } else {
+    const title = extractTitle(html);
+    if (title) {
+      facts.businessName = title;
+      nameSource = 'title';
+    }
+  }
 
   const text = visiblePageText(html);
   const lines = text
@@ -204,8 +456,12 @@ export function extractClinicFacts(html: string, pageUrl: string): ClinicFacts {
     .map((line) => line.replace(/\s+/g, ' ').trim())
     .filter((line) => line.length > 0);
 
-  const phoneMatch = text.replace(/\s+/g, ' ').match(PHONE_RE);
-  if (phoneMatch) facts.phone = cleanText(phoneMatch[0], 32);
+  if (jsonLd?.phone) {
+    facts.phone = jsonLd.phone;
+  } else {
+    const phoneMatch = text.replace(/\s+/g, ' ').match(PHONE_RE);
+    if (phoneMatch) facts.phone = cleanText(phoneMatch[0], 32);
+  }
 
   for (const line of lines) {
     const m = line.match(ADDRESS_RE);
@@ -214,6 +470,7 @@ export function extractClinicFacts(html: string, pageUrl: string): ClinicFacts {
       break;
     }
   }
+  if (!facts.address && jsonLd?.address) facts.address = jsonLd.address;
 
   const hours: string[] = [];
   for (const line of lines) {
@@ -223,6 +480,7 @@ export function extractClinicFacts(html: string, pageUrl: string): ClinicFacts {
     }
   }
   if (hours.length > 0) facts.hours = hours;
+  else if (jsonLd?.hours) facts.hours = jsonLd.hours;
 
   const lowerText = text.toLowerCase();
   const services = SERVICE_LEXICON.filter((entry) => entry.patterns.some((p) => lowerText.includes(p))).map(
@@ -230,7 +488,41 @@ export function extractClinicFacts(html: string, pageUrl: string): ClinicFacts {
   );
   if (services.length > 0) facts.services = services.slice(0, 12);
 
-  return facts;
+  return { facts, nameSource, structuredText: jsonLd ? renderStructuredDataText(jsonLd) : null };
+}
+
+/**
+ * Pure extraction from fetched HTML. `pageUrl` is accepted for interface
+ * stability (future canonical/host checks) and is not currently needed by
+ * the heuristics. Every returned string is length-capped.
+ */
+export function extractClinicFacts(html: string, pageUrl: string): ClinicFacts {
+  void pageUrl;
+  return extractDetailedFacts(html).facts;
+}
+
+/**
+ * Merges a second page's extraction (the site homepage, fetched when the
+ * prospect pasted a subpage) under the requested page's. Every field
+ * prefers the requested page; the homepage only fills gaps — with one
+ * exception: the NAME prefers the homepage's declared brand over the
+ * requested page's title-derived name, because a subpage title is a page
+ * heading, not the business. A requested page with its own strong name
+ * (og:site_name or JSON-LD) keeps it.
+ */
+function mergePageFacts(main: DetailedFacts, home: DetailedFacts): DetailedFacts {
+  const facts: ClinicFacts = { ...main.facts };
+  let nameSource = main.nameSource;
+  const mainNameIsStrong = main.nameSource === 'siteName' || main.nameSource === 'jsonLd';
+  if (!mainNameIsStrong && home.facts.businessName) {
+    facts.businessName = home.facts.businessName;
+    nameSource = home.nameSource;
+  }
+  if (!facts.phone && home.facts.phone) facts.phone = home.facts.phone;
+  if (!facts.address && home.facts.address) facts.address = home.facts.address;
+  if (!facts.hours && home.facts.hours) facts.hours = home.facts.hours;
+  if (!facts.services && home.facts.services) facts.services = home.facts.services;
+  return { facts, nameSource, structuredText: main.structuredText ?? home.structuredText };
 }
 
 /* --------------------------- AI reading layer ---------------------------- */
@@ -246,7 +538,11 @@ export function extractClinicFacts(html: string, pageUrl: string): ClinicFacts {
 
 const GEMINI_MODEL = 'gemini-3.8-flash';
 const GEMINI_GENERATE_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
-const AI_TIMEOUT_MS = 6000;
+const AI_TIMEOUT_MS = 10_000;
+/** A timed-out AI call is retried once, shorter and with a shorter leash:
+ *  less text for the model to read, less time spent waiting on it. */
+const AI_RETRY_TIMEOUT_MS = 6_000;
+const AI_RETRY_TEXT_CAP = 6_000;
 /** ~12k characters of cleaned page text: enough for a clinic homepage. */
 const AI_TEXT_CAP = 12_000;
 
@@ -300,19 +596,32 @@ function coerceAiFacts(parsed: unknown): AiClinicFacts | null {
   };
 }
 
+interface AiAttempt {
+  facts: AiClinicFacts | null;
+  /** True only when the failure was our own timeout aborting the call —
+   *  the one failure mode a shorter retry can plausibly fix. */
+  aborted: boolean;
+}
+
 /**
- * One model call with a hard timeout. Returns null on ANY failure (HTTP
- * error, abort, malformed body) — the caller always keeps the rules
+ * One model call with a hard timeout. Returns null facts on ANY failure
+ * (HTTP error, abort, malformed body) — the caller always keeps the rules
  * result, so this layer can only improve the facts, never break them.
  * Every failure is logged with the [clinic-facts-ai] prefix (status and a
  * short body snippet, error name/message, or a parse note) so a dead key
  * or a quota wall is visible in server logs instead of silently degrading
  * every pull to the rules result. The API key and the page text are never
- * logged.
+ * logged. A successful pass logs one info line with its duration, so a
+ * working AI layer is visible in the logs too.
  */
-async function extractFactsWithAi(pageText: string, apiKey: string): Promise<AiClinicFacts | null> {
+async function extractFactsWithAi(
+  pageText: string,
+  apiKey: string,
+  timeoutMs: number,
+): Promise<AiAttempt> {
+  const startedAt = Date.now();
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), AI_TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(GEMINI_GENERATE_URL, {
       method: 'POST',
@@ -328,13 +637,23 @@ async function extractFactsWithAi(pageText: string, apiKey: string): Promise<AiC
           temperature: 0,
           responseMimeType: 'application/json',
           responseSchema: AI_FACTS_RESPONSE_SCHEMA,
+          // Gemini 3 models think before answering by default
+          // (gemini-3.8-flash defaults to a medium thinking level), which
+          // made this trivial extraction run past the timeout. Per
+          // Google's Gemini API docs, the thinking control for Gemini 3
+          // models is generationConfig.thinkingConfig.thinkingLevel, and
+          // LOW is the lowest level gemini-3.8-flash supports (the numeric
+          // thinkingBudget is the Gemini 2.5 control and is rejected by
+          // Gemini 3 models). LOW keeps the reading pass near-instant
+          // without changing what it extracts.
+          thinkingConfig: { thinkingLevel: 'LOW' },
         },
       }),
     });
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       console.warn(`[clinic-facts-ai] Gemini request failed, status ${res.status}: ${body.slice(0, 200)}`);
-      return null;
+      return { facts: null, aborted: false };
     }
     const data = (await res.json()) as {
       candidates?: Array<{ content?: { parts?: Array<{ text?: unknown }> } }>;
@@ -342,31 +661,36 @@ async function extractFactsWithAi(pageText: string, apiKey: string): Promise<AiC
     const parts = data.candidates?.[0]?.content?.parts;
     if (!Array.isArray(parts)) {
       console.warn('[clinic-facts-ai] Gemini response had no content parts; keeping the rules facts.');
-      return null;
+      return { facts: null, aborted: false };
     }
     // Gemini returns the JSON payload as text across one or more parts.
     const content = parts.map((part) => (typeof part?.text === 'string' ? part.text : '')).join('');
     if (!content) {
       console.warn('[clinic-facts-ai] Gemini response content was empty; keeping the rules facts.');
-      return null;
+      return { facts: null, aborted: false };
     }
     let parsed: unknown;
     try {
       parsed = JSON.parse(content);
     } catch {
       console.warn('[clinic-facts-ai] Gemini response was not valid JSON; keeping the rules facts.');
-      return null;
+      return { facts: null, aborted: false };
     }
     const facts = coerceAiFacts(parsed);
     if (!facts) {
       console.warn('[clinic-facts-ai] Gemini response JSON did not match the facts shape; keeping the rules facts.');
+      return { facts: null, aborted: false };
     }
-    return facts;
+    console.info(`[clinic-facts-ai] AI facts applied in ${Date.now() - startedAt} ms`);
+    return { facts, aborted: false };
   } catch (err) {
     console.warn(
       `[clinic-facts-ai] Gemini request error: ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`,
     );
-    return null;
+    // Only our own timeout produces an AbortError here; flag it so the
+    // caller can retry once with less text. HTTP and parse failures are
+    // final — retrying them would just pay the same failure twice.
+    return { facts: null, aborted: err instanceof Error && err.name === 'AbortError' };
   } finally {
     clearTimeout(timer);
   }
@@ -412,26 +736,44 @@ function mergeFacts(rules: ClinicFacts, ai: AiClinicFacts): ClinicFacts {
   return merged;
 }
 
+/** The visible text of a page, normalized to non-empty single lines — the
+ *  form the AI pass reads (and the rules extractor's own line view). */
+function normalizedPageText(html: string): string {
+  return visiblePageText(html)
+    .split('\n')
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter((line) => line.length > 0)
+    .join('\n');
+}
+
 /**
- * The AI second pass over an already-fetched page. Returns the merged
+ * The AI second pass over already-fetched page text (assembled by the
+ * caller: requested page first, then its structured-data block, then the
+ * homepage when one was fetched — capped as today). Returns the merged
  * facts when they carry at least a business name or a phone, otherwise
- * null so the caller keeps today's rules-only result byte for byte. Never
+ * null so the caller keeps the rules-only result byte for byte. Never
  * throws.
  */
-async function enhanceWithAi(html: string, rules: ClinicFacts): Promise<ClinicFacts | null> {
+async function enhanceWithAi(pageText: string, rules: ClinicFacts): Promise<ClinicFacts | null> {
   try {
     const apiKey = env.GEMINI_API_KEY?.trim();
     if (!apiKey) return null;
-    const pageText = visiblePageText(html)
-      .split('\n')
-      .map((line) => line.replace(/\s+/g, ' ').trim())
-      .filter((line) => line.length > 0)
-      .join('\n')
-      .slice(0, AI_TEXT_CAP);
-    if (!pageText) return null;
-    const ai = await extractFactsWithAi(pageText, apiKey);
-    if (!ai) return null;
-    const merged = mergeFacts(rules, ai);
+    const text = pageText.slice(0, AI_TEXT_CAP);
+    if (!text) return null;
+    let attempt = await extractFactsWithAi(text, apiKey, AI_TIMEOUT_MS);
+    if (!attempt.facts && attempt.aborted) {
+      // A timeout is the one failure a smaller ask can fix: retry once
+      // with the text cut down and a shorter timeout. The rules result
+      // still ships if the retry fails too.
+      console.warn('[clinic-facts-ai] Gemini request timed out; retrying with shorter text.');
+      attempt = await extractFactsWithAi(
+        text.slice(0, AI_RETRY_TEXT_CAP),
+        apiKey,
+        AI_RETRY_TIMEOUT_MS,
+      );
+    }
+    if (!attempt.facts) return null;
+    const merged = mergeFacts(rules, attempt.facts);
     return merged.businessName || merged.phone ? merged : null;
   } catch (err) {
     console.warn(
@@ -465,14 +807,21 @@ async function readBodyCapped(res: Response, cap: number): Promise<string> {
   return new TextDecoder().decode(Buffer.concat(chunks.map((c) => Buffer.from(c))));
 }
 
+interface FetchedPage {
+  html: string;
+  /** The URL the page finally came from, after any redirects. */
+  finalUrl: URL;
+}
+
 /**
- * Validates, fetches (manual redirects, each re-validated), and extracts.
- * Any failure at any step returns null — never throws.
+ * Fetches one page with the SSRF discipline: manual redirects (max 3),
+ * every hop re-validated, a hard timeout, a capped body. Null on any
+ * failure — never throws.
  */
-export async function fetchClinicFacts(rawUrl: string): Promise<ClinicFacts | null> {
-  let current = validatePublicUrl(rawUrl);
-  if (!current) return null;
+async function fetchPageHtml(start: URL): Promise<FetchedPage | null> {
+  let current: URL | null = start;
   for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    if (!current) return null;
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     try {
@@ -494,16 +843,12 @@ export async function fetchClinicFacts(rawUrl: string): Promise<ClinicFacts | nu
           return null;
         }
         current = validatePublicUrl(next.toString());
-        if (!current) return null;
         continue;
       }
       if (!res.ok) return null;
       const body = await readBodyCapped(res, MAX_BODY_BYTES);
       if (!body) return null;
-      const rules = extractClinicFacts(body, current.toString());
-      // Optional AI second pass (no key configured = rules only, exactly
-      // as before). Null means "keep the rules result as is".
-      return (await enhanceWithAi(body, rules)) ?? rules;
+      return { html: body, finalUrl: current };
     } catch {
       return null;
     } finally {
@@ -511,4 +856,44 @@ export async function fetchClinicFacts(rawUrl: string): Promise<ClinicFacts | nu
     }
   }
   return null;
+}
+
+/**
+ * Validates, fetches, and extracts. When the prospect pasted a subpage
+ * (a "new patients" or "contact" page rather than the homepage), the
+ * site's root page is fetched too — bounded at 2 page fetches per call —
+ * and merged underneath: subpage titles are page headings, while the
+ * homepage is where the clinic's brand name actually lives. Any failure
+ * at any step returns null — never throws.
+ */
+export async function fetchClinicFacts(rawUrl: string): Promise<ClinicFacts | null> {
+  const start = validatePublicUrl(rawUrl);
+  if (!start) return null;
+  const main = await fetchPageHtml(start);
+  if (!main) return null;
+
+  let detail = extractDetailedFacts(main.html);
+  let homeHtml: string | null = null;
+  const isSubpage = main.finalUrl.pathname !== '' && main.finalUrl.pathname !== '/';
+  if (isSubpage) {
+    const root = new URL('/', main.finalUrl);
+    const homeStart = validatePublicUrl(root.toString());
+    if (homeStart) {
+      const home = await fetchPageHtml(homeStart);
+      if (home) {
+        homeHtml = home.html;
+        detail = mergePageFacts(detail, extractDetailedFacts(home.html));
+      }
+    }
+  }
+
+  const rules = detail.facts;
+  // The AI pass reads the requested page's text first, then the
+  // structured-data block, then the homepage text when one was fetched —
+  // all within the existing character cap. No key configured = rules
+  // only, exactly as before; a null AI result keeps the rules result.
+  const segments = [normalizedPageText(main.html)];
+  if (detail.structuredText) segments.push(detail.structuredText);
+  if (homeHtml && homeHtml !== main.html) segments.push(normalizedPageText(homeHtml));
+  return (await enhanceWithAi(segments.join('\n'), rules)) ?? rules;
 }

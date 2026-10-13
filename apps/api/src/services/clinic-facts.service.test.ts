@@ -133,6 +133,25 @@ describe('extractClinicFacts', () => {
     expect(JSON.stringify(entityFacts)).not.toMatch(/&(?:[a-zA-Z][a-zA-Z0-9]*|#\d+|#[xX][0-9a-fA-F]+);/);
   });
 
+  it('prefers og:site_name over og:title and <title> for the business name', () => {
+    // og:site_name is the site's declared brand; the title of a subpage is
+    // a page heading ("New Patients in Langley"), not the business.
+    const html = `<!doctype html>
+<html>
+<head>
+  <meta property="og:site_name" content="Smile Craft Dental" />
+  <meta property="og:title" content="New Patients in Langley" />
+  <title>New Patients in Langley</title>
+</head>
+<body>
+  <p>Call us at (604) 559-2212 to book.</p>
+  <p>Cleanings and exams.</p>
+</body>
+</html>`;
+    const siteNameFacts = extractClinicFacts(html, 'https://smilecraft.example/new-patients');
+    expect(siteNameFacts.businessName).toBe('Smile Craft Dental');
+  });
+
   it('decodes only once: a double-encoded &amp;ndash; stays literal text, not an en dash', () => {
     // The page source literally displays the text "&ndash;" (that is what
     // "&amp;ndash;" renders as), so the facts must carry "&ndash;" too.
@@ -147,6 +166,123 @@ describe('extractClinicFacts', () => {
     const literalFacts = extractClinicFacts(html, 'https://literal.example');
     expect(literalFacts.hours?.[0]).toBe('Monday &ndash; Friday: 9:00 AM to 5:00 PM');
     expect(literalFacts.hours?.[0]).not.toContain('–');
+  });
+});
+
+describe('extractClinicFacts with JSON-LD structured data', () => {
+  const JSONLD_HTML = `<!doctype html>
+<html>
+<head>
+  <title>New Patients in Langley | Smile Craft</title>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "Dentist",
+    "name": "Smile Craft Dental",
+    "telephone": "+1 (604) 559-2212",
+    "address": {
+      "@type": "PostalAddress",
+      "streetAddress": "7980 206A Street",
+      "addressLocality": "Langley",
+      "addressRegion": "BC",
+      "postalCode": "V2Y 1X6"
+    },
+    "openingHoursSpecification": [
+      { "@type": "OpeningHoursSpecification",
+        "dayOfWeek": ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
+        "opens": "09:30", "closes": "18:00" },
+      { "@type": "OpeningHoursSpecification",
+        "dayOfWeek": ["Saturday", "Sunday"],
+        "opens": "09:00", "closes": "14:00" }
+    ]
+  }
+  </script>
+</head>
+<body>
+  <p>Call our office at (604) 555-0111 to book.</p>
+  <p>Cleanings, exams, Invisalign and whitening.</p>
+</body>
+</html>`;
+
+  it('uses the JSON-LD name over the page title', () => {
+    const ldFacts = extractClinicFacts(JSONLD_HTML, 'https://smilecraft.example/new-patients');
+    expect(ldFacts.businessName).toBe('Smile Craft Dental');
+  });
+
+  it('uses the JSON-LD telephone over a number in the visible text', () => {
+    const ldFacts = extractClinicFacts(JSONLD_HTML, 'https://smilecraft.example/new-patients');
+    expect(ldFacts.phone).toBe('+1 (604) 559-2212');
+    expect(ldFacts.phone).not.toContain('555-0111');
+  });
+
+  it('renders the JSON-LD address and opening hours when the visible text has none', () => {
+    const ldFacts = extractClinicFacts(JSONLD_HTML, 'https://smilecraft.example/new-patients');
+    expect(ldFacts.address).toBe('7980 206A Street, Langley, BC, V2Y 1X6');
+    expect(ldFacts.hours).toEqual([
+      'Monday to Friday: 9:30 AM to 6:00 PM',
+      'Saturday to Sunday: 9:00 AM to 2:00 PM',
+    ]);
+  });
+
+  it('renders the string form of openingHours ("Mo-Fr 09:30-18:00")', () => {
+    const html = `<!doctype html>
+<html>
+<head>
+  <title>Hours Page Dental</title>
+  <script type="application/ld+json">
+  { "@context": "https://schema.org", "@type": "Dentist", "name": "Hours Page Dental",
+    "telephone": "(604) 555-0130", "openingHours": "Mo-Fr 09:30-18:00" }
+  </script>
+</head>
+<body><p>Cleanings and exams.</p></body>
+</html>`;
+    const stringHoursFacts = extractClinicFacts(html, 'https://hourspage.example');
+    expect(stringHoursFacts.hours).toEqual(['Monday to Friday: 9:30 AM to 6:00 PM']);
+  });
+
+  it('lets og:site_name beat the JSON-LD name when both exist', () => {
+    const html = JSONLD_HTML.replace(
+      '<title>',
+      '<meta property="og:site_name" content="Smile Craft Dental Clinic" />\n  <title>',
+    );
+    const bothFacts = extractClinicFacts(html, 'https://smilecraft.example/new-patients');
+    expect(bothFacts.businessName).toBe('Smile Craft Dental Clinic');
+  });
+
+  it('keeps visible-text address and hours over the JSON-LD ones', () => {
+    const html = JSONLD_HTML.replace(
+      '<p>Call our office at (604) 555-0111 to book.</p>',
+      `<p>Call our office at (604) 555-0111 to book.</p>
+  <p>100 Main Street, Surrey, BC</p>
+  <p>Monday: 8:00 AM to 4:00 PM</p>`,
+    );
+    const visibleFacts = extractClinicFacts(html, 'https://smilecraft.example/new-patients');
+    expect(visibleFacts.address).toContain('100 Main Street');
+    expect(visibleFacts.hours).toEqual(['Monday: 8:00 AM to 4:00 PM']);
+  });
+
+  it('ignores invalid JSON-LD and non-business blocks without throwing', () => {
+    const html = `<!doctype html>
+<html>
+<head>
+  <title>Fallback Dental | Surrey Dentist</title>
+  <script type="application/ld+json">{ this is not json at all </script>
+  <script type="application/ld+json">
+  { "@context": "https://schema.org", "@type": "WebSite", "name": "Not A Clinic" }
+  </script>
+</head>
+<body>
+  <p>Call (604) 555-0121. Cleanings and exams.</p>
+</body>
+</html>`;
+    let garbageFacts: ReturnType<typeof extractClinicFacts> | undefined;
+    expect(() => {
+      garbageFacts = extractClinicFacts(html, 'https://fallback.example');
+    }).not.toThrow();
+    // The WebSite block has a name but no contact facts, so it never
+    // qualifies; the title-derived name survives.
+    expect(garbageFacts?.businessName).toBe('Fallback Dental');
+    expect(garbageFacts?.phone).toContain('555-0121');
   });
 });
 
@@ -258,10 +394,15 @@ describe('fetchClinicFacts with the AI reading layer', () => {
         temperature: number;
         responseMimeType: string;
         responseSchema: { type: string; required: string[] };
+        thinkingConfig: { thinkingLevel: string };
       };
     };
     expect(sent.generationConfig.temperature).toBe(0);
     expect(sent.generationConfig.responseMimeType).toBe('application/json');
+    // Thinking pinned LOW: the lowest thinking level gemini-3.8-flash
+    // supports per Google's thinking guide, so the model answers this
+    // simple extraction fast instead of reasoning up to the timeout.
+    expect(sent.generationConfig.thinkingConfig).toEqual({ thinkingLevel: 'LOW' });
     expect(sent.generationConfig.responseSchema.type).toBe('OBJECT');
     expect(sent.generationConfig.responseSchema.required).toEqual([
       'businessName',
@@ -326,6 +467,22 @@ describe('fetchClinicFacts with the AI reading layer', () => {
     }
   });
 
+  it('logs one info line with the duration when the AI facts are applied', async () => {
+    const { fetchClinicFacts } = await loadService('test-gemini-key');
+    const info = vi.spyOn(console, 'info').mockImplementation(() => undefined);
+    try {
+      stubFetch(async () =>
+        geminiResponse({ businessName: 'Maple Dental Studio', phone: null, address: null, hours: [], services: [] }),
+      );
+      const facts = await fetchClinicFacts(PAGE_URL);
+      expect(facts?.businessName).toBe('Maple Dental Studio');
+      const logged = info.mock.calls.map((args) => args.map(String).join(' ')).join('\n');
+      expect(logged).toMatch(/\[clinic-facts-ai\] AI facts applied in \d+ ms/);
+    } finally {
+      info.mockRestore();
+    }
+  });
+
   it('falls back to the rules result when the model returns malformed JSON', async () => {
     const { fetchClinicFacts } = await loadService('test-gemini-key');
     stubFetch(async () => {
@@ -352,8 +509,88 @@ describe('fetchClinicFacts with the AI reading layer', () => {
       const facts = await fetchClinicFacts(PAGE_URL);
       expect(facts).toEqual(extractClinicFacts(PROSE_HTML, PAGE_URL));
     },
-    12_000,
+    // The first abort fires at AI_TIMEOUT_MS (10s) and the shorter retry
+    // hangs and aborts too (6s); the test timeout must clear both.
+    30_000,
   );
+
+  it('feeds the JSON-LD facts to the model as a labeled structured-data block', async () => {
+    const { fetchClinicFacts } = await loadService('test-gemini-key');
+    const jsonLdPage = `<!doctype html>
+<html>
+<head>
+  <title>Home</title>
+  <script type="application/ld+json">
+  { "@context": "https://schema.org", "@type": "Dentist", "name": "Maple Dental Studio",
+    "telephone": "(604) 555-0182" }
+  </script>
+</head>
+<body>
+  <p>Welcome to our clinic. Cleanings, fillings and crowns.</p>
+</body>
+</html>`;
+    let sentText = '';
+    stubFetch(async (_url, init) => {
+      const sent = JSON.parse(String(init?.body)) as {
+        contents: Array<{ parts: Array<{ text: string }> }>;
+      };
+      sentText = sent.contents[0]?.parts[0]?.text ?? '';
+      return geminiResponse({
+        businessName: 'Maple Dental Studio',
+        phone: null,
+        address: null,
+        hours: [],
+        services: [],
+      });
+    }, jsonLdPage);
+    const facts = await fetchClinicFacts(PAGE_URL);
+    expect(facts?.businessName).toBe('Maple Dental Studio');
+    expect(sentText).toContain('Structured data from the site (JSON-LD):');
+    expect(sentText).toContain('Name: Maple Dental Studio');
+  });
+
+  it('retries once after a timeout abort and applies the AI facts from the retry', async () => {
+    const { fetchClinicFacts } = await loadService('test-gemini-key');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    let geminiCalls = 0;
+    try {
+      stubFetch(async () => {
+        geminiCalls += 1;
+        if (geminiCalls === 1) {
+          // What the service's own timeout abort looks like to the caller.
+          throw new DOMException('The operation was aborted', 'AbortError');
+        }
+        return geminiResponse({
+          businessName: 'Maple Dental Studio',
+          phone: null,
+          address: null,
+          hours: ['Weekdays: 8:00 AM to 5:00 PM'],
+          services: ['Cleanings'],
+        });
+      });
+      const facts = await fetchClinicFacts(PAGE_URL);
+      expect(geminiCalls).toBe(2);
+      expect(facts?.businessName).toBe('Maple Dental Studio');
+      expect(facts?.hours).toEqual(['Weekdays: 8:00 AM to 5:00 PM']);
+      const logged = warn.mock.calls.map((args) => args.map(String).join(' ')).join('\n');
+      expect(logged).toContain('[clinic-facts-ai]');
+      expect(logged).toContain('retrying with shorter text');
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('never retries an HTTP error: one failed call, then the rules result', async () => {
+    const { fetchClinicFacts } = await loadService('test-gemini-key');
+    let geminiCalls = 0;
+    stubFetch(async () => {
+      geminiCalls += 1;
+      return new Response('bad request', { status: 400 });
+    });
+    const facts = await fetchClinicFacts(PAGE_URL);
+    expect(geminiCalls).toBe(1);
+    expect(facts).toEqual(extractClinicFacts(PROSE_HTML, PAGE_URL));
+  });
 
   it('keeps output schema-bound and sanitized against an instruction-injection page', async () => {
     const { fetchClinicFacts } = await loadService('test-gemini-key');
@@ -395,5 +632,104 @@ describe('fetchClinicFacts with the AI reading layer', () => {
     expect(facts?.businessName?.length).toBeLessThanOrEqual(60);
     for (const line of facts?.hours ?? []) expect(line.length).toBeLessThanOrEqual(120);
     for (const line of facts?.services ?? []) expect(line.length).toBeLessThanOrEqual(60);
+  });
+});
+
+/**
+ * The homepage merge: prospects paste whatever page they land on —
+ * often a subpage whose title is a heading, not the clinic's name. When
+ * the fetched URL is a subpage, the root page is fetched too (bounded at
+ * 2 page fetches) and merged underneath the requested page.
+ */
+describe('fetchClinicFacts homepage merge for subpages', () => {
+  const SUBPAGE_URL = 'https://smilecraft.example/new-patients';
+  const HOME_URL = 'https://smilecraft.example/';
+
+  const SUBPAGE_HTML = `<!doctype html>
+<html>
+<head><title>New Patients in Langley</title></head>
+<body>
+  <p>New patients welcome. Call (604) 559-2212 to book your first visit.</p>
+  <p>Monday to Friday: 9:30 AM to 6:00 PM</p>
+  <p>Saturday: 9:00 AM to 2:00 PM</p>
+  <p>We offer Invisalign, whitening and emergency care for new patients.</p>
+</body>
+</html>`;
+
+  const HOME_HTML = `<!doctype html>
+<html>
+<head>
+  <meta property="og:site_name" content="Smile Craft Dental" />
+  <title>Smile Craft Dental | Langley Dentist</title>
+</head>
+<body>
+  <p>Welcome to Smile Craft Dental in Langley.</p>
+  <p>Cleanings and exams for the whole family.</p>
+</body>
+</html>`;
+
+  async function loadService() {
+    vi.resetModules();
+    vi.stubEnv('GEMINI_API_KEY', '');
+    return import('./clinic-facts.service');
+  }
+
+  function stubSite(pages: Record<string, string | null>) {
+    const fetched: string[] = [];
+    const mock = vi.fn(async (url: unknown) => {
+      const u = String(url);
+      fetched.push(u);
+      const page = pages[u];
+      if (page === undefined || page === null) return new Response('unavailable', { status: 500 });
+      return new Response(page, { status: 200, headers: { 'content-type': 'text/html' } });
+    });
+    vi.stubGlobal('fetch', mock);
+    return fetched;
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
+  });
+
+  it('takes the name from the homepage while services and hours stay with the subpage', async () => {
+    const { fetchClinicFacts } = await loadService();
+    const fetched = stubSite({ [SUBPAGE_URL]: SUBPAGE_HTML, [HOME_URL]: HOME_HTML });
+    const facts = await fetchClinicFacts(SUBPAGE_URL);
+    expect(facts?.businessName).toBe('Smile Craft Dental');
+    expect(facts?.hours).toEqual([
+      'Monday to Friday: 9:30 AM to 6:00 PM',
+      'Saturday: 9:00 AM to 2:00 PM',
+    ]);
+    expect(facts?.services).toEqual(expect.arrayContaining(['Invisalign', 'Whitening', 'Emergency care']));
+    // Exactly two page fetches: the subpage, then the root.
+    expect(fetched).toEqual([SUBPAGE_URL, HOME_URL]);
+  });
+
+  it('leaves the subpage result untouched when the homepage fetch fails', async () => {
+    const { fetchClinicFacts } = await loadService();
+    stubSite({ [SUBPAGE_URL]: SUBPAGE_HTML, [HOME_URL]: null });
+    const facts = await fetchClinicFacts(SUBPAGE_URL);
+    expect(facts).toEqual(extractClinicFacts(SUBPAGE_HTML, SUBPAGE_URL));
+    expect(facts?.businessName).toBe('New Patients in Langley');
+  });
+
+  it("keeps the subpage's own og:site_name over the homepage's brand", async () => {
+    const { fetchClinicFacts } = await loadService();
+    const brandedSubpage = SUBPAGE_HTML.replace(
+      '<title>',
+      '<meta property="og:site_name" content="Langley New Patient Centre" />\n  <title>',
+    );
+    stubSite({ [SUBPAGE_URL]: brandedSubpage, [HOME_URL]: HOME_HTML });
+    const facts = await fetchClinicFacts(SUBPAGE_URL);
+    expect(facts?.businessName).toBe('Langley New Patient Centre');
+  });
+
+  it('does not fetch a second page when the URL is already the root', async () => {
+    const { fetchClinicFacts } = await loadService();
+    const fetched = stubSite({ [HOME_URL]: HOME_HTML });
+    const facts = await fetchClinicFacts(HOME_URL);
+    expect(facts?.businessName).toBe('Smile Craft Dental');
+    expect(fetched).toEqual([HOME_URL]);
   });
 });
