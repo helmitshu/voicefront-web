@@ -315,6 +315,101 @@ const DEMO_KINDS: Array<{ key: DemoKind; label: string; hint: string }> = [
   { key: 'sales', label: 'Hear the pitch', hint: 'Ava walks you through VoiceFront' },
 ];
 
+/* --------------------------- Cloudflare Turnstile -------------------------- */
+
+/**
+ * Public Turnstile site key (safe to expose: it only identifies the site).
+ * When it is unset, the lead form renders no bot check and behaves exactly
+ * as it did before Turnstile was wired up. When it is set, the API expects
+ * a token with every lead once its matching secret is configured, so the
+ * form waits for one before it lets a submit through.
+ */
+const TURNSTILE_SITE_KEY = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY;
+
+interface TurnstileRenderOptions {
+  sitekey: string;
+  callback: (token: string) => void;
+  'expired-callback': () => void;
+  'error-callback': () => void;
+}
+
+declare global {
+  interface Window {
+    turnstile?: {
+      render: (container: HTMLElement, options: TurnstileRenderOptions) => string;
+      reset: (widgetId?: string) => void;
+      remove: (widgetId: string) => void;
+    };
+  }
+}
+
+/**
+ * The Turnstile challenge for the demo lead form, rendered explicitly once
+ * its script arrives. Tokens go up through onToken (null when a token
+ * expires or the challenge errors), and a reset function is registered on
+ * resetRef: tokens are single-use, so the form resets the widget after
+ * every submit attempt and a retry always gets a fresh challenge.
+ */
+function TurnstileWidget({
+  onToken,
+  resetRef,
+}: {
+  onToken: (token: string | null) => void;
+  resetRef: React.MutableRefObject<(() => void) | null>;
+}) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const widgetIdRef = useRef<string | null>(null);
+  const onTokenRef = useRef(onToken);
+
+  useEffect(() => {
+    onTokenRef.current = onToken;
+  }, [onToken]);
+
+  useEffect(() => {
+    if (!TURNSTILE_SITE_KEY) return;
+    let cancelled = false;
+
+    const renderWidget = () => {
+      if (cancelled || widgetIdRef.current || !containerRef.current || !window.turnstile) return;
+      widgetIdRef.current = window.turnstile.render(containerRef.current, {
+        sitekey: TURNSTILE_SITE_KEY,
+        callback: (token) => onTokenRef.current(token),
+        'expired-callback': () => onTokenRef.current(null),
+        'error-callback': () => onTokenRef.current(null),
+      });
+      resetRef.current = () => {
+        if (widgetIdRef.current && window.turnstile) window.turnstile.reset(widgetIdRef.current);
+      };
+    };
+
+    if (window.turnstile) {
+      renderWidget();
+    } else {
+      // Load the script at most once per page, however many widgets mount.
+      let script = document.querySelector<HTMLScriptElement>('script[data-turnstile-script]');
+      if (!script) {
+        script = document.createElement('script');
+        script.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit';
+        script.async = true;
+        script.defer = true;
+        script.dataset.turnstileScript = '';
+        document.head.appendChild(script);
+      }
+      script.addEventListener('load', renderWidget);
+    }
+
+    return () => {
+      cancelled = true;
+      resetRef.current = null;
+      if (widgetIdRef.current && window.turnstile) window.turnstile.remove(widgetIdRef.current);
+      widgetIdRef.current = null;
+    };
+  }, [resetRef]);
+
+  if (!TURNSTILE_SITE_KEY) return null;
+  return <div ref={containerRef} className="flex justify-center" />;
+}
+
 function DemoLeadForm({
   form,
   setForm,
@@ -323,6 +418,9 @@ function DemoLeadForm({
   submitting,
   error,
   onSubmit,
+  turnstileToken,
+  onTurnstileToken,
+  turnstileResetRef,
 }: {
   form: DemoFormState;
   setForm: React.Dispatch<React.SetStateAction<DemoFormState>>;
@@ -331,7 +429,13 @@ function DemoLeadForm({
   submitting: boolean;
   error: string | null;
   onSubmit: (e: React.FormEvent) => void;
+  turnstileToken: string | null;
+  onTurnstileToken: (token: string | null) => void;
+  turnstileResetRef: React.MutableRefObject<(() => void) | null>;
 }) {
+  // With a bot check on the form, a submit has to wait for its token: the
+  // API rejects tokenless leads once its Turnstile secret is configured.
+  const awaitingTurnstile = Boolean(TURNSTILE_SITE_KEY) && !turnstileToken;
   return (
     <div className="mx-auto max-w-xl">
       <form
@@ -482,9 +586,12 @@ function DemoLeadForm({
           )}
         </div>
 
+        {/* Bot check: renders nothing at all when no site key is set. */}
+        <TurnstileWidget onToken={onTurnstileToken} resetRef={turnstileResetRef} />
+
         <button
           type="submit"
-          disabled={submitting}
+          disabled={submitting || awaitingTurnstile}
           className="mt-1 rounded-full bg-white px-7 py-3.5 text-[15px] font-semibold text-ink shadow-lift transition-transform hover:-translate-y-0.5 disabled:opacity-60"
         >
           {submitting ? 'Setting things up…' : 'Continue'}
@@ -1214,6 +1321,11 @@ export function InteractiveDemo() {
   const [confirmedFacts, setConfirmedFacts] = useState<ClinicFacts | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
+  // The lead form's Turnstile token (stays null when no site key is
+  // configured and no widget renders) and the widget's reset hook, called
+  // after every submit attempt because tokens are single-use.
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const turnstileResetRef = useRef<(() => void) | null>(null);
 
   const [phase, setPhase] = useState<DemoPhase>('idle');
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -1298,6 +1410,10 @@ export function InteractiveDemo() {
       setFormError('Pick the kind of business you run so we can tailor the demo.');
       return;
     }
+    // The submit button already waits for a token when the bot check is
+    // configured; this guards the paths that bypass it (e.g. Enter in a
+    // field), because the API rejects tokenless leads in that setup.
+    if (TURNSTILE_SITE_KEY && !turnstileToken) return;
     setSubmitting(true);
     try {
       const businessName = form.businessName.trim();
@@ -1309,6 +1425,7 @@ export function InteractiveDemo() {
         industry: form.industry,
         ...(businessName ? { businessName } : {}),
         ...(demoKind === 'receptionist' && website ? { websiteUrl: website } : {}),
+        ...(turnstileToken ? { turnstileToken } : {}),
       });
       setLead(res);
       setSessionId(res.sessionId);
@@ -1347,6 +1464,12 @@ export function InteractiveDemo() {
       }
     } finally {
       setSubmitting(false);
+      if (TURNSTILE_SITE_KEY) {
+        // Tokens are single-use: drop ours and reset the widget so any
+        // retry runs against a fresh challenge.
+        setTurnstileToken(null);
+        turnstileResetRef.current?.();
+      }
     }
   }
 
@@ -1466,6 +1589,9 @@ export function InteractiveDemo() {
           submitting={submitting}
           error={formError}
           onSubmit={submitLead}
+          turnstileToken={turnstileToken}
+          onTurnstileToken={setTurnstileToken}
+          turnstileResetRef={turnstileResetRef}
         />
       </div>
     );
