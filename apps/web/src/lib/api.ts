@@ -1346,6 +1346,11 @@ export interface DemoLeadInput {
   /** Optional: the clinic's website, used to pull facts for the
    *  personalized receptionist demo. */
   websiteUrl?: string;
+  /** Optional: the Cloudflare Turnstile token from the lead form's bot
+   *  check. The API verifies it only when its Turnstile secret is set, and
+   *  rejects tokenless leads once it is, so the form only sends this when
+   *  the widget produced one. */
+  turnstileToken?: string;
 }
 export interface DemoLeadResponse {
   leadId: string;
