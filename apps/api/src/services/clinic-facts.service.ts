@@ -244,7 +244,7 @@ export function extractClinicFacts(html: string, pageUrl: string): ClinicFacts {
  * sanitization the codebase applies to demo text before it is kept.
  */
 
-const GEMINI_MODEL = 'gemini-2.0-flash';
+const GEMINI_MODEL = 'gemini-3.8-flash';
 const GEMINI_GENERATE_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 const AI_TIMEOUT_MS = 6000;
 /** ~12k characters of cleaned page text: enough for a clinic homepage. */

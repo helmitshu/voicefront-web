@@ -226,7 +226,7 @@ describe('fetchClinicFacts with the AI reading layer', () => {
     const { fetchClinicFacts } = await loadService('test-gemini-key');
     let geminiInit: RequestInit | undefined;
     stubFetch(async (url, init) => {
-      expect(url).toBe('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent');
+      expect(url).toBe('https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent');
       geminiInit = init;
       return geminiResponse({
         businessName: 'Maple Dental Studio',
