@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import type { AgentSettings, Tenant } from '@prisma/client';
-import { buildAssistantUpdatePayload } from './assistant-builder';
+import {
+  buildAssistantUpdatePayload,
+  buildTransientAssistant,
+  capAssistantName,
+} from './assistant-builder';
 import { defaultBusinessHours } from './agent-config';
 
 const tenant = { id: 't1', companyName: 'Acme Dental', industry: 'CLINIC' } as Pick<
@@ -98,5 +102,61 @@ describe('buildAssistantUpdatePayload (persistent assistant)', () => {
     expect(job).toBeDefined();
     expect(JSON.stringify(job)).toContain('urgency');
     expect(payload.model.messages[0].content).toContain('CAPTURING A JOB OR SERVICE REQUEST');
+  });
+});
+
+describe('capAssistantName (Vapi caps assistant names at 40 characters)', () => {
+  it('passes names at or under the cap through unchanged', () => {
+    expect(capAssistantName('Acme Dental Receptionist')).toBe('Acme Dental Receptionist');
+    expect(capAssistantName('A'.repeat(40))).toBe('A'.repeat(40));
+  });
+
+  it('cuts an over-long name at a clean boundary near the cap instead of mid-word', () => {
+    // The personalized-demo composition: "Maya · <58-char clinic> receptionist (demo)".
+    const composed =
+      'Maya · Modern Top Rated Dentist And Orthodontics Center Vancouver receptionist (demo)';
+    const capped = capAssistantName(composed);
+    expect(capped.length).toBeLessThanOrEqual(40);
+    expect(capped).toBe('Maya · Modern Top Rated Dentist And');
+  });
+
+  it('hard-cuts a single long word with no boundary to land on', () => {
+    const capped = capAssistantName('A'.repeat(55));
+    expect(capped).toBe('A'.repeat(40));
+  });
+
+  it('never leaves a dangling separator at the end', () => {
+    const capped = capAssistantName(`${'Word '.repeat(7)}Word · extra words push this over`);
+    expect(capped.length).toBeLessThanOrEqual(40);
+    expect(capped).not.toMatch(/[\s·\-/(]$/);
+  });
+});
+
+describe('buildTransientAssistant assistant name cap', () => {
+  const LONG_COMPANY = 'Modern Top Rated Dentist And Orthodontics Center Vancouver';
+
+  it('caps the default tenant name when the company name is long', () => {
+    const longTenant = { id: 't3', companyName: LONG_COMPANY, industry: 'CLINIC' } as Pick<
+      Tenant,
+      'id' | 'companyName' | 'industry'
+    >;
+    const assistant = buildTransientAssistant(longTenant, settings(), 'phone', new Date());
+    expect(assistant.name.length).toBeLessThanOrEqual(40);
+  });
+
+  it('caps an explicit assistantName override the same way', () => {
+    const assistant = buildTransientAssistant(tenant, settings(), 'phone', new Date(), {
+      assistantName: `Maya · ${LONG_COMPANY} receptionist (demo)`,
+    });
+    expect(assistant.name).toBe('Maya · Modern Top Rated Dentist And');
+  });
+
+  it('leaves short names byte-identical on both paths', () => {
+    const byDefault = buildTransientAssistant(tenant, settings(), 'phone', new Date());
+    expect(byDefault.name).toBe('Acme Dental Receptionist');
+    const byOverride = buildTransientAssistant(tenant, settings(), 'phone', new Date(), {
+      assistantName: 'Ava · VoiceFront (demo)',
+    });
+    expect(byOverride.name).toBe('Ava · VoiceFront (demo)');
   });
 });

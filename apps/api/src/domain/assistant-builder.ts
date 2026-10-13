@@ -667,6 +667,32 @@ export function buildFounderBookingTools(): FunctionTool[] {
   ];
 }
 
+/** Vapi rejects assistant names longer than 40 characters. */
+export const VAPI_ASSISTANT_NAME_MAX = 40;
+
+/**
+ * Caps an assistant display name at Vapi's 40-character limit. Names that
+ * already fit pass through unchanged (after a trim). Longer names are cut
+ * at the last clean boundary (a space or separator) within the final few
+ * characters when one exists, so the name does not stop mid-word; the
+ * result never ends on a dangling separator.
+ */
+export function capAssistantName(name: string): string {
+  const trimmed = name.trim();
+  if (trimmed.length <= VAPI_ASSISTANT_NAME_MAX) return trimmed;
+  const hardCut = trimmed.slice(0, VAPI_ASSISTANT_NAME_MAX);
+  const boundary = Math.max(
+    hardCut.lastIndexOf(' '),
+    hardCut.lastIndexOf('·'),
+    hardCut.lastIndexOf('-'),
+    hardCut.lastIndexOf('/'),
+    hardCut.lastIndexOf('('),
+  );
+  const cut =
+    boundary >= VAPI_ASSISTANT_NAME_MAX - 8 ? hardCut.slice(0, boundary) : hardCut;
+  return cut.replace(/[\s·\-/(]+$/u, '').trim() || hardCut.trim();
+}
+
 export function buildTransientAssistant(
   tenant: Pick<Tenant, 'id' | 'companyName' | 'industry'>,
   settings: AgentSettings,
@@ -784,7 +810,7 @@ export function buildTransientAssistant(
     });
 
   return {
-    name: options.assistantName ?? `${tenant.companyName} Receptionist`,
+    name: capAssistantName(options.assistantName ?? `${tenant.companyName} Receptionist`),
     firstMessage,
     firstMessageMode: 'assistant-speaks-first',
     model: {
