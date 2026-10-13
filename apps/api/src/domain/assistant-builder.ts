@@ -54,14 +54,27 @@ export interface TransientAssistant {
    * is rejected with 401.
    */
   server?: { url: string; secret?: string };
-  voice: { provider: string; voiceId: string; version?: number };
+  voice: {
+    provider: string;
+    voiceId: string;
+    version?: number;
+    /** ElevenLabs tuning (the golden voice profile: model, stability, …) —
+     *  only present when an override supplies it; other voices omit it. */
+    model?: string;
+    stability?: number;
+    similarityBoost?: number;
+    style?: number;
+    useSpeakerBoost?: boolean;
+    optimizeStreamingLatency?: number;
+  };
   /** "office" | "off" | URL — ambient audio mixed into the call. */
   backgroundSound: string;
   /** `keywords` boost recognition of hard-to-hear words (the business name,
-   *  staff/transfer-line names, providers) — Deepgram nova-2 takes
-   *  `word:intensity` strings. This is what stops a caller's "Hakim" coming
-   *  through as "Hakeem/Akeem". */
-  transcriber: { provider: 'deepgram'; model: string; language: string; keywords?: string[] };
+   *  staff/transfer-line names, providers) — Deepgram takes `word:intensity`
+   *  strings. This is what stops a caller's "Hakim" coming through as
+   *  "Hakeem/Akeem". `endpointing` (ms of caller silence before a turn is
+   *  considered finished) is only sent when an override pins it. */
+  transcriber: { provider: 'deepgram'; model: string; language: string; keywords?: string[]; endpointing?: number };
   /** Krisp noise cancellation on the caller's audio — cleans job-site/background
    *  noise before transcription so the agent mishears far less. */
   backgroundDenoisingEnabled?: boolean;
@@ -703,8 +716,34 @@ export function buildTransientAssistant(
     serverSecret?: string;
     knowledgeFileIds?: string[];
     /** Override the tenant's saved voice — used by the in-browser test so the
-     * founder can A/B voices live before committing one. */
-    voice?: { provider: string; voiceId: string };
+     * founder can A/B voices live before committing one. The tuning fields
+     * (ElevenLabs model/stability/…) ride along when supplied and are omitted
+     * otherwise, so voices without them serialize exactly as before. */
+    voice?: {
+      provider: string;
+      voiceId: string;
+      model?: string;
+      stability?: number;
+      similarityBoost?: number;
+      style?: number;
+      useSpeakerBoost?: boolean;
+      optimizeStreamingLatency?: number;
+    };
+    /** Override the model temperature (default 0.65). The personalized demo
+     *  pins the golden agent's 0.55. */
+    temperature?: number;
+    /** Override the Deepgram transcriber model (default 'nova-2'; the golden
+     *  agent runs 'nova-3'). */
+    transcriberModel?: string;
+    /** Pin the transcriber endpointing in ms (omitted = provider default;
+     *  the golden agent runs 500). */
+    transcriberEndpointing?: number;
+    /** Override the speaking plans (defaults are the long-standing tuned
+     *  values; the personalized demo pins the golden agent's plans). */
+    startSpeakingPlan?: { waitSeconds: number; smartEndpointingEnabled: boolean };
+    stopSpeakingPlan?: { numWords: number; voiceSeconds: number; backoffSeconds: number };
+    /** Override the silence timeout (default: the tenant's saved setting). */
+    silenceTimeoutSeconds?: number;
     /** Replace the composed receptionist system prompt entirely — used by the
      * landing-page SALES demo, which has its own persona and playbook. */
     systemPromptOverride?: string;
@@ -816,16 +855,33 @@ export function buildTransientAssistant(
     model: {
       provider: 'openai',
       model: 'gpt-4o',
-      temperature: 0.65,
+      temperature: options.temperature ?? 0.65,
       messages: [{ role: 'system', content: systemPrompt }],
       ...(tools.length > 0 ? { tools } : {}),
     },
     // Vapi's native voices opt into the V2 TTS model (more realistic and
-    // human); other providers (e.g. 11labs) take the voiceId as-is.
+    // human); other providers (e.g. 11labs) take the voiceId as-is. An
+    // override's ElevenLabs tuning fields ride along when supplied; when
+    // they aren't, the voice serializes exactly as it always has.
     voice:
       voiceProvider === 'vapi'
         ? { provider: 'vapi', voiceId, version: 2 }
-        : { provider: voiceProvider, voiceId },
+        : {
+            provider: voiceProvider,
+            voiceId,
+            ...(options.voice?.model ? { model: options.voice.model } : {}),
+            ...(options.voice?.stability !== undefined ? { stability: options.voice.stability } : {}),
+            ...(options.voice?.similarityBoost !== undefined
+              ? { similarityBoost: options.voice.similarityBoost }
+              : {}),
+            ...(options.voice?.style !== undefined ? { style: options.voice.style } : {}),
+            ...(options.voice?.useSpeakerBoost !== undefined
+              ? { useSpeakerBoost: options.voice.useSpeakerBoost }
+              : {}),
+            ...(options.voice?.optimizeStreamingLatency !== undefined
+              ? { optimizeStreamingLatency: options.voice.optimizeStreamingLatency }
+              : {}),
+          },
     backgroundSound: options.backgroundSound ?? settings.backgroundSound,
     // Explicit server URL (when configured) routes tool calls here even for
     // browser test calls, which have no phone-number-level server fallback.
@@ -834,8 +890,9 @@ export function buildTransientAssistant(
       : {}),
     transcriber: {
       provider: 'deepgram',
-      model: 'nova-2',
+      model: options.transcriberModel ?? 'nova-2',
       language: 'en',
+      ...(options.transcriberEndpointing !== undefined ? { endpointing: options.transcriberEndpointing } : {}),
       ...(transcriberKeywords && transcriberKeywords.length > 0 ? { keywords: transcriberKeywords } : {}),
     },
     // Clean background noise (job sites, wind, traffic) before transcription, and
@@ -857,7 +914,7 @@ export function buildTransientAssistant(
     // seconds instead of running the full duration and draining the tenant's
     // minutes. A behaviour-based guard: it screens on "did anyone speak", never
     // on who's calling, so it can't refuse a real customer. Owner-tunable.
-    silenceTimeoutSeconds: settings.silenceTimeoutSeconds,
+    silenceTimeoutSeconds: options.silenceTimeoutSeconds ?? settings.silenceTimeoutSeconds,
     serverMessages: ['end-of-call-report', 'status-update', 'tool-calls'],
     analysisPlan: {
       summaryPlan: {
@@ -880,8 +937,11 @@ export function buildTransientAssistant(
     // Tighter response timing: smart endpointing detects turn-end, and a lower
     // wait floor (0.6s) cuts the laggy gap before she replies. Faster resume
     // after an interruption too. numWords:3 still guards against twitchy cut-ins.
-    startSpeakingPlan: { waitSeconds: 0.6, smartEndpointingEnabled: true },
-    stopSpeakingPlan: { numWords: 3, voiceSeconds: 0.3, backoffSeconds: 1.0 },
+    // An override (the personalized demo) can pin different plans wholesale —
+    // it pins the golden agent's, which answer sooner (0.3s) and resume faster
+    // after an interruption (0.7s backoff).
+    startSpeakingPlan: options.startSpeakingPlan ?? { waitSeconds: 0.6, smartEndpointingEnabled: true },
+    stopSpeakingPlan: options.stopSpeakingPlan ?? { numWords: 3, voiceSeconds: 0.3, backoffSeconds: 1.0 },
     // Let the agent hang up once the caller is done. endCallPhrases is forced
     // empty — phrase triggers cut the goodbye off mid-sentence; the model's
     // end-call tool lets Vapi finish speaking before it disconnects. (Must be

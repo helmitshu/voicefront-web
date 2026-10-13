@@ -1,6 +1,12 @@
 import { describe, it, expect } from 'vitest';
 import {
   GOLDEN_DEMO_VOICE,
+  GOLDEN_DEMO_TEMPERATURE,
+  GOLDEN_DEMO_TRANSCRIBER,
+  GOLDEN_DEMO_START_SPEAKING_PLAN,
+  GOLDEN_DEMO_STOP_SPEAKING_PLAN,
+  GOLDEN_DEMO_SILENCE_TIMEOUT_SECONDS,
+  GOLDEN_DEMO_KEYWORDS,
   composeReceptionistPrompt,
   receptionistOpener,
   sanitizeDemoText,
@@ -32,8 +38,28 @@ function makeCtx(overrides: Partial<ReceptionistContext> = {}): ReceptionistCont
 }
 
 describe('GOLDEN_DEMO_VOICE', () => {
-  it('is the golden agent voice (ElevenLabs Jessica)', () => {
-    expect(GOLDEN_DEMO_VOICE).toEqual({ provider: '11labs', voiceId: 'cgSgspJ2msm6clMCkdW9' });
+  it('is the golden agent voice in full (ElevenLabs Jessica, golden tuning)', () => {
+    expect(GOLDEN_DEMO_VOICE).toEqual({
+      provider: '11labs',
+      voiceId: 'cgSgspJ2msm6clMCkdW9',
+      model: 'eleven_turbo_v2_5',
+      stability: 0.5,
+      similarityBoost: 0.75,
+      style: 0.3,
+      useSpeakerBoost: true,
+      optimizeStreamingLatency: 2,
+    });
+  });
+});
+
+describe('golden parity constants', () => {
+  it('match the production golden agent (Vapi 523577bd)', () => {
+    expect(GOLDEN_DEMO_TEMPERATURE).toBe(0.55);
+    expect(GOLDEN_DEMO_TRANSCRIBER).toEqual({ model: 'nova-3', endpointing: 500 });
+    expect(GOLDEN_DEMO_START_SPEAKING_PLAN).toEqual({ waitSeconds: 0.3, smartEndpointingEnabled: true });
+    expect(GOLDEN_DEMO_STOP_SPEAKING_PLAN).toEqual({ numWords: 3, voiceSeconds: 0.3, backoffSeconds: 0.7 });
+    expect(GOLDEN_DEMO_SILENCE_TIMEOUT_SECONDS).toBe(30);
+    expect(GOLDEN_DEMO_KEYWORDS).toEqual(['dental:2', 'cleaning:2', 'Maya:2', 'Invisalign:2']);
   });
 });
 
@@ -63,6 +89,47 @@ describe('composeReceptionistPrompt', () => {
     expect(prompt).toContain('digit by digit');
     expect(prompt).toContain('Never give medical advice');
     expect(prompt).toContain('insurance');
+  });
+
+  it('sets the tone explicitly: happy and professional, never rushed', () => {
+    expect(prompt).toContain('happy and professional');
+    expect(prompt).toContain('warm, upbeat');
+    expect(prompt).toContain('never rushed');
+  });
+
+  it('carries the golden aliveness block (flowing phrases, no bare one-word replies)', () => {
+    expect(prompt).toContain('HOW TO SOUND ALIVE');
+    expect(prompt).toContain('Perfect, so...');
+    expect(prompt).toContain('Never answer with a bare one-word reply');
+    expect(prompt).toContain('never start two replies the same way');
+    expect(prompt).toContain('Mirror the caller\'s energy');
+  });
+
+  it('carries the golden same-breath rule (a filler-only reply is a failed turn)', () => {
+    expect(prompt).toContain('CONVERSATION MECHANICS');
+    expect(prompt).toContain('the filler and the answer must come in the SAME reply, in one breath');
+    expect(prompt).toContain('A reply that only promises to check and gives no answer is a failed turn');
+  });
+
+  it('never books a time the caller did not clearly choose (the fragment rule)', () => {
+    expect(prompt).toContain('NEVER BOOK A TIME THE CALLER DID NOT CLEARLY CHOOSE');
+    expect(prompt).toContain('A partial word, a false start, a cut-off fragment');
+    expect(prompt).toContain('is NOT a choice');
+    expect(prompt).toContain('Never guess a time, and never book on a guess');
+    expect(prompt).toContain('which time works best for you?');
+  });
+
+  it('keeps the call compact and the closing short', () => {
+    expect(prompt).toContain('aim to finish within about two and a half minutes');
+    expect(prompt).toContain('keep the closing SHORT');
+    expect(prompt).toContain('one short trial line');
+    expect(prompt).toContain('ONE full, warm goodbye sentence');
+  });
+
+  it('never re-asks for the name or a confirmed number (golden state tracking)', () => {
+    expect(prompt).toContain('Never ask for their name again at any later point in the call, for any reason');
+    expect(prompt).toContain('silently review the details collected so far');
+    expect(prompt).toContain('never ask for "the remaining digits."');
   });
 
   it('with no facts, forbids inventing details instead', () => {

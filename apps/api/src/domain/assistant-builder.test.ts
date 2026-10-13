@@ -132,6 +132,73 @@ describe('capAssistantName (Vapi caps assistant names at 40 characters)', () => 
   });
 });
 
+describe('buildTransientAssistant golden-parity overrides', () => {
+  const GOLDEN_VOICE = {
+    provider: '11labs',
+    voiceId: 'cgSgspJ2msm6clMCkdW9',
+    model: 'eleven_turbo_v2_5',
+    stability: 0.5,
+    similarityBoost: 0.75,
+    style: 0.3,
+    useSpeakerBoost: true,
+    optimizeStreamingLatency: 2,
+  };
+
+  it('pins every golden field onto the built assistant', () => {
+    const assistant = buildTransientAssistant(tenant, settings(), 'phone', new Date(), {
+      systemPromptOverride: 'You are Maya.',
+      voice: GOLDEN_VOICE,
+      backgroundSound: 'office',
+      temperature: 0.55,
+      transcriberModel: 'nova-3',
+      transcriberEndpointing: 500,
+      startSpeakingPlan: { waitSeconds: 0.3, smartEndpointingEnabled: true },
+      stopSpeakingPlan: { numWords: 3, voiceSeconds: 0.3, backoffSeconds: 0.7 },
+      silenceTimeoutSeconds: 30,
+    });
+    expect(assistant.voice).toEqual(GOLDEN_VOICE);
+    expect(assistant.model.provider).toBe('openai');
+    expect(assistant.model.model).toBe('gpt-4o');
+    expect(assistant.model.temperature).toBe(0.55);
+    expect(assistant.transcriber.provider).toBe('deepgram');
+    expect(assistant.transcriber.model).toBe('nova-3');
+    expect(assistant.transcriber.language).toBe('en');
+    expect(assistant.transcriber.endpointing).toBe(500);
+    expect(assistant.startSpeakingPlan).toEqual({ waitSeconds: 0.3, smartEndpointingEnabled: true });
+    expect(assistant.stopSpeakingPlan).toEqual({ numWords: 3, voiceSeconds: 0.3, backoffSeconds: 0.7 });
+    expect(assistant.silenceTimeoutSeconds).toBe(30);
+    expect(assistant.backchannelingEnabled).toBe(true);
+    expect(assistant.backgroundSound).toBe('office');
+    expect(assistant.firstMessageMode).toBe('assistant-speaks-first');
+  });
+
+  it('without the overrides, every field keeps its long-standing default', () => {
+    // The sales demo and every other caller pass none of the parity options;
+    // their serialized assistant must not change by a single field.
+    const assistant = buildTransientAssistant(
+      tenant,
+      settings({ silenceTimeoutSeconds: 45 }),
+      'phone',
+      new Date(),
+      { voice: { provider: '11labs', voiceId: 'some-voice' } },
+    );
+    expect(assistant.voice).toEqual({ provider: '11labs', voiceId: 'some-voice' });
+    expect(assistant.model.temperature).toBe(0.65);
+    expect(assistant.transcriber.model).toBe('nova-2');
+    expect(assistant.transcriber.endpointing).toBeUndefined();
+    expect(assistant.startSpeakingPlan).toEqual({ waitSeconds: 0.6, smartEndpointingEnabled: true });
+    expect(assistant.stopSpeakingPlan).toEqual({ numWords: 3, voiceSeconds: 0.3, backoffSeconds: 1.0 });
+    expect(assistant.silenceTimeoutSeconds).toBe(45);
+  });
+
+  it('a vapi voice override still serializes as the V2 voice, tuning fields ignored', () => {
+    const assistant = buildTransientAssistant(tenant, settings(), 'phone', new Date(), {
+      voice: { provider: 'vapi', voiceId: 'Savannah' },
+    });
+    expect(assistant.voice).toEqual({ provider: 'vapi', voiceId: 'Savannah', version: 2 });
+  });
+});
+
 describe('buildTransientAssistant assistant name cap', () => {
   const LONG_COMPANY = 'Modern Top Rated Dentist And Orthodontics Center Vancouver';
 
