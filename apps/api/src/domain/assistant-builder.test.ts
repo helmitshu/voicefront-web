@@ -263,3 +263,54 @@ describe('buildTransientAssistant assistant name cap', () => {
     expect(byOverride.name).toBe('Ava · VoiceFront (demo)');
   });
 });
+
+describe('buildTransientAssistant holdAppointment (function-gated booking)', () => {
+  it('swaps the whole booking toolset for exactly the hold tool, with its server config', () => {
+    const assistant = buildTransientAssistant(tenant, settings(), 'phone', new Date(), {
+      systemPromptOverride: 'You are Maya.',
+      holdAppointment: { serverUrl: 'https://api.example.test/api/demo/hold', serverSecret: 's3cret' },
+    });
+    const tools = assistant.model.tools ?? [];
+    expect(tools).toHaveLength(1);
+    const tool = tools[0]!;
+    expect(tool.type).toBe('function');
+    if (tool.type !== 'function') throw new Error('expected a function tool');
+    expect(tool.function.name).toBe('hold_appointment');
+    expect(tool.server).toEqual({ url: 'https://api.example.test/api/demo/hold', secret: 's3cret' });
+    expect(tool.function.parameters.required).toEqual(['action']);
+    expect(Object.keys(tool.function.parameters.properties).sort()).toEqual([
+      'action',
+      'callbackNumber',
+      'date',
+      'patientName',
+      'service',
+      'time',
+    ]);
+    expect(tool.function.parameters.properties.action?.enum).toEqual(['hold', 'change', 'cancel']);
+  });
+
+  it('omits the secret key entirely when no server secret is configured', () => {
+    const assistant = buildTransientAssistant(tenant, settings(), 'phone', new Date(), {
+      systemPromptOverride: 'You are Maya.',
+      holdAppointment: { serverUrl: 'https://api.example.test/api/demo/hold' },
+    });
+    const tool = (assistant.model.tools ?? [])[0]!;
+    if (tool.type !== 'function') throw new Error('expected a function tool');
+    expect(tool.server).toEqual({ url: 'https://api.example.test/api/demo/hold' });
+    expect(tool.server && 'secret' in tool.server).toBe(false);
+  });
+
+  it('without the option, the standard five booking tools stay (defaults untouched)', () => {
+    const assistant = buildTransientAssistant(tenant, settings(), 'phone', new Date(), {
+      systemPromptOverride: 'You are Maya.',
+    });
+    const names = (assistant.model.tools ?? []).map((t) => (t.type === 'function' ? t.function.name : t.type));
+    expect(names).toEqual([
+      'checkAvailability',
+      'bookAppointment',
+      'findAppointment',
+      'rescheduleAppointment',
+      'cancelAppointment',
+    ]);
+  });
+});

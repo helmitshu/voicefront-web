@@ -151,6 +151,26 @@ describe('composeReceptionistPrompt', () => {
     expect(prompt).toContain('keep the closing SHORT');
     expect(prompt).toContain('one short trial line');
     expect(prompt).toContain('ONE full, warm goodbye sentence');
+    // The doubled-goodbye fix: one thank-you line, never two back to back.
+    expect(prompt).toContain('Say that thank-you and goodbye line ONCE');
+    expect(prompt).toContain('never stack two goodbyes back to back');
+  });
+
+  it('books tool-first: hold_appointment creates the hold, her words never do', () => {
+    expect(prompt).toContain('HOLD DISCIPLINE — THE SERVER OWNS THE BOOKING');
+    expect(prompt).toContain('call hold_appointment with action "hold"');
+    expect(prompt).toContain('BEFORE you say anything is held');
+    expect(prompt).toContain('A hold exists only when hold_appointment creates it');
+    expect(prompt).toContain('Announce the hold ONLY with the exact summary hold_appointment returns');
+    expect(prompt).toContain('There is exactly ONE hold on this call');
+    // A floated second time is a change question, not a second hold.
+    expect(prompt).toContain('Shall I change your 2 PM to 12 PM?');
+    expect(prompt).toContain('Only when they clearly say yes, call hold_appointment with action "change"');
+    expect(prompt).toContain('call hold_appointment with action "cancel"');
+    expect(prompt).toContain('never invent a booking');
+    // The stock availability/booking tools are gone from her world entirely.
+    expect(prompt).not.toContain('checkAvailability');
+    expect(prompt).not.toContain('bookAppointment');
   });
 
   it('never re-asks for the name or a confirmed number (golden state tracking)', () => {

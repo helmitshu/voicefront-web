@@ -358,6 +358,12 @@ interface FunctionTool {
   type: 'function';
   /** Spoken while the server processes the call, so the line never goes dead. */
   async?: boolean;
+  /** Per-tool server override: the provider POSTs this tool's calls to this
+   *  URL (with this secret as the auth header) instead of the assistant's
+   *  server. Used by hold_appointment, whose endpoint verifies the secret
+   *  strictly — safe to embed here because that assistant is only ever
+   *  built server-side for outbound calls, never shipped to a browser. */
+  server?: { url: string; secret?: string };
   messages?: Array<{ type: 'request-start'; content: string }>;
   function: {
     name: string;
@@ -367,6 +373,65 @@ interface FunctionTool {
       properties: Record<string, { type: string; description: string; enum?: string[] }>;
       required: string[];
     };
+  };
+}
+
+const HOLD_APPOINTMENT_FILLERS = [
+  'Perfect, let me hold that for you.',
+  'Got it — holding that now.',
+  'Great, let me lock that in for you.',
+];
+
+/**
+ * The personalized demo's ONLY booking tool. Prompt rules alone could not
+ * stop Maya from "booking" a second pretend appointment in prose alongside
+ * the first, so the hold moved server-side: hold_appointment is the single
+ * gate, and its endpoint (POST /api/demo/hold) enforces exactly one live
+ * hold per call — a second plain "hold" is refused, "change" rewrites the
+ * hold, "cancel" retires it. The tool carries its own server URL + secret
+ * because the endpoint authenticates strictly (401 on a missing or wrong
+ * secret), unlike the demo-sandboxed main webhook.
+ */
+export function buildHoldAppointmentTool(server: { url: string; secret?: string }): FunctionTool {
+  return {
+    type: 'function',
+    async: false,
+    server: { url: server.url, ...(server.secret ? { secret: server.secret } : {}) },
+    messages: HOLD_APPOINTMENT_FILLERS.map((content) => ({ type: 'request-start' as const, content })),
+    function: {
+      name: 'hold_appointment',
+      description:
+        'The ONLY way to hold, change, or cancel the caller\'s pretend appointment in this demo — your words alone never book anything. The server keeps exactly ONE hold per call. Use action "hold" once the caller has clearly chosen a service, day, and time; use "change" to move the existing hold (only after the caller clearly agrees to the change); use "cancel" to drop it. The result returns the canonical summary of what is held — announce the hold using exactly that summary, and never say an appointment is held before this tool succeeds.',
+      parameters: {
+        type: 'object',
+        properties: {
+          action: {
+            type: 'string',
+            description:
+              '"hold" creates the call\'s one hold, "change" replaces the held date/time (and service, if it changed), "cancel" retires the hold.',
+            enum: ['hold', 'change', 'cancel'],
+          },
+          service: {
+            type: 'string',
+            description: 'What the appointment is for, e.g. "cleaning". Required for "hold"; for "change" only when the service changes too.',
+          },
+          date: {
+            type: 'string',
+            description: 'Appointment day as YYYY-MM-DD in the clinic timezone. Required for "hold" and "change".',
+          },
+          time: {
+            type: 'string',
+            description: 'Start time as 24-hour HH:MM in the clinic timezone, e.g. 14:00. Required for "hold" and "change".',
+          },
+          patientName: { type: 'string', description: "Caller's full name." },
+          callbackNumber: {
+            type: 'string',
+            description: "Caller's callback number with country code, e.g. +15551234567.",
+          },
+        },
+        required: ['action'],
+      },
+    },
   };
 }
 
@@ -784,6 +849,11 @@ export function buildTransientAssistant(
     backgroundSound?: string;
     /** Sales demo: also give the agent tools to book the founder's calendar. */
     includeFounderBooking?: boolean;
+    /** Personalized (receptionist) demo: replace the standard booking tools
+     *  with the single function-gated hold_appointment tool, whose endpoint
+     *  enforces one live hold per call server-side. When unset, the
+     *  standard booking tools are attached exactly as before. */
+    holdAppointment?: { serverUrl: string; serverSecret?: string };
     /** Web sales demo: give Ava the set_demo_screen tool so she drives the
      *  prospect's on-screen panel directly. */
     includeScreenControl?: boolean;
@@ -841,7 +911,18 @@ export function buildTransientAssistant(
     ].join('\n');
 
   const multiProvider = (options.providers?.length ?? 0) > 1;
-  const tools: Array<TransferCallTool | FunctionTool | QueryTool> = [...buildBookingTools({ multiProvider })];
+  // The personalized demo swaps the whole booking toolset for the one
+  // function-gated hold tool: with no bookAppointment on the assistant, a
+  // prose "booking" is the only failure mode left, and the prompt + the
+  // hold endpoint's refusals close that too.
+  const tools: Array<TransferCallTool | FunctionTool | QueryTool> = options.holdAppointment
+    ? [
+        buildHoldAppointmentTool({
+          url: options.holdAppointment.serverUrl,
+          secret: options.holdAppointment.serverSecret,
+        }),
+      ]
+    : [...buildBookingTools({ multiProvider })];
   // Attach the job-capture tool for trades. Skipped on the sales-demo override
   // path (that agent has its own playbook) so it only reaches real receptionists.
   if (!options.systemPromptOverride && tenant.industry === 'CONSTRUCTION') tools.push(buildJobCaptureTool());
