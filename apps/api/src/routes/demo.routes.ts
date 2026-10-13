@@ -1,3 +1,4 @@
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
@@ -50,7 +51,7 @@ import {
   type ReceptionistContext,
 } from '../domain/receptionist-demo';
 import { fetchClinicFacts, type ClinicFacts } from '../services/clinic-facts.service';
-import { utcToZonedParts } from '../services/appointment.service';
+import { to12h, utcToZonedParts } from '../services/appointment.service';
 
 /**
  * PUBLIC (no auth) endpoints behind the interactive landing-page demo. They
@@ -307,7 +308,8 @@ function factsFromJson(value: unknown): Record<string, unknown> | null {
 
 /**
  * Builds Maya — the prospect's OWN receptionist — for the personalized demo.
- * Same session bundle and booking tools as the sales path, but she runs the
+ * Same session bundle as the sales path, but her booking tools are swapped
+ * for the single function-gated hold_appointment tool, and she runs the
  * retuned demo standard (v2): the golden prompt and guardrails, with the
  * voice, the Deepgram Flux transcriber, and the speaking plans adjusted
  * past the production golden agent per the human-likeness research. All of
@@ -344,9 +346,21 @@ async function buildReceptionistAssistant(
     localToday,
     displayDay: { date: session.day.date, label: session.day.dayLabel },
   };
-  const publicApiUrl = await getSettingValue('PUBLIC_API_URL');
+  const [publicApiUrl, webhookSecret] = await Promise.all([
+    getSettingValue('PUBLIC_API_URL'),
+    getSettingValue('VAPI_WEBHOOK_SECRET'),
+  ]);
   const assistant = buildTransientAssistant(session.bundle.tenant, session.bundle.settings, 'phone', now, {
     serverUrl: publicApiUrl ? `${publicApiUrl}/api/vapi/inbound` : undefined,
+    // Function-gated booking: the hold_appointment tool replaces the stock
+    // booking tools, and its calls land on POST /demo/hold below, which
+    // verifies the webhook secret strictly and enforces one live hold per
+    // call. Without a public API URL the tool has nowhere to call home, so
+    // the assistant falls back to the standard booking tools (the same
+    // graceful fallback shape as serverUrl).
+    holdAppointment: publicApiUrl
+      ? { serverUrl: `${publicApiUrl}/api/demo/hold`, serverSecret: webhookSecret ?? undefined }
+      : undefined,
     systemPromptOverride: composeReceptionistPrompt(ctx),
     assistantName: `Maya · ${clinicName} receptionist (demo)`,
     voice: GOLDEN_DEMO_VOICE,
@@ -375,6 +389,264 @@ async function buildReceptionistAssistant(
   assistant.maxDurationSeconds = 300;
   return assistant;
 }
+
+/* ------------------- function-gated demo holds ------------------- */
+/*
+ * POST /demo/hold — the endpoint behind Maya's hold_appointment tool.
+ *
+ * Why this exists: prompt rules alone could not stop the demo agent from
+ * "booking" in prose (on a real test call she silently held TWO pretend
+ * appointments side by side). So the hold is server state now: a hold
+ * exists only when this endpoint creates a DemoHold row, and it enforces
+ * exactly one live hold per call.
+ *
+ * Auth + correlation follow the platform's webhook discipline, but
+ * stricter than the main /api/vapi/inbound webhook: the tool carries the
+ * webhook secret in its own server config (the receptionist assistant is
+ * only ever built server-side, never shipped to a browser), so a missing
+ * or wrong secret is a hard 401 — no demo-sandbox bypass here. The call
+ * is then correlated to a demo session by the assistant metadata Vapi
+ * echoes back (demoSessionId, stamped at build time) plus the Vapi call
+ * id; a session with no captured DemoLead row is refused in-band with a
+ * speakable result, never a raw error the model could read aloud. No
+ * public rate limiter on this route — it is a webhook, and the secret
+ * plus session correlation are the gate.
+ */
+
+const HoldToolCallSchema = z
+  .object({
+    id: z.string(),
+    name: z.string().optional(),
+    function: z
+      .object({ name: z.string().optional(), arguments: z.unknown().optional() })
+      .passthrough()
+      .optional(),
+    arguments: z.unknown().optional(),
+  })
+  .passthrough();
+
+const HoldMetadataSchema = z.object({ demoSessionId: z.string().optional() }).passthrough();
+
+const HoldEnvelopeSchema = z
+  .object({
+    message: z
+      .object({
+        type: z.string(),
+        toolCallList: z.array(HoldToolCallSchema).optional(),
+        toolCalls: z.array(HoldToolCallSchema).optional(),
+        assistant: z.object({ metadata: HoldMetadataSchema.optional() }).passthrough().optional(),
+        call: z
+          .object({
+            id: z.string().optional(),
+            assistant: z.object({ metadata: HoldMetadataSchema.optional() }).passthrough().optional(),
+          })
+          .passthrough()
+          .optional(),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+
+/** Constant-time secret check, mirroring the inbound webhook's discipline. */
+async function holdSecretMatches(req: import('express').Request): Promise<boolean> {
+  const raw = req.headers['x-vapi-secret'];
+  const provided = Array.isArray(raw) ? raw[0] : raw;
+  if (!provided) return false;
+  const secret = await getSettingValue('VAPI_WEBHOOK_SECRET');
+  if (!secret) return false;
+  const a = createHash('sha256').update(provided).digest();
+  const b = createHash('sha256').update(secret).digest();
+  return timingSafeEqual(a, b);
+}
+
+const HOLD_UNAVAILABLE =
+  "The hold didn't go through just now. Apologize briefly, take the caller's name and number as a message, and tell them the clinic will confirm the appointment.";
+const HOLD_DETAILS_MISSING =
+  'Some details were missing, so nothing was held. Ask the caller to confirm the service, the day, and the time, then call hold_appointment again.';
+
+function parseHoldArguments(raw: unknown): Record<string, unknown> {
+  if (raw && typeof raw === 'object') return raw as Record<string, unknown>;
+  if (typeof raw === 'string') {
+    try {
+      const parsed: unknown = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') return parsed as Record<string, unknown>;
+    } catch {
+      /* fall through to empty */
+    }
+  }
+  return {};
+}
+
+/** Strict YYYY-MM-DD that is also a real calendar date. */
+function validHoldDate(date: string): boolean {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!m) return false;
+  const y = Number(m[1]);
+  const mo = Number(m[2]);
+  const d = Number(m[3]);
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d;
+}
+
+const validHoldTime = (time: string): boolean => /^([01]\d|2[0-3]):[0-5]\d$/.test(time);
+
+function ordinalSuffix(day: number): string {
+  if (day >= 11 && day <= 13) return 'th';
+  switch (day % 10) {
+    case 1:
+      return 'st';
+    case 2:
+      return 'nd';
+    case 3:
+      return 'rd';
+    default:
+      return 'th';
+  }
+}
+
+/**
+ * The canonical one-line summary every hold confirmation uses, built only
+ * from validated, stored fields: "a cleaning on Wednesday, October 14th at
+ * 2 PM". The weekday and month come from the date itself (UTC math, so no
+ * timezone lookup can shift the day), and the time renders like the rest
+ * of the platform ("2 PM", not "2:00 PM").
+ */
+function holdSummary(hold: { service: string | null; date: string | null; time: string | null }): string {
+  const service = hold.service?.trim() || 'appointment';
+  const article = /^[aeiou]/i.test(service) ? 'an' : 'a';
+  const [y, mo, d] = (hold.date ?? '').split('-').map(Number);
+  const when = new Date(Date.UTC(y || 1970, (mo || 1) - 1, d || 1, 12));
+  // Formatted separately: one format call with both fields orders them
+  // "October Wednesday" in en-US, but the summary reads "Wednesday, October".
+  const weekday = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', weekday: 'long' }).format(when);
+  const month = new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', month: 'long' }).format(when);
+  const dayLabel = `${weekday}, ${month}`;
+  const time12 = to12h(hold.time ?? '').replace(':00 ', ' ');
+  return `${article} ${service} on ${dayLabel} ${d}${ordinalSuffix(d ?? 1)} at ${time12}`;
+}
+
+interface DemoHoldFields {
+  service: string | null;
+  date: string | null;
+  time: string | null;
+  patientName: string | null;
+  callbackNumber: string | null;
+  status: string;
+}
+
+/**
+ * Applies one hold_appointment call to the call's DemoHold row and returns
+ * the speakable tool result. Every refusal is a sentence the model can act
+ * on; nothing here throws toward the caller.
+ */
+async function applyHold(
+  demoSessionId: string,
+  externalCallId: string,
+  rawArgs: Record<string, unknown>,
+): Promise<string> {
+  const action = sanitizeDemoText(rawArgs.action, 10);
+  const service = sanitizeDemoText(rawArgs.service, 60);
+  const date = sanitizeDemoText(rawArgs.date, 10);
+  const time = sanitizeDemoText(rawArgs.time, 5);
+  const patientName = sanitizeDemoText(rawArgs.patientName, 60);
+  const callbackNumber = sanitizeDemoText(rawArgs.callbackNumber, 32);
+
+  const existing = (await prisma.demoHold.findUnique({
+    where: { externalCallId },
+  })) as (DemoHoldFields & { id: string }) | null;
+  const live = existing && existing.status !== 'CANCELLED' ? existing : null;
+
+  if (action === 'hold') {
+    if (!service || !validHoldDate(date) || !validHoldTime(time)) return HOLD_DETAILS_MISSING;
+    if (live) {
+      return (
+        `A hold already exists on this call: ${holdSummary(live)}. Nothing new was booked. ` +
+        'Ask the caller one question: shall I change it to the new time, or keep the existing hold? ' +
+        'Only call hold_appointment again with action "change" if they clearly say yes.'
+      );
+    }
+    const fields = {
+      service,
+      date,
+      time,
+      patientName: patientName || null,
+      callbackNumber: callbackNumber || null,
+      status: 'ACTIVE',
+    };
+    const row = existing
+      ? await prisma.demoHold.update({ where: { externalCallId }, data: fields })
+      : await prisma.demoHold.create({ data: { demoSessionId, externalCallId, ...fields } });
+    return `Hold created: ${holdSummary(row)}. Confirm it to the caller using exactly that summary.`;
+  }
+
+  if (action === 'change') {
+    if (!live) {
+      return 'There is no hold on this call to change yet. Collect the details and place the first hold with action "hold" before changing anything.';
+    }
+    if (!validHoldDate(date) || !validHoldTime(time)) {
+      return 'The new day or time was missing or unclear, so the hold was not changed. Ask the caller to confirm the new day and time, then call hold_appointment again.';
+    }
+    const row = await prisma.demoHold.update({
+      where: { externalCallId },
+      data: {
+        date,
+        time,
+        ...(service ? { service } : {}),
+        ...(patientName ? { patientName } : {}),
+        ...(callbackNumber ? { callbackNumber } : {}),
+        status: 'CHANGED',
+      },
+    });
+    return `Hold changed: ${holdSummary(row)}. Confirm it to the caller using exactly that summary.`;
+  }
+
+  if (action === 'cancel') {
+    if (!live) return 'There is no hold on this call to cancel. Nothing was changed.';
+    const before = holdSummary(live);
+    await prisma.demoHold.update({ where: { externalCallId }, data: { status: 'CANCELLED' } });
+    return `Cancelled: ${before}. Let the caller know that hold is cancelled.`;
+  }
+
+  return HOLD_DETAILS_MISSING;
+}
+
+demoRouter.post(
+  '/hold',
+  asyncHandler(async (req, res) => {
+    if (!(await holdSecretMatches(req))) {
+      res.status(401).json({ error: { message: 'Invalid webhook secret', code: 'UNAUTHENTICATED' } });
+      return;
+    }
+    const parsed = HoldEnvelopeSchema.safeParse(req.body ?? {});
+    const message = parsed.success ? parsed.data.message : undefined;
+    const calls = message?.toolCallList ?? message?.toolCalls ?? [];
+    const demoSessionId =
+      message?.assistant?.metadata?.demoSessionId ?? message?.call?.assistant?.metadata?.demoSessionId;
+    const externalCallId = message?.call?.id;
+    // A tool call is honored only for a session the demo flow actually
+    // created (a captured DemoLead row) — anything else is refused in-band.
+    const knownSession =
+      demoSessionId && externalCallId
+        ? await prisma.demoLead.findFirst({ where: { demoSessionId }, select: { id: true } })
+        : null;
+    const results: Array<{ toolCallId: string; result: string }> = [];
+    for (const call of calls) {
+      const name = call.name ?? call.function?.name;
+      let result: string;
+      if (!knownSession || !demoSessionId || !externalCallId || name !== 'hold_appointment') {
+        result = HOLD_UNAVAILABLE;
+      } else {
+        try {
+          result = await applyHold(demoSessionId, externalCallId, parseHoldArguments(call.arguments ?? call.function?.arguments));
+        } catch {
+          result = HOLD_UNAVAILABLE;
+        }
+      }
+      results.push({ toolCallId: call.id, result });
+    }
+    res.json({ results });
+  }),
+);
 
 /** Whether the landing-page demo is currently switched on (founder toggle). */
 demoRouter.get(

@@ -337,7 +337,18 @@ describe('POST /api/demo/call demo kinds', () => {
           keyterm?: string[];
         };
         voice: Record<string, unknown>;
-        model: { temperature: number; messages: Array<{ content: string }> };
+        model: {
+          temperature: number;
+          messages: Array<{ content: string }>;
+          tools?: Array<{
+            type: string;
+            server?: { url: string; secret?: string };
+            function?: {
+              name: string;
+              parameters?: { properties: Record<string, { enum?: string[] }>; required: string[] };
+            };
+          }>;
+        };
         metadata: { demoSessionId?: string };
       };
     };
@@ -397,6 +408,32 @@ describe('POST /api/demo/call demo kinds', () => {
     // The v2 delivery guidance rides along: short turns, ellipsis pauses.
     expect(prompt).toContain('Use an ellipsis as your pause button');
     expect(prompt).toContain('one or two short sentences, never a paragraph');
+    // Function-gated booking: exactly ONE tool rides on Maya — the hold
+    // tool — and the stock booking tools are gone, so a prose "booking" is
+    // the only failure mode left and the prompt forbids it.
+    const tools = arg.assistant.model.tools ?? [];
+    expect(tools).toHaveLength(1);
+    const holdTool = tools[0]!;
+    expect(holdTool.type).toBe('function');
+    expect(holdTool.function?.name).toBe('hold_appointment');
+    expect(holdTool.server?.url).toBe('https://api.example.test/api/demo/hold');
+    expect(holdTool.server?.secret).toBe('https://api.example.test');
+    expect(Object.keys(holdTool.function?.parameters?.properties ?? {}).sort()).toEqual([
+      'action',
+      'callbackNumber',
+      'date',
+      'patientName',
+      'service',
+      'time',
+    ]);
+    expect(holdTool.function?.parameters?.properties.action?.enum).toEqual(['hold', 'change', 'cancel']);
+    expect(holdTool.function?.parameters?.required).toEqual(['action']);
+    const toolNames = tools.map((t) => t.function?.name);
+    expect(toolNames).not.toContain('bookAppointment');
+    expect(toolNames).not.toContain('checkAvailability');
+    expect(toolNames).not.toContain('findAppointment');
+    expect(toolNames).not.toContain('rescheduleAppointment');
+    expect(toolNames).not.toContain('cancelAppointment');
   });
 
   it('receptionist with a long clinic name still places the call, assistant name within Vapi\u2019s 40-char cap', async () => {
@@ -449,10 +486,19 @@ describe('POST /api/demo/call demo kinds', () => {
         transcriber: { model: string; endpointing?: number };
         startSpeakingPlan?: { waitSeconds: number; smartEndpointingEnabled: boolean };
         stopSpeakingPlan?: { numWords: number; voiceSeconds: number; backoffSeconds: number };
-        model: { temperature: number; messages: Array<{ content: string }> };
+        model: {
+          temperature: number;
+          messages: Array<{ content: string }>;
+          tools?: Array<{ function?: { name: string } }>;
+        };
       };
     };
     expect(arg.assistant.name).toContain('Ava');
+    // The hold tool is receptionist-only: Ava keeps the stock booking
+    // toolset and never sees hold_appointment.
+    const avaToolNames = (arg.assistant.model.tools ?? []).map((t) => t.function?.name);
+    expect(avaToolNames).not.toContain('hold_appointment');
+    expect(avaToolNames).toContain('bookAppointment');
     // salesOpener with a known first name.
     expect(arg.assistant.firstMessage).toBe('Hi — is this Jordan?');
     expect(arg.assistant.model.messages[0]?.content).toContain('VoiceFront');
