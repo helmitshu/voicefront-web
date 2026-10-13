@@ -83,6 +83,15 @@ const EnvSchema = z.object({
    */
   TURNSTILE_SECRET_KEY: z.string().optional(),
   /**
+   * Google Gemini API key for the AI reading layer in the clinic-facts
+   * puller (free tier is enough). Optional — when unset, the puller uses
+   * its rules-based extractor only. When set, a model reads the cleaned
+   * page text and extracts the clinic facts with understanding; any model
+   * failure falls back to the rules result, so the demo behaves
+   * identically with the key absent or broken.
+   */
+  GEMINI_API_KEY: z.string().optional(),
+  /**
    * Kill switch for the personalized (receptionist) demo kind only. Unset =
    * enabled. Set to 'false' to reject demoKind 'receptionist' calls while
    * the sales demo keeps running; the DEMO_ENABLED platform setting still
