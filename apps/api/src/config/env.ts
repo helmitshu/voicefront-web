@@ -82,6 +82,13 @@ const EnvSchema = z.object({
    * Cloudflare dashboard and paste the secret here to switch it on.
    */
   TURNSTILE_SECRET_KEY: z.string().optional(),
+  /**
+   * Kill switch for the personalized (receptionist) demo kind only. Unset =
+   * enabled. Set to 'false' to reject demoKind 'receptionist' calls while
+   * the sales demo keeps running; the DEMO_ENABLED platform setting still
+   * gates the whole demo surface.
+   */
+  PERSONALIZED_DEMO_ENABLED: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
