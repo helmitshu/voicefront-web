@@ -958,3 +958,33 @@ model DemoCall {
   @@index([createdAt(sort: Desc)])
   @@map("demo_calls")
 }
+
+/// The ONE pretend appointment hold for a personalized (receptionist) demo
+/// call. A hold exists only because the hold_appointment tool's endpoint
+/// created this row — the agent's words alone never book anything — and the
+/// endpoint enforces exactly one live hold per call: a second plain "hold"
+/// is refused, "change" rewrites this row, "cancel" retires it. One row per
+/// Vapi call (externalCallId unique); a hold placed after a cancel revives
+/// the same row with fresh fields.
+model DemoHold {
+  id             String   @id @default(cuid())
+  /// Links the hold to the visitor's demo session (and thus their DemoLead).
+  demoSessionId  String   @map("demo_session_id")
+  /// The Vapi call this hold belongs to — the per-call key.
+  externalCallId String   @unique @map("external_call_id")
+  /// What the appointment is for ("cleaning"), as collected on the call.
+  service        String?
+  /// Appointment day as collected, YYYY-MM-DD in the clinic timezone.
+  date           String?
+  /// Start time as collected, 24-hour HH:MM in the clinic timezone.
+  time           String?
+  patientName    String?  @map("patient_name")
+  callbackNumber String?  @map("callback_number")
+  /// ACTIVE | CHANGED | CANCELLED — a live hold is ACTIVE or CHANGED.
+  status         String   @default("ACTIVE")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  @@index([demoSessionId])
+  @@map("demo_holds")
+}
