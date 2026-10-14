@@ -683,7 +683,16 @@ export const AdminApi = {
   removeTeamMember: (email: string) =>
     api<{ ok: true }>(`/api/admin/team/${encodeURIComponent(email)}`, { method: 'DELETE' }),
   numbers: (signal?: AbortSignal) =>
-    api<{ available: number; numbers: PooledNumberRow[] }>('/api/admin/numbers', { signal }),
+    api<{
+      available: number;
+      numbers: PooledNumberRow[];
+      /** Live Vapi numbers that are not in the pool yet. */
+      unpooled: VapiNumberOption[];
+      /** Total numbers on the connected Vapi account. */
+      vapiTotal: number;
+      /** Set when the live Vapi inventory could not be read. */
+      vapiError: string | null;
+    }>('/api/admin/numbers', { signal }),
   addNumber: (input: { number: string; country?: string; vapiPhoneId?: string }) =>
     api<{ number: PooledNumberRow }>('/api/admin/numbers', { method: 'POST', body: input }),
   createNumber: (areaCode?: string) =>
