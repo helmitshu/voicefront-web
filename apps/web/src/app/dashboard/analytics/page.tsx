@@ -46,7 +46,7 @@ export default function AnalyticsPage() {
           <h2 className="font-display text-[26px] font-semibold tracking-tight text-ink">Analytics</h2>
           <p className="mt-1.5 text-sm text-ink-muted">How your receptionist is turning calls into booked revenue.</p>
         </div>
-        <div className="inline-flex rounded-xl border border-line/70 bg-white p-1 shadow-input">
+        <div className="inline-flex rounded-xl border border-line/70 bg-card p-1 shadow-input">
           {RANGES.map((r) => (
             <button
               key={r.days}
@@ -327,7 +327,7 @@ function QualityCard({
   if (avgScore == null || scoredCalls === 0) {
     return <p className="text-sm text-ink-muted">No quality scores recorded in this window yet.</p>;
   }
-  const tone = avgScore >= 8 ? 'text-[#0b8a74]' : avgScore >= 5 ? 'text-[#9a6a1d]' : 'text-danger';
+  const tone = avgScore >= 8 ? 'text-clinic' : avgScore >= 5 ? 'text-construction' : 'text-danger';
   const scored = trend.filter((t) => t.avgScore != null);
   const tickEvery = Math.max(1, Math.round(trend.length / 6));
   return (
