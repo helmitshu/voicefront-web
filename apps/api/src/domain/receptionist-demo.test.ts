@@ -192,7 +192,7 @@ describe('composeReceptionistPrompt', () => {
     expect(bare).toContain('Gather the booking details, one piece at a time');
   });
 
-  it('keeps the call compact; the closing composes from the closing facts (CLOSE state)', () => {
+  it('keeps the call compact; the closing composes from the closing facts, in TWO turns (CLOSE state)', () => {
     expect(prompt).toContain('aim to finish within about two and a half minutes');
     // The hold result carries FACTS, not a script (Call Map v1): she
     // composes the beats in her own words, facts copied exactly.
@@ -220,6 +220,35 @@ describe('composeReceptionistPrompt', () => {
     // If the caller keeps talking after the closing, one short line only.
     expect(prompt).toContain('If the caller keeps talking after the closing');
     expect(prompt).toContain('Thanks again for calling Maple Dental Studio. Take care now. Bye.');
+  });
+
+  it('splits the close across two turns with the pivot question between them', () => {
+    // The two turns are named and ordered, and may never merge: the
+    // doubling bug only ever lived inside one long closing generation.
+    expect(prompt).toContain('STATE 7 — CLOSE (TWO TURNS');
+    expect(prompt).toContain('CLOSE, TURN ONE');
+    expect(prompt).toContain('CLOSE, FINAL TURN');
+    expect(prompt).toContain('Never merge the two turns into one message');
+    expect(prompt).toContain('never start the final turn before the caller has answered the pivot question');
+    // Turn one carries ONLY the confirmation beats, then the pivot
+    // question verbatim, then a hard stop.
+    expect(prompt).toContain('Is there anything else I can help you with today?');
+    expect(prompt).toContain('and STOP. Wait for their answer');
+    expect(prompt).toContain('no trial line, no goodbye, no "thanks for calling" line, and no second question');
+    expect(prompt).toContain('Turn one ends with the pivot question, full stop');
+    // The one caller-specific reaction may only live in turn one.
+    expect(prompt).toContain('it may only appear here, in turn one. Never in the final turn');
+    // The final turn is the trial line plus exactly one goodbye, two
+    // short sentences at most — and a caller question is answered first,
+    // without ever re-asking the pivot.
+    expect(prompt).toContain('two short sentences at most');
+    expect(prompt).toContain('answer it briefly (STATE 3 rules)');
+    expect(prompt).toContain('WITHOUT asking the pivot question again');
+    // A corrected hold fact is fixed through the tool before the final turn.
+    expect(prompt).toContain('If the caller corrects a fact in your summary, fix it first');
+    // SOFT CLOSE mirrors the same two-turn shape.
+    expect(prompt).toContain('SOFT CLOSE (the call ends with no booking — also TWO TURNS)');
+    expect(prompt).toContain('No trial line and no goodbye in turn one');
   });
 
   it('books tool-first: hold_appointment creates the hold, her words never do', () => {
