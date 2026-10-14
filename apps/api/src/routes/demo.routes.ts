@@ -243,8 +243,8 @@ const DEMO_CALLS_PER_NUMBER_PER_DAY = 2;
  * their number, or his number with their email, gains nothing and stays
  * at the default cap.
  */
-const DEMO_OWNER_EMAIL = 'helmitshu@gmail.com';
-const DEMO_OWNER_PHONE = '+1 514 431 5049';
+export const DEMO_OWNER_EMAIL = 'helmitshu@gmail.com';
+export const DEMO_OWNER_PHONE = '+1 514 431 5049';
 const DEMO_OWNER_CALLS_PER_DAY = 5;
 
 /** True when this call is the founder testing the demo against himself. */
@@ -388,6 +388,141 @@ async function buildReceptionistAssistant(
   assistant.endCallMessage = `Thanks so much for calling ${clinicName}, take care now, bye!`;
   assistant.maxDurationSeconds = 300;
   return assistant;
+}
+
+/**
+ * The shared tail of every outbound receptionist demo call: resume the
+ * session, build Maya dressed in the lead's facts, and dial. The public
+ * /call handler reaches it after its gates (geo, caps, caller-ID pick);
+ * the owner test-call trigger (placeOwnerDemoTestCall below) reaches it
+ * directly. Caller-ID selection stays with the caller — both go through
+ * getDemoNumbers + pickDemoCallerId.
+ */
+async function placeReceptionistDemoCall(input: {
+  sessionId: string;
+  lead: { name: string; businessName: string | null; factsJson: unknown };
+  prospectName?: string;
+  confirmedFacts?: ClinicFacts;
+  customerNumber: string;
+  callerId: { id: string; number: string };
+}): Promise<{ callId: string; fromNumber: string }> {
+  const session = await resumeDemoSession(input.sessionId);
+  const assistant = await buildReceptionistAssistant(
+    session,
+    input.lead,
+    input.prospectName,
+    input.confirmedFacts,
+  );
+  const call = await placeOutboundCall({
+    phoneNumberId: input.callerId.id,
+    customerNumber: input.customerNumber,
+    assistant,
+  });
+  return { callId: call.id, fromNumber: input.callerId.number };
+}
+
+export interface OwnerDemoTestCallInput {
+  websiteUrl: string;
+  /** Overrides default to the owner's own identity (see DEMO_OWNER_*). */
+  name?: string;
+  email?: string;
+  phone?: string;
+  businessName?: string;
+}
+
+export interface OwnerDemoTestCallResult {
+  ok: true;
+  callId: string;
+  fromNumber: string;
+  sessionId: string;
+  leadId: string;
+  /** The clinic name Maya will answer with. */
+  clinicName: string;
+  /** The facts pulled from the clinic website and stored on the lead. */
+  facts: ClinicFacts;
+}
+
+/**
+ * Owner-only backend trigger behind POST /api/admin/demo/test-call: places
+ * the personalized receptionist demo with ONE server-side call — no landing
+ * form, no Turnstile, no geo gate, and the per-destination cap is never
+ * consulted (the admin gate is the protection here, and the destination is
+ * the owner's own phone). Everything else mirrors the public flow: same
+ * master-toggle and personalized-demo switches, same session + lead
+ * creation, same clinic-facts pull stored on the lead, and the call itself
+ * goes through placeReceptionistDemoCall, the exact tail /call uses.
+ */
+export async function placeOwnerDemoTestCall(
+  input: OwnerDemoTestCallInput,
+): Promise<OwnerDemoTestCallResult> {
+  if (!(await isDemoEnabled())) {
+    throw new HttpError(403, 'The demo is currently turned off.', 'DEMO_DISABLED');
+  }
+  if (env.PERSONALIZED_DEMO_ENABLED === 'false') {
+    throw new HttpError(403, 'The personalized demo is currently turned off.', 'PERSONALIZED_DEMO_DISABLED');
+  }
+  const name = input.name?.trim() || 'Hakim';
+  const email = input.email?.trim() || DEMO_OWNER_EMAIL;
+  const phone = input.phone?.trim() || DEMO_OWNER_PHONE;
+  const customerNumber = toE164(phone);
+  if (!customerNumber) {
+    throw new HttpError(400, "That phone number doesn't look right. Double-check it and try again.", 'BAD_PHONE');
+  }
+
+  // Facts first: a site we cannot read places no call and creates no lead.
+  const facts = await fetchClinicFacts(input.websiteUrl);
+  if (!facts) {
+    throw new HttpError(
+      422,
+      'Could not pull any facts from that website. Check the URL and try again.',
+      'FACTS_UNAVAILABLE',
+    );
+  }
+  const businessName = input.businessName?.trim() || facts.businessName || null;
+
+  const session = await startDemoSession('clinic', businessName);
+  const lead = await createDemoLead({
+    sessionId: session.sessionId,
+    name,
+    email,
+    phone,
+    // The owner's own test identity: a Canadian number, dialled from Canada.
+    ipCountry: 'CA',
+    phoneCountry: 'CA',
+    industry: 'clinic',
+    businessName,
+    websiteUrl: input.websiteUrl,
+  });
+  // Same store /clinic-facts performs, so the call wears exactly these facts.
+  await prisma.demoLead.update({
+    where: { id: lead.id },
+    data: { factsJson: facts as unknown as Prisma.InputJsonValue },
+  });
+
+  const numbers = await getDemoNumbers();
+  const callerId = pickDemoCallerId(numbers, 'CA');
+  if (!callerId) {
+    throw new HttpError(503, 'Outbound demo calling isn’t set up yet. Try the in-browser test instead.', 'NO_DEMO_NUMBER');
+  }
+
+  const { callId, fromNumber } = await placeReceptionistDemoCall({
+    sessionId: session.sessionId,
+    lead: { name: lead.name, businessName: lead.businessName, factsJson: facts },
+    prospectName: name,
+    customerNumber,
+    callerId,
+  });
+  await setLeadMode(lead.id, 'call');
+
+  return {
+    ok: true,
+    callId,
+    fromNumber,
+    sessionId: session.sessionId,
+    leadId: lead.id,
+    clinicName: sanitizeDemoText(facts.businessName, 60) || businessName || 'the clinic',
+    facts,
+  };
 }
 
 /* ------------------- function-gated demo holds ------------------- */
@@ -874,23 +1009,30 @@ demoRouter.post(
       throw new HttpError(503, 'Outbound demo calling isn’t set up yet. Try the in-browser test instead.', 'NO_DEMO_NUMBER');
     }
 
-    const session = await resumeDemoSession(body.sessionId);
-    let assistant: TransientAssistant;
+    let callId: string;
     if (body.demoKind === 'receptionist') {
-      assistant = await buildReceptionistAssistant(session, lead, body.name, body.facts);
+      ({ callId } = await placeReceptionistDemoCall({
+        sessionId: body.sessionId,
+        lead,
+        prospectName: body.name,
+        confirmedFacts: body.facts,
+        customerNumber,
+        callerId,
+      }));
     } else {
-      ({ assistant } = await buildSalesAssistant(session, body.name, 'phone'));
+      const session = await resumeDemoSession(body.sessionId);
+      const { assistant } = await buildSalesAssistant(session, body.name, 'phone');
+      const call = await placeOutboundCall({
+        phoneNumberId: callerId.id,
+        customerNumber,
+        assistant,
+      });
+      callId = call.id;
     }
-
-    const call = await placeOutboundCall({
-      phoneNumberId: callerId.id,
-      customerNumber,
-      assistant,
-    });
 
     if (body.leadId) await setLeadMode(body.leadId, 'call');
 
-    res.json({ ok: true, callId: call.id, fromNumber: callerId.number, country: gate.ipCountry });
+    res.json({ ok: true, callId, fromNumber: callerId.number, country: gate.ipCountry });
   }),
 );
 

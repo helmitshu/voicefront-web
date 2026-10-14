@@ -82,6 +82,7 @@ import {
   sourceLeads,
   updateLead,
 } from '../services/leadgen.service';
+import { placeOwnerDemoTestCall } from './demo.routes';
 import { buildOutreachEmail } from '../services/outreach.service';
 import { sendOutreachEmail } from '../services/mailer.service';
 import { getMonthlyUsage } from '../services/usage.service';
@@ -982,6 +983,34 @@ adminRouter.patch(
     const assigned = await setDemoNumbers(body, adminEmail);
     await recordAdminAction(adminEmail, 'demo.numbers', 'demo caller-id', body);
     res.json({ assigned });
+  }),
+);
+
+/* Owner test call: place the personalized receptionist demo to the founder's
+ * own phone straight from the backend — no landing form, no Turnstile, no
+ * per-destination cap. The orchestration lives with the demo routes
+ * (placeOwnerDemoTestCall) so it reuses the public flow's exact call path;
+ * identity overrides default to the founder himself.                        */
+const DemoTestCallSchema = z.object({
+  websiteUrl: z.string().trim().url().max(300),
+  name: z.string().trim().min(1).max(80).optional(),
+  email: z.string().trim().email().max(160).optional(),
+  phone: z.string().trim().min(7).max(32).optional(),
+  businessName: z.string().trim().max(60).optional(),
+});
+
+adminRouter.post(
+  '/demo/test-call',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const adminEmail = getAdminEmail(req);
+    const body = DemoTestCallSchema.parse(req.body ?? {});
+    const result = await placeOwnerDemoTestCall(body);
+    await recordAdminAction(adminEmail, 'demo.testCall', result.clinicName, {
+      callId: result.callId,
+      websiteUrl: body.websiteUrl,
+    });
+    res.json(result);
   }),
 );
 
