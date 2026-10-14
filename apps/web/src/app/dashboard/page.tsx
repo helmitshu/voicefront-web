@@ -23,42 +23,57 @@ export default function OverviewPage() {
   const [usage, setUsage] = useState<MonthlyUsage | null>(null);
   const [recent, setRecent] = useState<CallDto[] | null>(null);
   const [inboundNumber, setInboundNumber] = useState<string | null | undefined>(undefined);
-  const [error, setError] = useState<string | null>(null);
+  // Each block loads independently: one failing endpoint degrades only its
+  // own section (with a retry) instead of blanking the whole home page.
+  const [statsError, setStatsError] = useState<string | null>(null);
+  const [recentError, setRecentError] = useState<string | null>(null);
+  const [settingsError, setSettingsError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    Promise.all([CallsApi.stats(), CallsApi.list({ page: 1, perPage: 5 }), AgentApi.get()])
-      .then(([statsRes, listRes, settingsRes]) => {
+    const describe = (err: unknown, fallback: string) =>
+      err instanceof ApiError ? err.message : fallback;
+
+    CallsApi.stats()
+      .then((res) => {
         if (cancelled) return;
-        setStats(statsRes.stats);
-        setUsage(statsRes.usage);
-        setRecent(listRes.calls);
-        setInboundNumber(settingsRes.settings.inboundPhoneNumber);
+        setStatsError(null);
+        setStats(res.stats);
+        setUsage(res.usage);
       })
       .catch((err: unknown) => {
+        if (!cancelled) setStatsError(describe(err, 'Could not load your call stats.'));
+      });
+    CallsApi.list({ page: 1, perPage: 5 })
+      .then((res) => {
         if (cancelled) return;
-        setError(err instanceof ApiError ? err.message : 'Could not load your dashboard.');
+        setRecentError(null);
+        setRecent(res.calls);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setRecentError(describe(err, 'Could not load your recent calls.'));
+      });
+    AgentApi.get()
+      .then((res) => {
+        if (cancelled) return;
+        setSettingsError(null);
+        setInboundNumber(res.settings.inboundPhoneNumber);
+      })
+      .catch((err: unknown) => {
+        if (!cancelled) setSettingsError(describe(err, 'Could not load your receptionist settings.'));
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadKey]);
 
-  if (error) {
-    return (
-      <EmptyState
-        title="Couldn't load your dashboard"
-        description={error}
-        action={
-          <Button variant="secondary" onClick={() => window.location.reload()}>
-            Try again
-          </Button>
-        }
-      />
-    );
-  }
+  const retry = () => setReloadKey((k) => k + 1);
+  const statsPending = stats === null && statsError === null;
+  const recentPending = recent === null && recentError === null;
+  const settingsPending = inboundNumber === undefined && settingsError === null;
 
-  if (!stats || !recent || !usage) {
+  if (statsPending && recentPending && settingsPending) {
     return (
       <div className="flex h-64 items-center justify-center">
         <Spinner className="h-6 w-6 text-signal" />
@@ -67,12 +82,13 @@ export default function OverviewPage() {
   }
 
   // Usage bar tone: green normally, amber past 80%, red once the cap is hit.
-  const usagePct = Math.round(usage.fractionUsed * 100);
-  const usageTone = usage.overLimit
-    ? { bar: 'bg-danger', text: 'text-danger' }
-    : usage.fractionUsed >= 0.8
-      ? { bar: 'bg-construction', text: 'text-[#9a6a1d]' }
-      : { bar: 'bg-clinic', text: 'text-[#0b8a74]' };
+  const usagePct = usage ? Math.round(usage.fractionUsed * 100) : 0;
+  const usageTone =
+    usage && usage.overLimit
+      ? { bar: 'bg-danger', text: 'text-danger' }
+      : usage && usage.fractionUsed >= 0.8
+        ? { bar: 'bg-construction', text: 'text-[#9a6a1d]' }
+        : { bar: 'bg-clinic', text: 'text-[#0b8a74]' };
 
   return (
     <div className="flex animate-fade-up flex-col gap-8">
@@ -85,8 +101,23 @@ export default function OverviewPage() {
 
       {/* Activation rescue: once live but before the first call lands, show the
           owner the one real-world step (forward the line) + a self-test. */}
-      {inboundNumber && recent.length === 0 && <GoLiveGuide number={inboundNumber} />}
+      {inboundNumber && recent !== null && recent.length === 0 && <GoLiveGuide number={inboundNumber} />}
 
+      {statsError ? (
+        <Card>
+          <CardHeader title="Call activity" />
+          <p className="text-sm text-ink-muted">Couldn&apos;t load your call stats. {statsError}</p>
+          <div className="mt-3">
+            <Button variant="secondary" size="sm" onClick={retry}>
+              Try again
+            </Button>
+          </div>
+        </Card>
+      ) : statsPending || !stats ? (
+        <div className="flex h-28 items-center justify-center">
+          <Spinner className="h-5 w-5 text-signal" />
+        </div>
+      ) : (
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Calls · last 7 days"
@@ -133,6 +164,7 @@ export default function OverviewPage() {
           }
         />
       </div>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-[1fr_320px]">
         <Card>
@@ -144,7 +176,20 @@ export default function OverviewPage() {
               </Link>
             }
           />
-          {recent.length === 0 ? (
+          {recentError ? (
+            <div>
+              <p className="text-sm text-ink-muted">Couldn&apos;t load your recent calls. {recentError}</p>
+              <div className="mt-3">
+                <Button variant="secondary" size="sm" onClick={retry}>
+                  Try again
+                </Button>
+              </div>
+            </div>
+          ) : recentPending || !recent ? (
+            <div className="flex h-24 items-center justify-center">
+              <Spinner className="h-5 w-5 text-signal" />
+            </div>
+          ) : recent.length === 0 ? (
             <EmptyState
               title="No calls yet"
               description="Once your number is connected, every call lands here with a summary and recording."
@@ -198,14 +243,28 @@ export default function OverviewPage() {
               <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/50">
                 Your receptionist number
               </p>
-              {inboundNumber ? (
+              {settingsError ? (
+                <div className="mt-3">
+                  <p className="text-sm leading-relaxed text-white/70">
+                    Couldn&apos;t load your number. {settingsError}
+                  </p>
+                  <button
+                    type="button"
+                    onClick={retry}
+                    className="mt-2 text-sm font-semibold text-white underline underline-offset-2"
+                  >
+                    Try again
+                  </button>
+                </div>
+              ) : inboundNumber ? (
                 <p className="mt-3 font-mono text-xl font-medium tracking-tight text-white">
                   {formatPhone(inboundNumber)}
                 </p>
               ) : (
                 <p className="mt-3 text-sm leading-relaxed text-white/70">
-                  Your dedicated number is being provisioned. We&apos;ll connect it to your account shortly — no
-                  action needed on your side.
+                  {settingsPending
+                    ? 'Loading your number…'
+                    : "Your dedicated number is being provisioned. We'll connect it to your account shortly — no action needed on your side."}
                 </p>
               )}
               <span aria-hidden className="mt-5 flex items-end gap-[3px] opacity-60">
@@ -217,24 +276,41 @@ export default function OverviewPage() {
           </div>
           <Card>
             <CardHeader title="Usage this month" />
-            <div className="flex items-baseline justify-between">
-              <p className="font-display text-2xl font-semibold tracking-tight text-ink">
-                {usage.usedMinutes}
-                <span className="text-base font-normal text-ink-muted"> / {usage.limitMinutes} min</span>
-              </p>
-              <span className={`text-xs font-semibold ${usageTone.text}`}>{usagePct}%</span>
-            </div>
-            <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-paper ring-1 ring-inset ring-ink/5">
-              <div
-                className={`h-full rounded-full transition-all ${usageTone.bar}`}
-                style={{ width: `${Math.max(2, Math.min(100, usagePct))}%` }}
-              />
-            </div>
-            <p className="mt-2.5 text-xs leading-relaxed text-ink-muted">
-              {usage.overLimit
-                ? 'Monthly limit reached — calls are paused until the 1st. Contact us to raise your plan.'
-                : `${usage.remainingMinutes} minutes left · resets on the 1st`}
-            </p>
+            {usage ? (
+              <>
+                <div className="flex items-baseline justify-between">
+                  <p className="font-display text-2xl font-semibold tracking-tight text-ink">
+                    {usage.usedMinutes}
+                    <span className="text-base font-normal text-ink-muted"> / {usage.limitMinutes} min</span>
+                  </p>
+                  <span className={`text-xs font-semibold ${usageTone.text}`}>{usagePct}%</span>
+                </div>
+                <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-paper ring-1 ring-inset ring-ink/5">
+                  <div
+                    className={`h-full rounded-full transition-all ${usageTone.bar}`}
+                    style={{ width: `${Math.max(2, Math.min(100, usagePct))}%` }}
+                  />
+                </div>
+                <p className="mt-2.5 text-xs leading-relaxed text-ink-muted">
+                  {usage.overLimit
+                    ? 'Monthly limit reached — calls are paused until the 1st. Contact us to raise your plan.'
+                    : `${usage.remainingMinutes} minutes left · resets on the 1st`}
+                </p>
+              </>
+            ) : statsError ? (
+              <div>
+                <p className="text-sm text-ink-muted">Couldn&apos;t load your usage. {statsError}</p>
+                <div className="mt-3">
+                  <Button variant="secondary" size="sm" onClick={retry}>
+                    Try again
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex h-16 items-center justify-center">
+                <Spinner className="h-5 w-5 text-signal" />
+              </div>
+            )}
           </Card>
           <Card>
             <CardHeader title="Fine-tune anytime" />
