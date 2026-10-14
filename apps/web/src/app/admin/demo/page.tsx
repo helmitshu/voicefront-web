@@ -10,6 +10,7 @@ import {
   type VapiNumberOption,
 } from '@/lib/api';
 import { useToast } from '@/components/ui/Toast';
+import { useAuth } from '@/lib/auth-context';
 import { Card, Badge, EmptyState } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input, Select } from '@/components/ui/Field';
@@ -32,11 +33,14 @@ function fmtWhen(iso: string): string {
 }
 
 export default function AdminDemoPage() {
+  const { me } = useAuth();
   const { toast } = useToast();
+  const isFullAdmin = me?.user.adminRole === 'ADMIN';
   const [config, setConfig] = useState<SalesConfig | null>(null);
   const [agentName, setAgentName] = useState('');
   const [founderName, setFounderName] = useState('');
   const [savingConfig, setSavingConfig] = useState(false);
+  const [configError, setConfigError] = useState<string | null>(null);
 
   const [calls, setCalls] = useState<DemoCallRecord[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -46,27 +50,45 @@ export default function AdminDemoPage() {
   const [available, setAvailable] = useState<VapiNumberOption[]>([]);
   const [numbers, setNumbers] = useState<DemoNumbers | null>(null);
   const [savingNumbers, setSavingNumbers] = useState(false);
+  const [numbersError, setNumbersError] = useState<string | null>(null);
 
   const load = useCallback(() => {
+    setConfigError(null);
+    setNumbersError(null);
     AdminApi.salesConfig()
       .then((c) => {
         setConfig(c);
         setAgentName(c.agentName);
         setFounderName(c.founderName);
       })
-      .catch(() => undefined);
+      .catch((err: unknown) =>
+        setConfigError(err instanceof ApiError ? err.message : 'Could not load the sales agent settings.'),
+      );
     AdminApi.demoNumbers()
       .then(({ available, assigned }) => {
         setAvailable(available);
         setNumbers(assigned);
       })
-      .catch(() => undefined);
+      .catch((err: unknown) =>
+        setNumbersError(err instanceof ApiError ? err.message : 'Could not load your Vapi numbers.'),
+      );
     AdminApi.demoCalls()
       .then(({ calls }) => setCalls(calls))
       .catch((err: unknown) => setError(err instanceof ApiError ? err.message : 'Could not load demo calls.'));
   }, []);
 
-  useEffect(() => load(), [load]);
+  useEffect(() => {
+    if (isFullAdmin) load();
+  }, [load, isFullAdmin]);
+
+  if (me && !isFullAdmin) {
+    return (
+      <EmptyState
+        title="Admins only"
+        description="The sales demo controls are restricted to full admins."
+      />
+    );
+  }
 
   async function saveConfig() {
     setSavingConfig(true);
@@ -125,6 +147,14 @@ export default function AdminDemoPage() {
         <p className="mt-1.5 text-sm text-ink-muted">
           The name prospects hear, and how she refers to you when she books the planning call.
         </p>
+        {configError && (
+          <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-danger/25 bg-danger-soft/50 px-3.5 py-2.5">
+            <p className="text-[13px] text-ink">Couldn&apos;t load these settings. {configError}</p>
+            <Button variant="secondary" size="sm" onClick={load}>
+              Try again
+            </Button>
+          </div>
+        )}
         <div className="mt-4 flex flex-wrap items-end gap-4">
           <label className="flex flex-col gap-1.5">
             <span className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Agent name</span>
@@ -156,6 +186,11 @@ export default function AdminDemoPage() {
               When on, prospects watch the sample calendar fill in as the agent books — proof it works. Turn it
               off to run a voice-only demo with no calendar on screen.
             </p>
+            {configError && (
+              <p className="mt-1.5 text-[13px] font-medium text-danger">
+                Settings failed to load — fix that above before changing this.
+              </p>
+            )}
           </div>
           <Button
             variant={config?.showCalendar ? 'secondary' : 'primary'}
@@ -176,7 +211,18 @@ export default function AdminDemoPage() {
           US number; Canadian prospects from the Canadian one. With only a US number set, everyone allowed a call
           gets it from there.
         </p>
-        {available.length === 0 ? (
+        {numbersError ? (
+          <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border border-danger/25 bg-danger-soft/50 px-3.5 py-2.5">
+            <p className="text-[13px] text-ink">Couldn&apos;t load your Vapi numbers. {numbersError}</p>
+            <Button variant="secondary" size="sm" onClick={load}>
+              Try again
+            </Button>
+          </div>
+        ) : numbers === null ? (
+          <div className="mt-4 flex items-center gap-2 text-[13px] text-ink-muted">
+            <Spinner className="h-4 w-4 text-signal" /> Loading your Vapi numbers…
+          </div>
+        ) : available.length === 0 ? (
           <p className="mt-4 rounded-xl bg-construction-soft/50 px-3.5 py-2.5 text-[13px] text-[#9a6a1d]">
             No numbers found on your Vapi account yet. Add one under{' '}
             <span className="font-semibold">Phone numbers</span> first, then come back to assign it here.
