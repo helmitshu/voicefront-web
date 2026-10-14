@@ -223,7 +223,7 @@ export default function AdminDemoPage() {
             <Spinner className="h-4 w-4 text-signal" /> Loading your Vapi numbers…
           </div>
         ) : available.length === 0 ? (
-          <p className="mt-4 rounded-xl bg-construction-soft/50 px-3.5 py-2.5 text-[13px] text-[#9a6a1d]">
+          <p className="mt-4 rounded-xl bg-construction-soft/50 px-3.5 py-2.5 text-[13px] text-construction">
             No numbers found on your Vapi account yet. Add one under{' '}
             <span className="font-semibold">Phone numbers</span> first, then come back to assign it here.
           </p>
