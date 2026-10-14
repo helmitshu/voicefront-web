@@ -400,8 +400,12 @@ async function buildReceptionistAssistant(
   });
   assistant.metadata = { ...assistant.metadata, demoSessionId: session.sessionId };
   assistant.firstMessage = receptionistOpener(ctx);
-  // The builder's stock end-call line names the demo tenant, not the clinic.
-  assistant.endCallMessage = `Thanks so much for calling ${clinicName}, take care now, bye!`;
+  // No configured end-call message on the demo assistant: Vapi speaks
+  // endCallMessage after the model's own goodbye whenever she ends the
+  // call, which doubled every demo closing (hers carries the caller's
+  // name, the configured line never does). Maya owns the close alone, so
+  // the builder's stock line is deleted outright, not replaced.
+  delete assistant.endCallMessage;
   assistant.maxDurationSeconds = 300;
   return assistant;
 }

@@ -396,6 +396,9 @@ describe('POST /api/admin/demo/test-call', () => {
     expect(arg.customerNumber).toBe('+15144315049');
     expect(arg.assistant.firstMessage).toContain('SmileCraft Dental');
     expect(arg.assistant.maxDurationSeconds).toBe(300);
+    // Same assistant shape as /call: no platform endCallMessage on this
+    // path either, so the owner hears exactly one goodbye, hers.
+    expect(arg.assistant).not.toHaveProperty('endCallMessage');
     expect(arg.assistant.metadata.demoSessionId).toBe('demo_testcall');
     const tools = arg.assistant.model.tools ?? [];
     expect(tools).toHaveLength(1);

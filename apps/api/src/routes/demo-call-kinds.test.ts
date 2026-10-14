@@ -369,6 +369,10 @@ describe('POST /api/demo/call demo kinds', () => {
       optimizeStreamingLatency: 3,
     });
     expect(arg.assistant.maxDurationSeconds).toBe(300);
+    // No platform goodbye on Maya: Vapi speaks endCallMessage after the
+    // model's own closing line, which doubled every demo goodbye. The
+    // property is absent from the payload entirely, not blanked.
+    expect(arg.assistant).not.toHaveProperty('endCallMessage');
     expect(arg.assistant.metadata.demoSessionId).toBe('demo_happy');
     // Demo-standard (v2) call mechanics, pinned end to end.
     expect(arg.assistant.model.temperature).toBe(0.55);
@@ -490,6 +494,7 @@ describe('POST /api/demo/call demo kinds', () => {
       assistant: {
         name: string;
         firstMessage: string;
+        endCallMessage?: string;
         voice: Record<string, unknown>;
         transcriber: { model: string; endpointing?: number };
         startSpeakingPlan?: { waitSeconds: number; smartEndpointingEnabled: boolean };
@@ -502,6 +507,11 @@ describe('POST /api/demo/call demo kinds', () => {
       };
     };
     expect(arg.assistant.name).toContain('Ava');
+    // Only the receptionist demo drops the platform goodbye: Ava keeps
+    // the builder's stock endCallMessage byte-identical (demo tenant name).
+    expect(arg.assistant.endCallMessage).toBe(
+      'Thanks so much for calling Bayview Family Clinic — take care now, bye!',
+    );
     // The hold tool is receptionist-only: Ava keeps the stock booking
     // toolset and never sees hold_appointment.
     const avaToolNames = (arg.assistant.model.tools ?? []).map((t) => t.function?.name);
