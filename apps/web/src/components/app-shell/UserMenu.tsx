@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useAuth } from '@/lib/auth-context';
+import { ThemeSwitch } from './ThemePicker';
 
 /** Up-to-two-letter avatar initials from a full name ("Ada Lovelace" → "AL"). */
 export function userInitials(fullName: string): string {
@@ -19,7 +20,7 @@ export function Avatar({ fullName, size = 'md' }: { fullName: string; size?: 'md
   return (
     <span
       aria-hidden
-      className={`flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-signal to-signal-deep font-semibold text-white shadow-pop ring-1 ring-inset ring-white/15 ${
+      className={`flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-signal to-signal-deep font-semibold text-onsignal shadow-pop ring-1 ring-inset ring-white/15 ${
         size === 'md' ? 'h-9 w-9 text-xs' : 'h-8 w-8 text-[11px]'
       }`}
     >
@@ -53,6 +54,8 @@ function MenuItems({ onNavigate }: { onNavigate: () => void }) {
           Platform Admin
         </Link>
       )}
+      <div aria-hidden className="mx-2 my-1.5 h-px bg-white/10" />
+      <ThemeSwitch onNavigate={onNavigate} />
       <div aria-hidden className="mx-2 my-1.5 h-px bg-white/10" />
       <button
         type="button"
@@ -152,7 +155,7 @@ export function UserMenu({ variant = 'sidebar' }: { variant?: 'sidebar' | 'compa
         {open && (
           <div
             role="menu"
-            className="absolute right-0 top-full z-50 mt-2 w-72 rounded-2xl bg-ink-soft p-1.5 shadow-lift ring-1 ring-white/15"
+            className="absolute right-0 top-full z-50 mt-2 w-72 rounded-2xl bg-ink-deep p-1.5 shadow-lift ring-1 ring-white/15"
           >
             <div className="px-3 pb-2 pt-2.5">
               <p className="truncate text-[13px] font-semibold text-white">{me.user.fullName}</p>
@@ -185,7 +188,7 @@ export function UserMenu({ variant = 'sidebar' }: { variant?: 'sidebar' | 'compa
       {open && (
         <div
           role="menu"
-          className="absolute inset-x-0 bottom-full z-50 mb-2 rounded-2xl bg-ink-soft p-1.5 shadow-lift ring-1 ring-white/15"
+          className="absolute inset-x-0 bottom-full z-50 mb-2 rounded-2xl bg-ink-deep p-1.5 shadow-lift ring-1 ring-white/15"
         >
           <MenuItems onNavigate={() => setOpen(false)} />
         </div>

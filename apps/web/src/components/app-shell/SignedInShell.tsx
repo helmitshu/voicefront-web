@@ -41,12 +41,12 @@ const THEMES: Record<
   },
   admin: {
     sidebar: 'bg-ink',
-    topbar: 'border-line/70 bg-white/80',
+    topbar: 'border-line/70 bg-card/80',
     menuButton: 'text-ink/70 hover:bg-ink/[0.05]',
     accentBar: 'bg-signal',
     navActive: 'bg-white/10 text-white ring-1 ring-inset ring-white/10',
     navIdle: 'text-white/50 hover:bg-white/5 hover:text-white',
-    iconActive: 'text-signal-soft',
+    iconActive: 'text-clinic',
     iconIdle: 'text-white/40 group-hover:text-white/70',
   },
 };
@@ -140,7 +140,7 @@ export function SignedInShell({
       {/* Sidebar */}
       <aside className={`sticky top-0 hidden h-screen w-64 flex-col px-4 py-6 md:flex ${t.sidebar}`}>
         <Link href={homeHref} className="px-2">
-          <Logo tone="light" />
+          <Logo tone="light" animated />
         </Link>
 
         {sidebarTop}
@@ -179,7 +179,7 @@ export function SignedInShell({
               </svg>
             </button>
             <span className="flex shrink-0 md:hidden">
-              <Logo size="sm" withText={false} />
+              <Logo size="sm" withText={false} animated />
             </span>
             <div className="hidden min-w-0 items-center gap-3 md:flex">{headerLeft}</div>
             <div className="min-w-0 md:hidden">{mobileTitle}</div>
@@ -211,7 +211,7 @@ export function SignedInShell({
       <MobileDrawer open={drawerOpen} onClose={closeDrawer} label={navLabel} panelClassName={t.sidebar}>
         <div className="flex items-center justify-between px-2">
           <Link href={homeHref} onClick={closeDrawer}>
-            <Logo tone="light" />
+            <Logo tone="light" animated />
           </Link>
           <button
             type="button"
