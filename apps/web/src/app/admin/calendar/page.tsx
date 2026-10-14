@@ -439,7 +439,7 @@ export default function AdminCalendarPage() {
                   onClick={() => setSelected(cell.key)}
                   className={`flex min-h-[92px] flex-col items-stretch gap-1 border-b border-r border-line/40 p-1.5 text-left align-top transition-colors last:border-r-0 ${
                     isSelected ? 'bg-signal-soft/40' : 'hover:bg-paper/80'
-                  } ${cell.inMonth ? 'bg-white' : 'bg-paper/50'}`}
+                  } ${cell.inMonth ? 'bg-card' : 'bg-paper/50'}`}
                 >
                   <span
                     className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${
@@ -454,7 +454,7 @@ export default function AdminCalendarPage() {
                       className={`truncate rounded-md px-1.5 py-0.5 text-[11px] font-medium ring-1 ring-inset ${
                         entry.kind === 'call'
                           ? 'bg-signal-soft/70 text-signal-deep ring-signal/15'
-                          : 'bg-construction-soft/70 text-[#9a6a1d] ring-construction/20'
+                          : 'bg-construction-soft/70 text-construction ring-construction/20'
                       }`}
                     >
                       {to12h(entry.local.time)} {entry.label}
@@ -517,7 +517,7 @@ export default function AdminCalendarPage() {
                     <Spinner className="h-3.5 w-3.5" /> Loading open times…
                   </div>
                 ) : availability.freeSlots.length === 0 ? (
-                  <p className="rounded-lg bg-construction-soft/50 px-3 py-2 text-xs text-[#9a6a1d]">
+                  <p className="rounded-lg bg-construction-soft/50 px-3 py-2 text-xs text-construction">
                     Every slot this day is already blocked or booked.
                   </p>
                 ) : (
