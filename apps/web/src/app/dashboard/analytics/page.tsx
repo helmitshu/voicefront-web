@@ -20,6 +20,7 @@ function pct(n: number): string {
 
 export default function AnalyticsPage() {
   const [days, setDays] = useState(30);
+  const [reloadKey, setReloadKey] = useState(0);
   const [data, setData] = useState<AnalyticsOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -36,7 +37,7 @@ export default function AnalyticsPage() {
       })
       .finally(() => setLoading(false));
     return () => controller.abort();
-  }, [days]);
+  }, [days, reloadKey]);
 
   return (
     <div className="flex animate-fade-up flex-col gap-8">
@@ -66,7 +67,7 @@ export default function AnalyticsPage() {
           title="Couldn't load analytics"
           description={error}
           action={
-            <Button variant="secondary" onClick={() => setDays((d) => d)}>
+            <Button variant="secondary" onClick={() => setReloadKey((k) => k + 1)}>
               Try again
             </Button>
           }
