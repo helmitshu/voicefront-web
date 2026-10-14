@@ -295,6 +295,12 @@ export const AuthApi = {
   }) => api<AuthResponse>('/api/auth/register', { method: 'POST', body: input }),
   login: (input: { email: string; password: string }) =>
     api<AuthResponse>('/api/auth/login', { method: 'POST', body: input }),
+  /** Google Identity Services ID token from the "Continue with Google" button. */
+  google: (credential: string, industry?: Industry) =>
+    api<AuthResponse>('/api/auth/google', {
+      method: 'POST',
+      body: industry ? { credential, industry } : { credential },
+    }),
   me: (signal?: AbortSignal) => api<Me>('/api/auth/me', { signal }),
 };
 

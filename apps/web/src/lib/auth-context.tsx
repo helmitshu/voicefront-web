@@ -29,6 +29,8 @@ interface AuthContextValue {
   status: AuthStatus;
   me: Me | null;
   login: (input: { email: string; password: string }) => Promise<Me>;
+  /** Sign in (or sign up) with a Google Identity Services ID token. */
+  loginWithGoogle: (credential: string, industry?: Industry) => Promise<Me>;
   register: (input: {
     companyName: string;
     industry: Industry;
@@ -103,6 +105,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return nextMe;
   }, []);
 
+  const loginWithGoogle = useCallback(async (credential: string, industry?: Industry) => {
+    const data = await AuthApi.google(credential, industry);
+    generation.current += 1;
+    setToken(data.token);
+    const nextMe: Me = { user: data.user, tenant: data.tenant, onboarding: data.onboarding };
+    setMe(nextMe);
+    setStatus('authenticated');
+    return nextMe;
+  }, []);
+
   const register = useCallback(
     async (input: {
       companyName: string;
@@ -141,8 +153,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ status, me, login, register, signOut, refreshMe, setOnboarding }),
-    [status, me, login, register, signOut, refreshMe, setOnboarding],
+    () => ({ status, me, login, loginWithGoogle, register, signOut, refreshMe, setOnboarding }),
+    [status, me, login, loginWithGoogle, register, signOut, refreshMe, setOnboarding],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
