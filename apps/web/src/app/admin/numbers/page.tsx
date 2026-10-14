@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { AdminApi, ApiError, type PooledNumberRow } from '@/lib/api';
+import { AdminApi, ApiError, type PooledNumberRow, type VapiNumberOption } from '@/lib/api';
 import { useToast } from '@/components/ui/Toast';
 import { Badge, Card, CardHeader, EmptyState } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -19,11 +19,15 @@ export default function AdminNumbersPage() {
   const [numbers, setNumbers] = useState<PooledNumberRow[] | null>(null);
   const [available, setAvailable] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  const [unpooled, setUnpooled] = useState<VapiNumberOption[]>([]);
+  const [vapiTotal, setVapiTotal] = useState(0);
+  const [vapiError, setVapiError] = useState<string | null>(null);
 
   const [number, setNumber] = useState('');
   const [country, setCountry] = useState('US');
   const [vapiPhoneId, setVapiPhoneId] = useState('');
   const [adding, setAdding] = useState(false);
+  const [addingId, setAddingId] = useState<string | null>(null);
   const [removingId, setRemovingId] = useState<string | null>(null);
 
   const [areaCode, setAreaCode] = useState('');
@@ -34,6 +38,9 @@ export default function AdminNumbersPage() {
       .then((res) => {
         setNumbers(res.numbers);
         setAvailable(res.available);
+        setUnpooled(res.unpooled);
+        setVapiTotal(res.vapiTotal);
+        setVapiError(res.vapiError);
       })
       .catch((err: unknown) =>
         setError(err instanceof ApiError ? err.message : 'Could not load the number pool.'),
@@ -67,6 +74,19 @@ export default function AdminNumbersPage() {
     }
   }
 
+  async function addUnpooled(row: VapiNumberOption) {
+    setAddingId(row.id);
+    try {
+      await AdminApi.addNumber({ number: row.number, vapiPhoneId: row.id });
+      toast('Number added to the pool.', 'success');
+      load();
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not add that number.', 'error');
+    } finally {
+      setAddingId(null);
+    }
+  }
+
   async function create() {
     const code = areaCode.trim();
     if (code.length > 0 && !/^\d{3}$/.test(code)) {
@@ -87,11 +107,16 @@ export default function AdminNumbersPage() {
   }
 
   async function remove(row: PooledNumberRow) {
-    if (!window.confirm(`Remove ${formatPhone(row.number)} from the pool?`)) return;
+    if (
+      !window.confirm(
+        `Remove ${formatPhone(row.number)} from the pool? The number itself stays live on your Vapi account.`,
+      )
+    )
+      return;
     setRemovingId(row.id);
     try {
       await AdminApi.removeNumber(row.id);
-      toast('Number removed.', 'success');
+      toast('Number removed from the pool.', 'success');
       load();
     } catch (err) {
       toast(err instanceof ApiError ? err.message : 'Could not remove that number.', 'error');
@@ -144,9 +169,57 @@ export default function AdminNumbersPage() {
         </span>
         <span className="inline-flex items-center gap-2 rounded-xl border border-line/70 bg-white px-4 py-2.5 text-sm shadow-card">
           <span className="font-display text-lg font-semibold text-ink">{total}</span>
-          <span className="text-ink-muted">total</span>
+          <span className="text-ink-muted">in pool</span>
         </span>
+        {!vapiError && (
+          <span className="inline-flex items-center gap-2 rounded-xl border border-line/70 bg-white px-4 py-2.5 text-sm shadow-card">
+            <span className="font-display text-lg font-semibold text-ink">{vapiTotal}</span>
+            <span className="text-ink-muted">on your Vapi account</span>
+          </span>
+        )}
       </div>
+
+      {vapiError && (
+        <p className="rounded-xl border border-danger/25 bg-danger-soft/50 px-4 py-3 text-sm text-ink">
+          Couldn&apos;t read your live Vapi inventory ({vapiError}) The pool below still works, but numbers
+          that exist only in Vapi can&apos;t be shown until this clears.
+        </p>
+      )}
+
+      {unpooled.length > 0 && (
+        <Card>
+          <CardHeader
+            title="On your Vapi account, not in the pool"
+            description="These numbers exist in Vapi but customers can't claim them yet. Adding one points its webhook at VoiceFront first, so it can never look assigned and silently never ring."
+          />
+          <ul className="flex flex-col gap-2">
+            {unpooled.map((row) => (
+              <li
+                key={row.id}
+                className="flex items-center justify-between gap-3 rounded-xl border border-construction/25 bg-construction-soft/30 px-4 py-3"
+              >
+                <div className="min-w-0">
+                  <p className="font-mono text-sm font-medium text-ink">{formatPhone(row.number)}</p>
+                  <p className="text-xs text-ink-muted">Vapi ID {row.id}</p>
+                </div>
+                <div className="flex shrink-0 items-center gap-3">
+                  <Badge tone="warning" dot>
+                    Not in pool
+                  </Badge>
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    loading={addingId === row.id}
+                    onClick={() => addUnpooled(row)}
+                  >
+                    Add to pool
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
 
       {available === 0 && total > 0 && (
         <p className="rounded-xl border border-construction/25 bg-construction-soft/50 px-4 py-3 text-sm text-[#9a6a1d]">
@@ -184,7 +257,7 @@ export default function AdminNumbersPage() {
         <Card>
           <CardHeader
             title="Add existing number"
-            description="If you created a number in Vapi manually, paste it here with its Vapi ID."
+            description="For a number that already exists on your Vapi account. We verify it is really there and point its webhook at VoiceFront before pooling it."
           />
           <div className="grid gap-4">
             <Input
@@ -254,9 +327,9 @@ export default function AdminNumbersPage() {
                     disabled={Boolean(row.assignedTenantId)}
                     loading={removingId === row.id}
                     onClick={() => remove(row)}
-                    aria-label={`Remove ${row.number}`}
+                    aria-label={`Remove ${row.number} from the pool`}
                   >
-                    Remove
+                    Remove from pool
                   </Button>
                 </div>
               </li>
