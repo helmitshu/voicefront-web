@@ -110,7 +110,7 @@ export default function WaitlistPage() {
       )}
 
       {/* Filter tabs */}
-      <div className="inline-flex rounded-xl border border-line/70 bg-white p-1 shadow-input">
+      <div className="inline-flex rounded-xl border border-line/70 bg-card p-1 shadow-input">
         {FILTERS.map((f) => (
           <button
             key={f.value}
