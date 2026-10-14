@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { RequireAuth, useAuth } from '@/lib/auth-context';
 import { SignedInShell, type ShellNavItem } from '@/components/app-shell/SignedInShell';
+import { ThemeProvider } from '@/lib/theme';
 
 interface NavItem extends ShellNavItem {
   /** When true, only full admins (not SUPPORT operators) see this item. */
@@ -144,7 +145,7 @@ function AdminChrome({ children }: { children: ReactNode }) {
       homeHref="/admin"
       nav={nav}
       sidebarTop={
-        <span className="mx-2 mt-3 inline-flex w-fit items-center gap-1.5 rounded-full bg-signal/20 px-2.5 py-1 text-[11px] font-semibold text-signal-soft ring-1 ring-inset ring-signal/30">
+        <span className="mx-2 mt-3 inline-flex w-fit items-center gap-1.5 rounded-full bg-signal/20 px-2.5 py-1 text-[11px] font-semibold text-clinic ring-1 ring-inset ring-signal/30">
           <span className="h-1.5 w-1.5 rounded-full bg-signal" aria-hidden />
           {isFullAdmin ? 'Founder control center' : 'Support access'}
         </span>
@@ -185,7 +186,11 @@ function AdminChrome({ children }: { children: ReactNode }) {
 export default function AdminLayout({ children }: { children: ReactNode }) {
   return (
     <RequireAuth>
-      <AdminChrome>{children}</AdminChrome>
+      <ThemeProvider>
+        <div className="theme-root">
+          <AdminChrome>{children}</AdminChrome>
+        </div>
+      </ThemeProvider>
     </RequireAuth>
   );
 }
