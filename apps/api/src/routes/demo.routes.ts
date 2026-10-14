@@ -714,11 +714,14 @@ function holdClinicName(lead: HoldLeadFields | null): string {
  * STATE 7 — CLOSE). Labeled data, never a script: the canonical summary,
  * the clinic as resolved from the lead, the caller's first name from the
  * hold, and the new-patient flag with its arrive-early fact. Maya composes
- * the closing beats from these facts in her own words — the facts are
+ * the closing from these facts in her own words, across TWO turns — the
+ * confirmation beats plus the pivot question first, the trial line and
+ * ONE goodbye only after the caller answers — because a closing stacked
+ * into one long message is where a goodbye can double. The facts are
  * exact because they are built only from stored/validated fields, and the
- * closing's shape rules (fixed beat order, exactly one goodbye, short
- * beats) live in her CLOSE state. No thank-you/goodbye text appears here
- * at all, so there is no scripted paragraph for her to parrot or double.
+ * two-turn shape itself lives in her CLOSE state. No thank-you/goodbye
+ * text appears here at all, so there is no scripted paragraph for her to
+ * parrot or double.
  */
 function closingFactsResult(
   verb: string,
@@ -739,8 +742,10 @@ function closingFactsResult(
   ];
   return (
     `${verb}. Closing facts — ${facts.join('; ')}. ` +
-    'Close the call from these facts in your own words, in the CLOSE beats and in order: confirm the hold with the summary, ' +
-    'the real-service line, the new-patient note only if flagged, the free trial line, and ONE goodbye. Keep every fact exact. Then end the call.'
+    'Close the call from these facts in your own words, in TWO turns. Turn one: confirm the hold with the summary, ' +
+    'the real-service line, and the new-patient note only if flagged, then ask "Is there anything else I can help you with today?" ' +
+    'and stop — no trial line and no goodbye in turn one. Final turn, after they answer: the free trial line and ONE goodbye. ' +
+    'Keep every fact exact. Then end the call.'
   );
 }
 

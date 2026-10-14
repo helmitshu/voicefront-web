@@ -303,6 +303,14 @@ describe('POST /api/demo/hold — the closing facts card', () => {
     expect(result).toContain('held in this demo');
     expect(result).toContain("land straight on SmileCraft Dental's calendar");
     expect(result).toContain('ONE goodbye');
+    // The compose instruction teaches the same TWO-TURN close the prompt's
+    // CLOSE state carries: confirmation beats + pivot question first, the
+    // trial line and the one goodbye only after the caller answers.
+    expect(result).toContain('in TWO turns');
+    expect(result).toContain('Turn one: confirm the hold with the summary');
+    expect(result).toContain('ask "Is there anything else I can help you with today?"');
+    expect(result).toContain('no trial line and no goodbye in turn one');
+    expect(result).toContain('Final turn, after they answer: the free trial line and ONE goodbye');
     // And NO script: no read-verbatim instruction, no composed paragraph,
     // no thank-you/goodbye text for her to parrot or double.
     expect(result).not.toContain('word for word');
