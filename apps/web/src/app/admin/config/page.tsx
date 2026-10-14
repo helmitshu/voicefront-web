@@ -255,7 +255,7 @@ export default function AdminConfigPage() {
             </Button>
           </div>
           {demoEnabled === false && (
-            <p className="mt-2 text-sm text-[#9a6a1d]">The demo is turned off — turn it on above first.</p>
+            <p className="mt-2 text-sm text-construction">The demo is turned off — turn it on above first.</p>
           )}
           {testCallNote && <p className="mt-2 text-sm text-ink-muted">{testCallNote}</p>}
         </Card>
@@ -286,7 +286,7 @@ export default function AdminConfigPage() {
                   Calls post to:{' '}
                   <span className="text-ink">{webhook.webhookUrl ?? 'PUBLIC_API_URL not configured'}</span>
                   {webhook.webhookUrl && !webhook.productionSafe && webhook.reason && (
-                    <span className="block text-[#9a6a1d]">⚠ This is {webhook.reason}.</span>
+                    <span className="block text-construction">⚠ This is {webhook.reason}.</span>
                   )}
                 </p>
               )}
