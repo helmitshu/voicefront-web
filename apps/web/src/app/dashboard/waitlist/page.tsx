@@ -1,7 +1,8 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { WaitlistApi, ApiError, type WaitlistEntry, type WaitlistStatus } from '@/lib/api';
+import Link from 'next/link';
+import { SmsApi, WaitlistApi, ApiError, type WaitlistEntry, type WaitlistStatus } from '@/lib/api';
 import { useToast } from '@/components/ui/Toast';
 import { Badge, Card, CardHeader, EmptyState } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
@@ -28,6 +29,10 @@ export default function WaitlistPage() {
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<WaitlistStatus | 'ALL'>('WAITING');
   const [showForm, setShowForm] = useState(false);
+  // Whether automatic waitlist texts will actually fire for this workspace:
+  // true only when SMS is on AND the waitlist alert is on. null = the check
+  // itself failed, in which case the copy makes no promise either way.
+  const [autoText, setAutoText] = useState<boolean | null>(null);
 
   const load = useCallback(() => {
     const status = filter === 'ALL' ? undefined : filter;
@@ -41,6 +46,12 @@ export default function WaitlistPage() {
     setError(null);
     load();
   }, [load]);
+
+  useEffect(() => {
+    SmsApi.getSettings()
+      .then(({ available, settings }) => setAutoText(available && settings.enabled && settings.waitlist))
+      .catch(() => setAutoText(null));
+  }, []);
 
   async function changeStatus(id: string, status: WaitlistStatus) {
     try {
@@ -67,16 +78,36 @@ export default function WaitlistPage() {
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <h2 className="font-display text-[26px] font-semibold tracking-tight text-ink">Waitlist</h2>
-          <p className="mt-1.5 text-sm text-ink-muted">
-            People waiting for a spot. When a cancellation frees one up, the next person waiting is texted automatically.
-          </p>
+          {autoText === true ? (
+            <p className="mt-1.5 text-sm text-ink-muted">
+              People waiting for a spot. When a cancellation frees one up, the next person waiting is texted automatically.
+            </p>
+          ) : autoText === false ? (
+            <p className="mt-1.5 text-sm text-ink-muted">
+              People waiting for a spot. Automatic texts are off right now, so nobody here gets texted when a
+              spot opens.{' '}
+              <Link href="/dashboard/settings" className="font-semibold text-signal underline">
+                Turn on SMS and the waitlist alert in Settings
+              </Link>{' '}
+              to make it automatic.
+            </p>
+          ) : (
+            <p className="mt-1.5 text-sm text-ink-muted">
+              People waiting for a spot. When a cancellation frees one up, work down this list from the top.
+            </p>
+          )}
         </div>
         <Button onClick={() => setShowForm((s) => !s)} variant={showForm ? 'secondary' : 'primary'}>
           {showForm ? 'Close' : 'Add to waitlist'}
         </Button>
       </div>
 
-      {showForm && <AddForm onAdded={() => { setShowForm(false); setFilter('WAITING'); load(); }} />}
+      {showForm && (
+        <AddForm
+          autoText={autoText}
+          onAdded={() => { setShowForm(false); setFilter('WAITING'); load(); }}
+        />
+      )}
 
       {/* Filter tabs */}
       <div className="inline-flex rounded-xl border border-line/70 bg-white p-1 shadow-input">
@@ -103,7 +134,11 @@ export default function WaitlistPage() {
       ) : entries.length === 0 ? (
         <EmptyState
           title="Nobody waiting"
-          description="Add a customer who wanted a slot that was full. When a cancellation opens one up, we'll text the first person here."
+          description={
+            autoText === true
+              ? 'Add a customer who wanted a slot that was full. When a cancellation opens one up, we text the first person here automatically.'
+              : 'Add a customer who wanted a slot that was full. When a cancellation opens one up, they are first in line to be contacted.'
+          }
         />
       ) : (
         <Card padded={false}>
@@ -146,7 +181,7 @@ export default function WaitlistPage() {
   );
 }
 
-function AddForm({ onAdded }: { onAdded: () => void }) {
+function AddForm({ onAdded, autoText }: { onAdded: () => void; autoText: boolean | null }) {
   const { toast } = useToast();
   const [name, setName] = useState('');
   const [phone, setPhone] = useState('');
@@ -174,10 +209,19 @@ function AddForm({ onAdded }: { onAdded: () => void }) {
 
   return (
     <Card>
-      <CardHeader title="Add to waitlist" description="They'll be texted the moment a matching slot opens up." />
+      <CardHeader
+        title="Add to waitlist"
+        description={
+          autoText === true
+            ? "They'll be texted the moment a matching slot opens up."
+            : autoText === false
+              ? 'Automatic texts are off, so contact them yourself when a spot opens.'
+              : 'They join the front of the line for the next opening.'
+        }
+      />
       <div className="grid gap-4 sm:grid-cols-2">
         <Input label="Customer name" value={name} onChange={(e) => setName(e.target.value)} placeholder="Jordan Reyes" />
-        <Input label="Phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1 (555) 123-4567" hint="Used to text them when a spot opens." />
+        <Input label="Phone" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="+1 (555) 123-4567" hint="The number to reach them on when a spot opens." />
       </div>
       <div className="mt-4">
         <Textarea label="Note (optional)" rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Any morning next week · prefers Dr. Lee · after 5pm…" maxLength={500} />
