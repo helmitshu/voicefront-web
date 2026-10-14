@@ -159,20 +159,20 @@ export default function AdminNumbersPage() {
       </div>
 
       <div className="flex flex-wrap gap-3">
-        <span className="inline-flex items-center gap-2 rounded-xl border border-line/70 bg-white px-4 py-2.5 text-sm shadow-card">
+        <span className="inline-flex items-center gap-2 rounded-xl border border-line/70 bg-card px-4 py-2.5 text-sm shadow-card">
           <span className="font-display text-lg font-semibold text-ink">{available}</span>
           <span className="text-ink-muted">available</span>
         </span>
-        <span className="inline-flex items-center gap-2 rounded-xl border border-line/70 bg-white px-4 py-2.5 text-sm shadow-card">
+        <span className="inline-flex items-center gap-2 rounded-xl border border-line/70 bg-card px-4 py-2.5 text-sm shadow-card">
           <span className="font-display text-lg font-semibold text-ink">{total - available}</span>
           <span className="text-ink-muted">assigned</span>
         </span>
-        <span className="inline-flex items-center gap-2 rounded-xl border border-line/70 bg-white px-4 py-2.5 text-sm shadow-card">
+        <span className="inline-flex items-center gap-2 rounded-xl border border-line/70 bg-card px-4 py-2.5 text-sm shadow-card">
           <span className="font-display text-lg font-semibold text-ink">{total}</span>
           <span className="text-ink-muted">in pool</span>
         </span>
         {!vapiError && (
-          <span className="inline-flex items-center gap-2 rounded-xl border border-line/70 bg-white px-4 py-2.5 text-sm shadow-card">
+          <span className="inline-flex items-center gap-2 rounded-xl border border-line/70 bg-card px-4 py-2.5 text-sm shadow-card">
             <span className="font-display text-lg font-semibold text-ink">{vapiTotal}</span>
             <span className="text-ink-muted">on your Vapi account</span>
           </span>
@@ -222,7 +222,7 @@ export default function AdminNumbersPage() {
       )}
 
       {available === 0 && total > 0 && (
-        <p className="rounded-xl border border-construction/25 bg-construction-soft/50 px-4 py-3 text-sm text-[#9a6a1d]">
+        <p className="rounded-xl border border-construction/25 bg-construction-soft/50 px-4 py-3 text-sm text-construction">
           No numbers are available — the next customer to activate won&apos;t get one until you add more.
         </p>
       )}
