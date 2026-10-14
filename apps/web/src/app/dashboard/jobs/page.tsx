@@ -103,7 +103,7 @@ export default function JobsPage() {
       )}
 
       {/* Filter tabs */}
-      <div className="inline-flex rounded-xl border border-line/70 bg-white p-1 shadow-input">
+      <div className="inline-flex rounded-xl border border-line/70 bg-card p-1 shadow-input">
         {FILTERS.map((f) => (
           <button
             key={f.value}
@@ -244,7 +244,7 @@ function AddForm({ onAdded }: { onAdded: () => void }) {
           <select
             value={urgency}
             onChange={(e) => setUrgency(e.target.value as JobUrgency)}
-            className="w-full rounded-xl border border-line/80 bg-white px-3 py-2.5 text-sm text-ink shadow-input focus:border-signal focus:outline-none focus:ring-2 focus:ring-signal/30"
+            className="w-full rounded-xl border border-line/80 bg-card px-3 py-2.5 text-sm text-ink shadow-input focus:border-signal focus:outline-none focus:ring-2 focus:ring-signal/30"
           >
             <option value="EMERGENCY">Emergency</option>
             <option value="URGENT">Urgent</option>
