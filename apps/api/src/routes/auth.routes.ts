@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { z } from 'zod';
@@ -13,6 +14,7 @@ import { getAuth, requireAuth } from '../middleware/auth';
 import { requiresInvite, inviteOnlyIndustries } from '../config/env';
 import { resolvePlatformRole } from '../services/platform-admin.service';
 import { consumeAccessCode } from '../services/access-code.service';
+import { verifyGoogleIdToken } from '../services/google-auth.service';
 import { getOnboarding, toOnboardingView } from '../services/onboarding.service';
 
 export const authRouter = Router();
@@ -226,6 +228,131 @@ authRouter.post(
     const token = signAccessToken({ userId: user.id, tenantId: user.tenantId, role: user.role });
     const me = await buildMe(user.id);
     res.json({ token, ...me });
+  }),
+);
+
+const GoogleSchema = z.object({
+  /** Google Identity Services ID token (the GIS `credential` value). */
+  credential: z.string().min(1),
+  /** Optional industry selected in the signup form. */
+  industry: z.enum(['CLINIC', 'CONSTRUCTION']).optional(),
+});
+
+/**
+ * Default industry for workspaces created through Google sign-up when the
+ * request does not carry the form's selected industry. New workspaces use
+ * the sign-in name as a provisional company name; the owner finishes the
+ * profile in onboarding. Whether the request-selected or default industry
+ * is used, the invite gate is mirrored from /register, so an invite-only
+ * industry refuses with CODE_REQUIRED instead of slipping past the gate
+ * (operators bypass, as with /register).
+ */
+const DEFAULT_GOOGLE_SIGNUP_INDUSTRY = 'CONSTRUCTION' as const;
+
+authRouter.post(
+  '/google',
+  authLimiter,
+  asyncHandler(async (req, res) => {
+    const body = GoogleSchema.parse(req.body);
+    const profile = await verifyGoogleIdToken(body.credential);
+
+    const existing = await prisma.user.findUnique({
+      where: { email: profile.email },
+      include: { tenant: { select: { isBlocked: true } } },
+    });
+    if (existing) {
+      // Same suspension rule as password login.
+      if (existing.tenant.isBlocked) {
+        throw new HttpError(403, 'This account has been suspended. Please contact support.', 'ACCOUNT_SUSPENDED');
+      }
+      const token = signAccessToken({
+        userId: existing.id,
+        tenantId: existing.tenantId,
+        role: existing.role,
+      });
+      const me = await buildMe(existing.id);
+      res.json({ token, ...me });
+      return;
+    }
+
+    const signupIndustry = body.industry ?? DEFAULT_GOOGLE_SIGNUP_INDUSTRY;
+    const isOperator = (await resolvePlatformRole(profile.email)) !== null;
+    if (!isOperator && requiresInvite(signupIndustry)) {
+      throw new HttpError(
+        403,
+        'This kind of workspace is invitation-only. Please sign up with your email so you can enter your invitation code.',
+        'CODE_REQUIRED',
+      );
+    }
+
+    // The schema's password column is non-nullable, so a Google account
+    // stores a hash of a random secret nobody knows (never issued, never
+    // shown): password login for it is impossible, Google is the only way
+    // in, and "forgot password" style recovery is a non-issue.
+    const passwordHash = await hashPassword(randomBytes(32).toString('base64url'));
+    const persona = industryPersona(signupIndustry);
+    const defaults = industryDefaults(signupIndustry, {
+      companyName: profile.fullName,
+      personaName: persona.personaName,
+    });
+
+    // Same atomic unit as /register (tenant + owner + onboarding +
+    // settings), with the same slug-collision retry.
+    const baseSlug = toSlug(profile.fullName);
+    let lastError: unknown = null;
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const slug = attempt === 0 ? baseSlug : `${baseSlug}-${randomSuffix()}`;
+      try {
+        const result = await prisma.$transaction(async (tx) => {
+          const tenant = await tx.tenant.create({
+            data: { companyName: profile.fullName, industry: signupIndustry, slug },
+          });
+          const user = await tx.user.create({
+            data: {
+              tenantId: tenant.id,
+              email: profile.email,
+              fullName: profile.fullName,
+              passwordHash,
+              role: 'OWNER',
+            },
+          });
+          await tx.onboardingStatus.create({ data: { tenantId: tenant.id } });
+          await tx.agentSettings.create({
+            data: {
+              tenantId: tenant.id,
+              displayName: persona.personaName,
+              voiceId: persona.voiceId,
+              systemPrompt: defaults.systemPrompt,
+              firstMessage: defaults.firstMessage,
+              voicemailGreeting: defaults.voicemailGreeting,
+              businessHours: defaultBusinessHours() as unknown as Prisma.InputJsonValue,
+              forwardingNumbers: [] as unknown as Prisma.InputJsonValue,
+            },
+          });
+          return { tenant, user };
+        });
+
+        const token = signAccessToken({
+          userId: result.user.id,
+          tenantId: result.tenant.id,
+          role: result.user.role,
+        });
+        const me = await buildMe(result.user.id);
+        res.status(201).json({ token, ...me });
+        return;
+      } catch (err) {
+        lastError = err;
+        const code = (err as { code?: unknown })?.code;
+        const target = (err as { meta?: { target?: unknown } })?.meta?.target;
+        const isSlugCollision =
+          code === 'P2002' && Array.isArray(target) && target.includes('slug');
+        if (!isSlugCollision) throw err;
+        // else: loop and retry with a suffixed slug
+      }
+    }
+    throw lastError instanceof Error
+      ? lastError
+      : new HttpError(500, 'Could not create your workspace. Please try again.', 'INTERNAL');
   }),
 );
 
