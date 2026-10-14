@@ -92,6 +92,14 @@ describe('buildAssistantUpdatePayload (persistent assistant)', () => {
     expect(payload.messagePlan?.idleMessages.length).toBeGreaterThan(0);
   });
 
+  it('keeps the stock platform end-call message (tenant production is unchanged)', () => {
+    // Only the personalized demo assistant drops endCallMessage, and it
+    // does so downstream in demo.routes.ts — the persistent tenant
+    // payload keeps the configured goodbye byte-identical.
+    const payload = buildAssistantUpdatePayload(tenant, settings());
+    expect(payload.endCallMessage).toBe('Thanks so much for calling Acme Dental — take care now, bye!');
+  });
+
   it('attaches the job-capture tool + intake prompt for a trades workspace', () => {
     const trades = { id: 't2', companyName: 'Acme Plumbing', industry: 'CONSTRUCTION' } as Pick<
       Tenant,
@@ -262,6 +270,16 @@ describe('buildTransientAssistant assistant name cap', () => {
     });
     expect(byOverride.name).toBe('Ava · VoiceFront (demo)');
   });
+
+  it('still carries the stock platform end-call message by default', () => {
+    // The builder default is unchanged: sales and inbound assistants keep
+    // the configured goodbye. Only the personalized demo route deletes
+    // the property from its assistant before placing the call.
+    const assistant = buildTransientAssistant(tenant, settings(), 'phone', new Date());
+    expect(assistant.endCallMessage).toBe(
+      'Thanks so much for calling Acme Dental — take care now, bye!',
+    );
+  });
 });
 
 describe('buildTransientAssistant holdAppointment (function-gated booking)', () => {
@@ -282,11 +300,15 @@ describe('buildTransientAssistant holdAppointment (function-gated booking)', () 
       'action',
       'callbackNumber',
       'date',
+      'newPatient',
       'patientName',
       'service',
       'time',
     ]);
     expect(tool.function.parameters.properties.action?.enum).toEqual(['hold', 'change', 'cancel']);
+    expect(tool.function.parameters.properties.newPatient?.type).toBe('boolean');
+    // Optional: hold/change still work when the model omits it.
+    expect(tool.function.parameters.required).not.toContain('newPatient');
   });
 
   it('omits the secret key entirely when no server secret is configured', () => {

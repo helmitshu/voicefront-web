@@ -95,7 +95,9 @@ export interface TransientAssistant {
   /** Spoken nudges if the caller goes quiet, instead of dead air. */
   messagePlan?: { idleMessages: string[]; idleTimeoutSeconds: number; idleMessageMaxSpokenCount: number };
   voicemailMessage: string;
-  endCallMessage: string;
+  /** Optional: the personalized demo deletes it (see demo.routes.ts) so the
+   *  model owns the close and Vapi never speaks a second, configured goodbye. */
+  endCallMessage?: string;
   maxDurationSeconds: number;
   /** Ends the call after this many seconds of total silence — cuts dead-air
    *  robocalls fast without ever interrupting a live caller. */
