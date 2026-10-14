@@ -59,7 +59,7 @@ export function FeaturesPanel({ tenantId }: { tenantId: string }) {
               <div className="flex items-center gap-2">
                 <p className="text-sm font-semibold text-ink">{f.label}</p>
                 {f.effective ? (
-                  <span className="rounded-full bg-clinic-soft px-2 py-0.5 text-[11px] font-semibold text-[#0b8a74]">
+                  <span className="rounded-full bg-clinic-soft px-2 py-0.5 text-[11px] font-semibold text-clinic">
                     Live
                   </span>
                 ) : (
