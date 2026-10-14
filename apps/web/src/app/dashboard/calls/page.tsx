@@ -49,6 +49,7 @@ export default function CallsPage() {
   const [urgency, setUrgency] = useState('');
   const [lead, setLead] = useState('');
   const [page, setPage] = useState(1);
+  const [reloadKey, setReloadKey] = useState(0);
   const [result, setResult] = useState<ListCallsResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -93,7 +94,7 @@ export default function CallsPage() {
         setLoading(false);
       });
     return () => controller.abort();
-  }, [page, debouncedSearch, range, outcome, urgency, lead]);
+  }, [page, debouncedSearch, range, outcome, urgency, lead, reloadKey]);
 
   // Changing any outcome filter jumps back to the first page of results.
   function setFilter(setter: (v: string) => void, value: string) {
@@ -183,7 +184,7 @@ export default function CallsPage() {
               title="Couldn't load calls"
               description={error}
               action={
-                <Button variant="secondary" onClick={() => setPage((p) => p)}>
+                <Button variant="secondary" onClick={() => setReloadKey((k) => k + 1)}>
                   Try again
                 </Button>
               }
