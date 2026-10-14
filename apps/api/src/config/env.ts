@@ -50,6 +50,17 @@ const EnvSchema = z.object({
    */
   GOOGLE_OAUTH_CLIENT_ID: z.string().optional(),
   GOOGLE_OAUTH_CLIENT_SECRET: z.string().optional(),
+  /**
+   * OAuth client ID for "Continue with Google" sign-in (Google Identity
+   * Services ID-token flow). The browser posts an ID token and the API
+   * verifies it against this audience — no client secret exists in this
+   * flow. Optional — when unset, POST /api/auth/google refuses with
+   * GOOGLE_AUTH_NOT_CONFIGURED and the web hides the button. Distinct from
+   * GOOGLE_OAUTH_CLIENT_ID above, which belongs to the calendar-sync
+   * auth-code app. The web app needs the same value as
+   * NEXT_PUBLIC_GOOGLE_CLIENT_ID.
+   */
+  GOOGLE_CLIENT_ID: z.string().optional(),
   MICROSOFT_OAUTH_CLIENT_ID: z.string().optional(),
   MICROSOFT_OAUTH_CLIENT_SECRET: z.string().optional(),
   /**
