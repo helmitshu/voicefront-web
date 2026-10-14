@@ -383,6 +383,7 @@ describe('POST /api/admin/demo/test-call', () => {
         maxDurationSeconds: number;
         metadata: { demoSessionId?: string };
         model: {
+          messages: Array<{ content: string }>;
           tools?: Array<{
             type: string;
             server?: { url: string };
@@ -400,6 +401,14 @@ describe('POST /api/admin/demo/test-call', () => {
     expect(tools).toHaveLength(1);
     expect(tools[0]?.function?.name).toBe('hold_appointment');
     expect(tools[0]?.server?.url).toBe('https://api.example.test/api/demo/hold');
+
+    // The spine prompt with the owner's known data rides along on this
+    // path too: his name and his own dialed number, to confirm, not ask.
+    const prompt = arg.assistant.model.messages[0]?.content ?? '';
+    expect(prompt).toContain('STATE 7 — CLOSE');
+    const knownBlock = prompt.slice(prompt.indexOf('WHAT YOU ALREADY KNOW'), prompt.indexOf('STATE 1 — GREET'));
+    expect(knownBlock).toContain('The name on the demo request: Hakim');
+    expect(knownBlock).toContain('The number you dialed for this call: +1 514 431 5049');
 
     // Audited like every other admin mutation.
     expect(recordAdminAction).toHaveBeenCalledWith(

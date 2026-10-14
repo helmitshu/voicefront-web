@@ -400,6 +400,13 @@ describe('POST /api/demo/call demo kinds', () => {
     const prompt = arg.assistant.model.messages[0]?.content ?? '';
     expect(prompt).toContain('Maple Dental Studio');
     expect(prompt).toContain('held in this demo');
+    // Known data (Call Map v1): the lead's name and the number being
+    // dialed ride in as already-known, in their own block, for Maya to
+    // confirm rather than collect cold.
+    const knownBlock = prompt.slice(prompt.indexOf('WHAT YOU ALREADY KNOW'), prompt.indexOf('STATE 1 — GREET'));
+    expect(knownBlock).toContain('The name on the demo request: Jordan Reyes');
+    expect(knownBlock).toContain('The number you dialed for this call: +1 604 555 0182');
+    expect(knownBlock).toContain('is it the one I just called you on?');
     // The fragment rule rides along: no booking a time off a cut-off word,
     // and a bare approval of a list of times is not a booking either.
     expect(prompt).toContain('NEVER BOOK A TIME THE CALLER DID NOT CLEARLY CHOOSE');
@@ -422,6 +429,7 @@ describe('POST /api/demo/call demo kinds', () => {
       'action',
       'callbackNumber',
       'date',
+      'newPatient',
       'patientName',
       'service',
       'time',

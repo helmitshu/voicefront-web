@@ -260,3 +260,120 @@ describe('POST /api/demo/hold', () => {
     expect(firstResult(json)).toMatch(/already/i);
   });
 });
+
+describe('POST /api/demo/hold — the closing facts card', () => {
+  const SMILECRAFT_LEAD = {
+    id: 'lead1',
+    businessName: 'SmileCraft Dental',
+    factsJson: { businessName: 'SmileCraft Dental' },
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(prisma.demoLead.findFirst).mockResolvedValue(SMILECRAFT_LEAD as never);
+    vi.mocked(prisma.demoHold.findUnique).mockResolvedValue(null);
+    vi.mocked(prisma.demoHold.create).mockImplementation(
+      async (args: never) => ({ ...(args as { data: object }).data, id: 'hold1' }) as never,
+    );
+  });
+
+  it('returns labeled closing FACTS on a successful hold — no scripted closing anywhere in the result', async () => {
+    const { status, json } = await postHold(
+      holdPayload({
+        action: 'hold',
+        service: 'cleaning',
+        date: '2026-10-14',
+        time: '09:30',
+        patientName: 'Hakim El Mitshu',
+        callbackNumber: '+15144315049',
+        newPatient: true,
+      }),
+      SECRET,
+    );
+    expect(status).toBe(200);
+    const result = firstResult(json);
+    // Every fact the CLOSE state composes from, labeled, built only from
+    // stored/validated fields.
+    expect(result).toContain('Hold created. Closing facts — ');
+    expect(result).toContain('summary: a cleaning on Wednesday, October 14th at 9:30 AM');
+    expect(result).toContain('clinic: SmileCraft Dental');
+    expect(result).toContain('caller first name: Hakim');
+    expect(result).toContain('new patient: yes');
+    expect(result).toContain('arriving fifteen minutes early for paperwork and bringing an insurance card');
+    expect(result).toContain('held in this demo');
+    expect(result).toContain("land straight on SmileCraft Dental's calendar");
+    expect(result).toContain('ONE goodbye');
+    // And NO script: no read-verbatim instruction, no composed paragraph,
+    // no thank-you/goodbye text for her to parrot or double.
+    expect(result).not.toContain('word for word');
+    expect(result).not.toContain('Read this closing');
+    expect(result).not.toContain('Perfect. I have you held in this demo for');
+    expect(result).not.toContain('Thanks so much for calling');
+    expect(result).not.toContain('Take care now');
+  });
+
+  it('flags new patient: no (and no arrive-early fact) when the caller is not a new patient', async () => {
+    const { json } = await postHold(
+      holdPayload({
+        action: 'hold',
+        service: 'cleaning',
+        date: '2026-10-14',
+        time: '09:30',
+        patientName: 'Hakim El Mitshu',
+        callbackNumber: '+15144315049',
+      }),
+      SECRET,
+    );
+    const result = firstResult(json);
+    expect(result).toContain('Closing facts');
+    expect(result).toContain('caller first name: Hakim');
+    expect(result).toContain('new patient: no');
+    expect(result).not.toContain('fifteen minutes early');
+  });
+
+  it('returns closing facts carrying the NEW summary on "change"', async () => {
+    vi.mocked(prisma.demoHold.findUnique).mockResolvedValue(makeRow() as never);
+    vi.mocked(prisma.demoHold.update).mockImplementation(
+      async (args: never) => ({ ...makeRow(), ...(args as { data: object }).data }) as never,
+    );
+    const { status, json } = await postHold(
+      holdPayload({ action: 'change', date: '2026-10-14', time: '12:00', newPatient: false }),
+      SECRET,
+    );
+    expect(status).toBe(200);
+    const result = firstResult(json);
+    expect(result).toContain('Hold changed. Closing facts — ');
+    expect(result).toContain('summary: a cleaning on Wednesday, October 14th at 12 PM');
+    expect(result).toContain('clinic: SmileCraft Dental');
+    expect(result).toContain('caller first name: Jordan');
+    expect(result).toContain('new patient: no');
+    expect(result).not.toContain('fifteen minutes early');
+    expect(result).not.toContain('Thanks so much for calling');
+  });
+
+  it('resolves the clinic name from the lead businessName when the stored facts carry none', async () => {
+    vi.mocked(prisma.demoLead.findFirst).mockResolvedValue({
+      id: 'lead1',
+      businessName: 'Maple Dental Studio',
+      factsJson: null,
+    } as never);
+    const { json } = await postHold(holdPayload(HOLD_ARGS), SECRET);
+    const result = firstResult(json);
+    expect(result).toContain('clinic: Maple Dental Studio');
+    expect(result).toContain("land straight on Maple Dental Studio's calendar");
+    expect(result).toContain('caller first name: Jordan');
+  });
+
+  it('cancel keeps its plain confirmation shape — no facts card attached', async () => {
+    vi.mocked(prisma.demoHold.findUnique).mockResolvedValue(makeRow() as never);
+    vi.mocked(prisma.demoHold.update).mockImplementation(
+      async (args: never) => ({ ...makeRow(), ...(args as { data: object }).data }) as never,
+    );
+    const { json } = await postHold(holdPayload({ action: 'cancel' }), SECRET);
+    const result = firstResult(json);
+    expect(result).toMatch(/cancelled/i);
+    expect(result).not.toContain('Closing facts');
+    expect(result).not.toContain('free trial');
+    expect(result).not.toContain('held in this demo for');
+  });
+});

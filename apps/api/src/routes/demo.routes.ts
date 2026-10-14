@@ -317,11 +317,22 @@ function factsFromJson(value: unknown): Record<string, unknown> | null {
  * builder defaults. No founder/screen tooling, and a hard five-minute cap
  * (this is a taste of the product, not the product).
  */
+/**
+ * Display form of the number a demo call dialed ("+15144315049" →
+ * "+1 514 431 5049") — the shape Maya can speak and a caller recognizes
+ * as their own. Non-NANP numbers pass through in E.164.
+ */
+function dialedNumberDisplay(e164: string): string {
+  const m = /^\+1(\d{3})(\d{3})(\d{4})$/.exec(e164);
+  return m ? `+1 ${m[1]} ${m[2]} ${m[3]}` : e164;
+}
+
 async function buildReceptionistAssistant(
   session: Awaited<ReturnType<typeof startDemoSession>>,
   leadRow: { name: string; businessName: string | null; factsJson: unknown },
   prospectName: string | undefined,
   confirmedFacts: ClinicFacts | undefined,
+  customerNumber?: string,
 ): Promise<TransientAssistant> {
   const tz = session.bundle.settings.timezone;
   const now = new Date();
@@ -342,6 +353,11 @@ async function buildReceptionistAssistant(
     clinicName,
     facts,
     prospectFirstName: firstName(prospectName ?? leadRow.name),
+    // Known data (Call Map v1): the lead's name and the number this call
+    // dials. Maya confirms both in COLLECT instead of collecting them
+    // cold. Either is null only when the path genuinely lacks it.
+    prospectName: sanitizeDemoText(prospectName ?? leadRow.name, 80) || null,
+    prospectPhone: customerNumber ? dialedNumberDisplay(customerNumber) : null,
     timezone: tz,
     localToday,
     displayDay: { date: session.day.date, label: session.day.dayLabel },
@@ -412,6 +428,7 @@ async function placeReceptionistDemoCall(input: {
     input.lead,
     input.prospectName,
     input.confirmedFacts,
+    input.customerNumber,
   );
   const call = await placeOutboundCall({
     phoneNumberId: input.callerId.id,
@@ -533,7 +550,13 @@ export async function placeOwnerDemoTestCall(
  * "booking" in prose (on a real test call she silently held TWO pretend
  * appointments side by side). So the hold is server state now: a hold
  * exists only when this endpoint creates a DemoHold row, and it enforces
- * exactly one live hold per call.
+ * exactly one live hold per call. A successful hold/change also returns
+ * the CLOSING FACTS (Call Map v1, STATE 7 — CLOSE): the canonical summary,
+ * the clinic, the caller's first name, and the new-patient flag, all from
+ * stored fields. Maya composes the closing beats from those facts in her
+ * own words — facts stay server-exact, the delivery stays hers. (An
+ * earlier design returned a verbatim closing script for her to read;
+ * it was superseded by the owner's hard-spine/living-surface principle.)
  *
  * Auth + correlation follow the platform's webhook discipline, but
  * stricter than the main /api/vapi/inbound webhook: the tool carries the
@@ -669,6 +692,58 @@ interface DemoHoldFields {
   status: string;
 }
 
+/** The lead fields the hold endpoint resolves the closing's clinic name
+ *  from — the same sources, in the same order, as buildReceptionistAssistant
+ *  (minus the confirm-step edits, which are never stored on the lead). */
+interface HoldLeadFields {
+  businessName: string | null;
+  factsJson: unknown;
+}
+
+function holdClinicName(lead: HoldLeadFields | null): string {
+  const storedFacts = factsFromJson(lead?.factsJson ?? null) as ClinicFacts | null;
+  return (
+    sanitizeDemoText(storedFacts?.businessName, 60) ||
+    sanitizeDemoText(lead?.businessName, 60) ||
+    'the clinic'
+  );
+}
+
+/**
+ * The CLOSING FACTS card a successful hold/change hands back (Call Map v1,
+ * STATE 7 — CLOSE). Labeled data, never a script: the canonical summary,
+ * the clinic as resolved from the lead, the caller's first name from the
+ * hold, and the new-patient flag with its arrive-early fact. Maya composes
+ * the closing beats from these facts in her own words — the facts are
+ * exact because they are built only from stored/validated fields, and the
+ * closing's shape rules (fixed beat order, exactly one goodbye, short
+ * beats) live in her CLOSE state. No thank-you/goodbye text appears here
+ * at all, so there is no scripted paragraph for her to parrot or double.
+ */
+function closingFactsResult(
+  verb: string,
+  lead: HoldLeadFields | null,
+  row: DemoHoldFields,
+  newPatient: boolean,
+): string {
+  const clinicName = holdClinicName(lead);
+  const first = firstName(row.patientName ?? undefined);
+  const facts = [
+    `summary: ${holdSummary(row)}`,
+    `clinic: ${clinicName}`,
+    ...(first ? [`caller first name: ${first}`] : []),
+    newPatient
+      ? 'new patient: yes — mention arriving fifteen minutes early for paperwork and bringing an insurance card'
+      : 'new patient: no',
+    `held in this demo — in the real service this would land straight on ${clinicName}'s calendar and the caller would get a confirmation`,
+  ];
+  return (
+    `${verb}. Closing facts — ${facts.join('; ')}. ` +
+    'Close the call from these facts in your own words, in the CLOSE beats and in order: confirm the hold with the summary, ' +
+    'the real-service line, the new-patient note only if flagged, the free trial line, and ONE goodbye. Keep every fact exact. Then end the call.'
+  );
+}
+
 /**
  * Applies one hold_appointment call to the call's DemoHold row and returns
  * the speakable tool result. Every refusal is a sentence the model can act
@@ -678,6 +753,7 @@ async function applyHold(
   demoSessionId: string,
   externalCallId: string,
   rawArgs: Record<string, unknown>,
+  lead: HoldLeadFields | null,
 ): Promise<string> {
   const action = sanitizeDemoText(rawArgs.action, 10);
   const service = sanitizeDemoText(rawArgs.service, 60);
@@ -685,6 +761,9 @@ async function applyHold(
   const time = sanitizeDemoText(rawArgs.time, 5);
   const patientName = sanitizeDemoText(rawArgs.patientName, 60);
   const callbackNumber = sanitizeDemoText(rawArgs.callbackNumber, 32);
+  // Only an explicit boolean true counts — the closing adds the
+  // arrive-early note solely on the model's positive say-so.
+  const newPatient = rawArgs.newPatient === true || rawArgs.newPatient === 'true';
 
   const existing = (await prisma.demoHold.findUnique({
     where: { externalCallId },
@@ -711,7 +790,7 @@ async function applyHold(
     const row = existing
       ? await prisma.demoHold.update({ where: { externalCallId }, data: fields })
       : await prisma.demoHold.create({ data: { demoSessionId, externalCallId, ...fields } });
-    return `Hold created: ${holdSummary(row)}. Confirm it to the caller using exactly that summary.`;
+    return closingFactsResult('Hold created', lead, row as DemoHoldFields, newPatient);
   }
 
   if (action === 'change') {
@@ -732,7 +811,7 @@ async function applyHold(
         status: 'CHANGED',
       },
     });
-    return `Hold changed: ${holdSummary(row)}. Confirm it to the caller using exactly that summary.`;
+    return closingFactsResult('Hold changed', lead, row as DemoHoldFields, newPatient);
   }
 
   if (action === 'cancel') {
@@ -760,9 +839,14 @@ demoRouter.post(
     const externalCallId = message?.call?.id;
     // A tool call is honored only for a session the demo flow actually
     // created (a captured DemoLead row) — anything else is refused in-band.
+    // The lookup also carries the lead's name sources, which the closing
+    // builder resolves the clinic name from.
     const knownSession =
       demoSessionId && externalCallId
-        ? await prisma.demoLead.findFirst({ where: { demoSessionId }, select: { id: true } })
+        ? await prisma.demoLead.findFirst({
+            where: { demoSessionId },
+            select: { id: true, businessName: true, factsJson: true },
+          })
         : null;
     const results: Array<{ toolCallId: string; result: string }> = [];
     for (const call of calls) {
@@ -772,7 +856,12 @@ demoRouter.post(
         result = HOLD_UNAVAILABLE;
       } else {
         try {
-          result = await applyHold(demoSessionId, externalCallId, parseHoldArguments(call.arguments ?? call.function?.arguments));
+          result = await applyHold(
+            demoSessionId,
+            externalCallId,
+            parseHoldArguments(call.arguments ?? call.function?.arguments),
+            knownSession,
+          );
         } catch {
           result = HOLD_UNAVAILABLE;
         }
