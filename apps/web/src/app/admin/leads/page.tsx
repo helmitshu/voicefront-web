@@ -409,7 +409,7 @@ export default function LeadsPage() {
             { label: 'With phone', value: stats.withPhone },
             { label: 'Emailed', value: stats.byStatus.emailed ?? 0 },
           ].map((s) => (
-            <div key={s.label} className="rounded-2xl border border-line/70 bg-white p-4 shadow-card">
+            <div key={s.label} className="rounded-2xl border border-line/70 bg-card p-4 shadow-card">
               <p className="font-display text-2xl font-bold tabular-nums text-ink">{s.value}</p>
               <p className="mt-0.5 text-xs text-ink-muted">{s.label}</p>
             </div>
@@ -431,7 +431,7 @@ export default function LeadsPage() {
               key={c.label}
               type="button"
               onClick={() => { c.apply(); setPage(1); }}
-              className="rounded-full border border-line bg-white px-3 py-1.5 text-[12.5px] font-medium text-ink-muted transition-colors hover:border-signal/40 hover:text-ink"
+              className="rounded-full border border-line bg-card px-3 py-1.5 text-[12.5px] font-medium text-ink-muted transition-colors hover:border-signal/40 hover:text-ink"
             >
               {c.label}
             </button>
@@ -704,7 +704,7 @@ export default function LeadsPage() {
           onClick={() => setPreviewLead(null)}
         >
           <div
-            className="my-auto w-full max-w-2xl overflow-hidden rounded-2xl border border-line/70 bg-white shadow-lift"
+            className="my-auto w-full max-w-2xl overflow-hidden rounded-2xl border border-line/70 bg-card shadow-lift"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between gap-3 border-b border-line/60 px-5 py-3.5">
@@ -758,7 +758,7 @@ export default function LeadsPage() {
                   </Button>
                   <a
                     href={`mailto:${previewLead.email}?subject=${encodeURIComponent(previewEmail.subject)}&body=${encodeURIComponent(previewEmail.text)}`}
-                    className="rounded-full border border-line bg-white px-3.5 py-1.5 text-[13px] font-semibold text-ink shadow-input transition-colors hover:border-ink-muted/40"
+                    className="rounded-full border border-line bg-card px-3.5 py-1.5 text-[13px] font-semibold text-ink shadow-input transition-colors hover:border-ink-muted/40"
                   >
                     Open in mail app
                   </a>
