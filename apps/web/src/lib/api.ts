@@ -651,6 +651,19 @@ export const AdminApi = {
     api<SalesConfig>('/api/admin/demo/sales-config', { method: 'PATCH', body: patch }),
   demoCalls: (signal?: AbortSignal) =>
     api<{ calls: DemoCallRecord[] }>('/api/admin/demo/calls', { signal }),
+  /** Owner-only: place the personalized receptionist demo call to your own
+   *  phone straight from the backend — no landing form, no bot check, no cap.
+   *  Maya answers as the clinic on the given website. */
+  demoTestCall: (websiteUrl: string) =>
+    api<{
+      ok: true;
+      callId: string;
+      fromNumber: string;
+      sessionId: string;
+      leadId: string;
+      clinicName: string;
+      facts: ClinicFacts;
+    }>('/api/admin/demo/test-call', { method: 'POST', body: { websiteUrl } }),
   demoNumbers: (signal?: AbortSignal) =>
     api<{ available: VapiNumberOption[]; assigned: DemoNumbers }>('/api/admin/demo/numbers', { signal }),
   setDemoNumbers: (patch: { us?: VapiNumberOption | null; ca?: VapiNumberOption | null }) =>
