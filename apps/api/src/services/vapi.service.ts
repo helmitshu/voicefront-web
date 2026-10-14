@@ -183,21 +183,82 @@ export interface VapiNumberOption {
 }
 
 /**
+ * Lists the phone numbers on the connected Vapi account (id + E.164),
+ * STRICTLY: throws HttpError when Vapi can't be reached or answers with an
+ * error. Callers that must tell "Vapi has no numbers" apart from "we could
+ * not ask Vapi" (inventory and provisioning flows) use this; purely cosmetic
+ * pickers use the best-effort listVapiPhoneNumbers below.
+ */
+export async function fetchVapiPhoneNumbers(): Promise<VapiNumberOption[]> {
+  const res = await vapiFetch('/phone-number', { method: 'GET' });
+  if (!res.ok) {
+    const { code, message } = explainStatus(res.status);
+    throw new HttpError(502, message, code);
+  }
+  const numbers = (await res.json()) as VapiPhoneNumber[];
+  if (!Array.isArray(numbers)) {
+    throw new HttpError(502, 'Vapi returned an unexpected response listing numbers.', 'VAPI_ERROR');
+  }
+  return numbers
+    .filter((n): n is VapiPhoneNumber & { number: string } => typeof n.number === 'string')
+    .map((n) => ({ id: n.id, number: n.number }));
+}
+
+/**
  * Lists the phone numbers on the connected Vapi account (id + E.164), for the
  * founder to pick a caller-ID from. Best-effort: returns [] on any error so the
  * admin UI degrades to an empty dropdown rather than failing.
  */
 export async function listVapiPhoneNumbers(): Promise<VapiNumberOption[]> {
   try {
-    const res = await vapiFetch('/phone-number', { method: 'GET' });
-    if (!res.ok) return [];
-    const numbers = (await res.json()) as VapiPhoneNumber[];
-    if (!Array.isArray(numbers)) return [];
-    return numbers
-      .filter((n): n is VapiPhoneNumber & { number: string } => typeof n.number === 'string')
-      .map((n) => ({ id: n.id, number: n.number }));
+    return await fetchVapiPhoneNumbers();
   } catch {
     return [];
+  }
+}
+
+/**
+ * Fetches one phone number from Vapi by its phone ID. Returns null when Vapi
+ * has no such number; throws HttpError on any other failure.
+ */
+export async function getVapiPhoneNumber(phoneId: string): Promise<VapiNumberOption | null> {
+  const res = await vapiFetch(`/phone-number/${encodeURIComponent(phoneId)}`, { method: 'GET' });
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    const { code, message } = explainStatus(res.status);
+    throw new HttpError(502, message, code);
+  }
+  const data = (await res.json()) as VapiPhoneNumber;
+  if (typeof data.number !== 'string') return null;
+  return { id: data.id, number: data.number };
+}
+
+/**
+ * Points one Vapi phone number's Server URL at THIS server's inbound webhook,
+ * with the webhook secret attached — the exact same `server` payload
+ * createPhoneNumberInVapi and repointAllPhoneNumbers set. Throws HttpError
+ * when the webhook cannot be set, so a caller never ends up with a number
+ * that looks configured but routes calls nowhere.
+ */
+export async function configurePhoneNumberWebhook(phoneId: string): Promise<void> {
+  const [webhook, webhookSecret] = await Promise.all([
+    resolveWebhookUrl(),
+    getSettingValue('VAPI_WEBHOOK_SECRET'),
+  ]);
+  // Same guard as number creation: never bake a tunnel/localhost webhook
+  // into a production number.
+  assertProductionWebhookSafe(webhook);
+
+  const server: { url: string; secret?: string } = { url: webhook.webhookUrl! };
+  if (webhookSecret) server.secret = webhookSecret;
+
+  const res = await vapiFetch(`/phone-number/${encodeURIComponent(phoneId)}`, {
+    method: 'PATCH',
+    body: { server },
+  });
+  if (!res.ok) {
+    const { code, message } = explainStatus(res.status);
+    throw new HttpError(502, `Could not point that number at the VoiceFront webhook. ${message}`, code);
   }
 }
 

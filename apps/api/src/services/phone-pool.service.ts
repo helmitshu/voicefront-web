@@ -2,11 +2,18 @@ import type { PooledNumber } from '@prisma/client';
 import { prisma } from '../lib/prisma';
 import { HttpError } from '../lib/http';
 import { isE164, normalizePhone } from '../lib/phone';
+import {
+  configurePhoneNumberWebhook,
+  fetchVapiPhoneNumbers,
+  getVapiPhoneNumber,
+} from './vapi.service';
 
 /**
- * Shared pool of pre-provisioned Vapi numbers. The operator adds numbers (each
- * already pointed at our inbound webhook in Vapi); onboarding claims one when a
- * tenant goes live, so signup needs no manual number assignment. Releasing a
+ * Shared pool of pre-provisioned Vapi numbers. Adding a number verifies it
+ * really exists on the connected Vapi account and points its webhook at this
+ * platform before the pool row is written, so the pool can never claim a
+ * number that would silently never deliver a call. Onboarding claims one when
+ * a tenant goes live, so signup needs no manual number assignment. Releasing a
  * tenant returns its number to the pool for reuse.
  */
 
@@ -54,11 +61,46 @@ export async function addNumber(input: {
   if (exists) {
     throw new HttpError(409, 'That number is already in the pool.', 'NUMBER_EXISTS');
   }
+
+  // Validate against the LIVE Vapi account before writing anything: the
+  // number must exist there (matched by the given Vapi phone ID when one is
+  // supplied, otherwise by the E.164 itself). Anything else would pool a
+  // number the platform does not actually control.
+  const vapiNumbers = await fetchVapiPhoneNumbers();
+  let match = input.vapiPhoneId
+    ? vapiNumbers.find((n) => n.id === input.vapiPhoneId)
+    : vapiNumbers.find((n) => normalizePhone(n.number) === number);
+  if (!match && input.vapiPhoneId) {
+    // The list can lag a just-created number; confirm by ID before refusing.
+    match = (await getVapiPhoneNumber(input.vapiPhoneId)) ?? undefined;
+  }
+  if (!match) {
+    throw new HttpError(
+      404,
+      input.vapiPhoneId
+        ? 'That Vapi phone ID was not found on your Vapi account. Check the ID and try again.'
+        : 'That number is not on your Vapi account. Create or import it in Vapi first, then add it here.',
+      'VAPI_NUMBER_NOT_FOUND',
+    );
+  }
+  if (normalizePhone(match.number) !== number) {
+    throw new HttpError(
+      400,
+      `That Vapi phone ID belongs to ${match.number}, not ${number}. Fix the number or the ID and try again.`,
+      'VAPI_NUMBER_MISMATCH',
+    );
+  }
+
+  // Point the number at our inbound webhook BEFORE pooling it. If this
+  // fails we refuse the add entirely rather than pool a number that shows
+  // as available/assigned but never delivers a call.
+  await configurePhoneNumberWebhook(match.id);
+
   return prisma.pooledNumber.create({
     data: {
       number,
       country: (input.country ?? 'US').toUpperCase().slice(0, 2),
-      vapiPhoneId: input.vapiPhoneId ?? null,
+      vapiPhoneId: match.id,
     },
   });
 }
