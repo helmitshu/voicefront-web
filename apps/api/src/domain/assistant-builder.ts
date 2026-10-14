@@ -401,7 +401,7 @@ export function buildHoldAppointmentTool(server: { url: string; secret?: string 
     function: {
       name: 'hold_appointment',
       description:
-        'The ONLY way to hold, change, or cancel the caller\'s pretend appointment in this demo — your words alone never book anything. The server keeps exactly ONE hold per call. Use action "hold" once the caller has clearly chosen a service, day, and time; use "change" to move the existing hold (only after the caller clearly agrees to the change); use "cancel" to drop it. The result returns the canonical summary of what is held — announce the hold using exactly that summary, and never say an appointment is held before this tool succeeds.',
+        'The ONLY way to hold, change, or cancel the caller\'s pretend appointment in this demo — your words alone never book anything. The server keeps exactly ONE hold per call. Use action "hold" once the caller has clearly chosen a service, day, and time; use "change" to move the existing hold (only after the caller clearly agrees to the change); use "cancel" to drop it. On a successful "hold" or "change" the result returns the CLOSING FACTS for the call (the held summary, the clinic, the caller\'s first name, and whether they are a new patient) — compose the closing from those facts in your own words, keeping every fact exact, then end the call. Never say an appointment is held before this tool succeeds.',
       parameters: {
         type: 'object',
         properties: {
@@ -427,6 +427,11 @@ export function buildHoldAppointmentTool(server: { url: string; secret?: string 
           callbackNumber: {
             type: 'string',
             description: "Caller's callback number with country code, e.g. +15551234567.",
+          },
+          newPatient: {
+            type: 'boolean',
+            description:
+              'True when the caller is a new patient (their first visit to this clinic), false when they have been before. Set it on "hold" and "change" — the server returns it among the closing facts (new patients get the arrive-early note in the closing).',
           },
         },
         required: ['action'],
