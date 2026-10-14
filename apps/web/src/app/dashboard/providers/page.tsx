@@ -365,7 +365,7 @@ export default function ProvidersPage() {
               ) : (
                 <div
                   key={p.id}
-                  className="flex items-center justify-between gap-4 rounded-xl border border-line/70 bg-white px-4 py-3 shadow-input"
+                  className="flex items-center justify-between gap-4 rounded-xl border border-line/70 bg-card px-4 py-3 shadow-input"
                 >
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
@@ -456,7 +456,7 @@ export default function ProvidersPage() {
               ) : (
                 <div
                   key={s.id}
-                  className="flex items-center justify-between gap-4 rounded-xl border border-line/70 bg-white px-4 py-3 shadow-input"
+                  className="flex items-center justify-between gap-4 rounded-xl border border-line/70 bg-card px-4 py-3 shadow-input"
                 >
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
