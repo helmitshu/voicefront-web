@@ -165,6 +165,17 @@ function AdminChrome({ children }: { children: ReactNode }) {
           Platform administration
         </h1>
       }
+      mobileTitle={
+        <h1 className="truncate font-display text-[15px] font-semibold tracking-tight text-ink">
+          Platform administration
+        </h1>
+      }
+      drawerHeader={
+        <div className="px-2">
+          <p className="truncate text-[15px] font-semibold text-white">{me.tenant.companyName}</p>
+          <p className="mt-1 text-xs text-white/50">{isFullAdmin ? 'Founder control center' : 'Support access'}</p>
+        </div>
+      }
     >
       {children}
     </SignedInShell>
