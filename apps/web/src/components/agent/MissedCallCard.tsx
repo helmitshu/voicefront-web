@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { AgentApi, FeaturesApi, ApiError } from '@/lib/api';
 import { useToast } from '@/components/ui/Toast';
+import { CardLoadError } from '@/components/agent/CardLoadError';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Textarea } from '@/components/ui/Field';
@@ -22,22 +23,31 @@ export function MissedCallCard() {
   const [enabled, setEnabled] = useState(false);
   const [template, setTemplate] = useState('');
   const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let alive = true;
     Promise.all([FeaturesApi.list(), AgentApi.get()])
       .then(([{ features }, { settings }]) => {
         if (!alive) return;
+        setLoadError(null);
         const f = features.find((x) => x.key === 'MISSED_CALL_TEXTBACK');
         setShow(!!f && f.available && f.entitled);
         setEnabled(!!f && f.effective);
         setTemplate(settings.missedCallTemplate ?? '');
       })
-      .catch(() => alive && setShow(false));
+      // A failed load must not silently hide the card the way "not entitled"
+      // does — surface the failure with a retry instead.
+      .catch(
+        (err: unknown) =>
+          alive &&
+          setLoadError(err instanceof ApiError ? err.message : 'Check your connection and try again.'),
+      );
     return () => {
       alive = false;
     };
-  }, []);
+  }, [reloadKey]);
 
   async function save() {
     setSaving(true);
@@ -51,6 +61,15 @@ export function MissedCallCard() {
     }
   }
 
+  if (loadError) {
+    return (
+      <CardLoadError
+        title="Missed-call text-back"
+        message={loadError}
+        onRetry={() => setReloadKey((k) => k + 1)}
+      />
+    );
+  }
   if (show === null) {
     return (
       <Card>

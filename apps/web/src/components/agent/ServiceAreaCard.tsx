@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { AgentApi, FeaturesApi, ApiError } from '@/lib/api';
 import { useToast } from '@/components/ui/Toast';
+import { CardLoadError } from '@/components/agent/CardLoadError';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input, Textarea } from '@/components/ui/Field';
@@ -20,23 +21,32 @@ export function ServiceAreaCard() {
   const [zipsText, setZipsText] = useState('');
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let alive = true;
     Promise.all([FeaturesApi.list(), AgentApi.get()])
       .then(([{ features }, { settings }]) => {
         if (!alive) return;
+        setLoadError(null);
         const f = features.find((x) => x.key === 'SERVICE_AREA');
         setShow(!!f && f.available && f.entitled);
         setEnabled(!!f && f.effective);
         setZipsText((settings.serviceAreaZips ?? []).join(', '));
         setNote(settings.serviceAreaNote ?? '');
       })
-      .catch(() => alive && setShow(false));
+      // A failed load must not silently hide the card the way "not entitled"
+      // does — surface the failure with a retry instead.
+      .catch(
+        (err: unknown) =>
+          alive &&
+          setLoadError(err instanceof ApiError ? err.message : 'Check your connection and try again.'),
+      );
     return () => {
       alive = false;
     };
-  }, []);
+  }, [reloadKey]);
 
   async function save() {
     const zips = zipsText
@@ -56,6 +66,11 @@ export function ServiceAreaCard() {
     }
   }
 
+  if (loadError) {
+    return (
+      <CardLoadError title="Service area" message={loadError} onRetry={() => setReloadKey((k) => k + 1)} />
+    );
+  }
   if (show === null) {
     return (
       <Card>

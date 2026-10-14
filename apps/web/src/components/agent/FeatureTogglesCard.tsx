@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { FeaturesApi, ApiError, type FeatureState, type FeatureKey } from '@/lib/api';
 import { useToast } from '@/components/ui/Toast';
+import { CardLoadError } from '@/components/agent/CardLoadError';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Toggle } from '@/components/ui/Toggle';
 import { Spinner } from '@/components/ui/Spinner';
@@ -17,16 +18,28 @@ export function FeatureTogglesCard() {
   const { toast } = useToast();
   const [features, setFeatures] = useState<FeatureState[] | null>(null);
   const [saving, setSaving] = useState<FeatureKey | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let alive = true;
     FeaturesApi.list()
-      .then(({ features }) => alive && setFeatures(features))
-      .catch(() => alive && setFeatures([]));
+      .then(({ features }) => {
+        if (!alive) return;
+        setLoadError(null);
+        setFeatures(features);
+      })
+      // A failed load must not look like "no features entitled" (which hides
+      // the card) — surface the failure with a retry instead.
+      .catch(
+        (err: unknown) =>
+          alive &&
+          setLoadError(err instanceof ApiError ? err.message : 'Check your connection and try again.'),
+      );
     return () => {
       alive = false;
     };
-  }, []);
+  }, [reloadKey]);
 
   async function toggle(feature: FeatureState, next: boolean) {
     setSaving(feature.key);
@@ -42,6 +55,16 @@ export function FeatureTogglesCard() {
     } finally {
       setSaving(null);
     }
+  }
+
+  if (loadError) {
+    return (
+      <CardLoadError
+        title="Add-on features"
+        message={loadError}
+        onRetry={() => setReloadKey((k) => k + 1)}
+      />
+    );
   }
 
   if (features === null) {

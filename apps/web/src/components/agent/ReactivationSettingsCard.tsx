@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { ApiError, ReactivationApi, type ReactivationSettings } from '@/lib/api';
 import { useToast } from '@/components/ui/Toast';
 import { useAuth } from '@/lib/auth-context';
+import { CardLoadError } from '@/components/agent/CardLoadError';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Toggle } from '@/components/ui/Toggle';
@@ -30,17 +31,34 @@ export function ReactivationSettingsCard() {
   const [settings, setSettings] = useState<ReactivationSettings | null>(null);
   const [draft, setDraft] = useState<ReactivationSettings | null>(null);
   const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     ReactivationApi.getSettings()
       .then(({ available: a, eligibleCount: n, settings: s }) => {
+        setLoadError(null);
         setAvailable(a);
         setEligibleCount(n);
         setSettings(s);
         setDraft(s);
       })
-      .catch(() => setAvailable(false));
-  }, []);
+      // A failed load is NOT "not configured" — only a successful response
+      // with available:false means that. Errors get their own state.
+      .catch((err: unknown) =>
+        setLoadError(err instanceof ApiError ? err.message : 'Check your connection and try again.'),
+      );
+  }, [reloadKey]);
+
+  if (loadError) {
+    return (
+      <CardLoadError
+        title="Win-back campaigns"
+        message={loadError}
+        onRetry={() => setReloadKey((k) => k + 1)}
+      />
+    );
+  }
 
   if (available === null) {
     return (

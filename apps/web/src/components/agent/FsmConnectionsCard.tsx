@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { FsmApi, FeaturesApi, ApiError, type FsmConnection, type FsmProvider } from '@/lib/api';
 import { useToast } from '@/components/ui/Toast';
+import { CardLoadError } from '@/components/agent/CardLoadError';
 import { Card, CardHeader, Badge } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Field';
@@ -22,21 +23,30 @@ export function FsmConnectionsCard() {
   const [openForm, setOpenForm] = useState<FsmProvider | null>(null);
   const [draft, setDraft] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<FsmProvider | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let alive = true;
     Promise.all([FeaturesApi.list(), FsmApi.list()])
       .then(([{ features }, { connections }]) => {
         if (!alive) return;
+        setLoadError(null);
         const f = features.find((x) => x.key === 'FSM_INTEGRATION');
         setShow(!!f && f.available && f.entitled);
         setConns(connections);
       })
-      .catch(() => alive && setShow(false));
+      // A failed load must not silently hide the card the way "not entitled"
+      // does — surface the failure with a retry instead.
+      .catch(
+        (err: unknown) =>
+          alive &&
+          setLoadError(err instanceof ApiError ? err.message : 'Check your connection and try again.'),
+      );
     return () => {
       alive = false;
     };
-  }, []);
+  }, [reloadKey]);
 
   function refresh() {
     FsmApi.list().then(({ connections }) => setConns(connections)).catch(() => {});
@@ -80,6 +90,15 @@ export function FsmConnectionsCard() {
     }
   }
 
+  if (loadError) {
+    return (
+      <CardLoadError
+        title="Field service software"
+        message={loadError}
+        onRetry={() => setReloadKey((k) => k + 1)}
+      />
+    );
+  }
   if (show === null) {
     return (
       <Card>

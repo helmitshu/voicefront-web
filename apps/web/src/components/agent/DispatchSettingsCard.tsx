@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { AgentApi, FeaturesApi, ApiError } from '@/lib/api';
 import { useToast } from '@/components/ui/Toast';
+import { CardLoadError } from '@/components/agent/CardLoadError';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Field';
@@ -26,12 +27,15 @@ export function DispatchSettingsCard() {
   const [roster, setRoster] = useState<Contact[]>([]);
   const [escalation, setEscalation] = useState('120');
   const [saving, setSaving] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let alive = true;
     Promise.all([FeaturesApi.list(), AgentApi.get()])
       .then(([{ features }, { settings }]) => {
         if (!alive) return;
+        setLoadError(null);
         const f = features.find((x) => x.key === 'ON_CALL_DISPATCH');
         // Show the editor whenever the operator has made the feature available
         // to this workspace, so they can set up the roster before flipping it on.
@@ -40,11 +44,17 @@ export function DispatchSettingsCard() {
         setRoster(settings.onCallRoster ?? []);
         setEscalation(String(settings.dispatchEscalationSeconds ?? 120));
       })
-      .catch(() => alive && setShow(false));
+      // A failed load must not silently hide the card the way "not entitled"
+      // does — surface the failure with a retry instead.
+      .catch(
+        (err: unknown) =>
+          alive &&
+          setLoadError(err instanceof ApiError ? err.message : 'Check your connection and try again.'),
+      );
     return () => {
       alive = false;
     };
-  }, []);
+  }, [reloadKey]);
 
   function update(i: number, patch: Partial<Contact>) {
     setRoster((r) => r.map((c, idx) => (idx === i ? { ...c, ...patch } : c)));
@@ -78,6 +88,15 @@ export function DispatchSettingsCard() {
     }
   }
 
+  if (loadError) {
+    return (
+      <CardLoadError
+        title="On-call dispatch"
+        message={loadError}
+        onRetry={() => setReloadKey((k) => k + 1)}
+      />
+    );
+  }
   if (show === null) {
     return (
       <Card>

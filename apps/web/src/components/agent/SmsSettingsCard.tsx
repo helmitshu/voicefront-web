@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { ApiError, SmsApi, type SmsSettings } from '@/lib/api';
 import { useToast } from '@/components/ui/Toast';
 import { useAuth } from '@/lib/auth-context';
+import { CardLoadError } from '@/components/agent/CardLoadError';
 import { Card, CardHeader } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Toggle } from '@/components/ui/Toggle';
@@ -86,16 +87,33 @@ export function SmsSettingsCard() {
   const [draft, setDraft] = useState<SmsSettings | null>(null);
   const [saving, setSaving] = useState(false);
   const [showTemplates, setShowTemplates] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     SmsApi.getSettings()
       .then(({ available: a, settings: s }) => {
+        setLoadError(null);
         setAvailable(a);
         setSettings(s);
         setDraft(s);
       })
-      .catch(() => setAvailable(false));
-  }, []);
+      // A failed load is NOT "not configured" — only a successful response
+      // with available:false means that. Errors get their own state.
+      .catch((err: unknown) =>
+        setLoadError(err instanceof ApiError ? err.message : 'Check your connection and try again.'),
+      );
+  }, [reloadKey]);
+
+  if (loadError) {
+    return (
+      <CardLoadError
+        title="SMS Notifications"
+        message={loadError}
+        onRetry={() => setReloadKey((k) => k + 1)}
+      />
+    );
+  }
 
   if (available === null) {
     return (
