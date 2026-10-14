@@ -8,9 +8,9 @@ type Size = 'sm' | 'md' | 'lg';
 
 const VARIANTS: Record<Variant, string> = {
   primary:
-    'bg-gradient-to-b from-signal to-signal-deep text-white shadow-pop hover:brightness-110 active:translate-y-px active:brightness-95 disabled:from-signal/50 disabled:to-signal/50 disabled:shadow-none',
+    'bg-gradient-to-b from-signal to-signal-deep text-onsignal shadow-pop hover:brightness-110 active:translate-y-px active:brightness-95 disabled:from-signal/50 disabled:to-signal/50 disabled:shadow-none',
   secondary:
-    'bg-white text-ink border border-line shadow-input hover:border-ink-muted/40 hover:bg-paper active:translate-y-px disabled:text-ink-muted/60 disabled:shadow-none',
+    'bg-card text-ink border border-line shadow-input hover:border-ink-muted/40 hover:bg-paper active:translate-y-px disabled:text-ink-muted/60 disabled:shadow-none',
   ghost: 'bg-transparent text-ink-muted hover:bg-ink/5 hover:text-ink disabled:text-ink-muted/50',
   danger:
     'bg-gradient-to-b from-danger to-[#c23842] text-white shadow-[0_1px_2px_rgba(214,69,80,0.4),0_8px_20px_-6px_rgba(214,69,80,0.4)] hover:brightness-110 active:translate-y-px disabled:from-danger/50 disabled:to-danger/50 disabled:shadow-none',

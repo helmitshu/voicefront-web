@@ -10,7 +10,7 @@ import {
 } from 'react';
 
 const FIELD_BASE =
-  'w-full rounded-xl border bg-white px-3.5 text-ink shadow-input placeholder:text-ink-muted/60 transition-all duration-150 hover:border-ink-muted/40 focus:outline-none focus:ring-4 focus:ring-signal/15 focus:border-signal disabled:bg-paper disabled:text-ink-muted disabled:shadow-none';
+  'w-full rounded-xl border bg-card px-3.5 text-ink shadow-input placeholder:text-ink-muted/60 transition-all duration-150 hover:border-ink-muted/40 focus:outline-none focus:ring-4 focus:ring-signal/15 focus:border-signal disabled:bg-paper disabled:text-ink-muted disabled:shadow-none';
 
 function FieldFrame({
   id,

@@ -12,7 +12,7 @@ export function Card({
 }) {
   return (
     <div
-      className={`rounded-2xl border border-line/70 bg-white shadow-card transition-shadow duration-200 ${padded ? 'p-6' : ''} ${className}`}
+      className={`rounded-2xl border border-line/70 bg-card shadow-card transition-shadow duration-200 ${padded ? 'p-6' : ''} ${className}`}
     >
       {children}
     </div>
@@ -36,8 +36,8 @@ export type BadgeTone = 'neutral' | 'signal' | 'success' | 'warning' | 'danger';
 const BADGE_TONES: Record<BadgeTone, string> = {
   neutral: 'bg-paper text-ink-muted ring-ink/10',
   signal: 'bg-signal-soft/70 text-signal-deep ring-signal/20',
-  success: 'bg-clinic-soft/70 text-[#0b8a74] ring-clinic/25',
-  warning: 'bg-construction-soft/70 text-[#9a6a1d] ring-construction/30',
+  success: 'bg-clinic-soft/70 text-clinic ring-clinic/25',
+  warning: 'bg-construction-soft/70 text-construction ring-construction/30',
   danger: 'bg-danger-soft/70 text-danger ring-danger/25',
 };
 
@@ -98,7 +98,7 @@ export function EmptyState({
     <div className="flex flex-col items-center justify-center gap-2 rounded-2xl border border-dashed border-line bg-paper/70 px-6 py-14 text-center">
       <span
         aria-hidden
-        className="mb-2 flex h-12 w-12 items-end justify-center gap-1 rounded-2xl border border-line/80 bg-white pb-3 shadow-input"
+        className="mb-2 flex h-12 w-12 items-end justify-center gap-1 rounded-2xl border border-line/80 bg-card pb-3 shadow-input"
       >
         {[10, 18, 13, 22, 9].map((h, i) => (
           <span key={i} className="w-1 rounded-full bg-signal/40" style={{ height: `${h * 0.8}px` }} />

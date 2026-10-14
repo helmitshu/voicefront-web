@@ -17,20 +17,24 @@ export function Logo({
   size = 'md',
   tone = 'dark',
   withText = true,
+  animated = false,
 }: {
   size?: keyof typeof SIZES;
   tone?: 'dark' | 'light';
   withText?: boolean;
+  /** Shell-only: gentle equalizer motion + a soft light sweep (globals.css,
+      disabled under prefers-reduced-motion). Layout never changes. */
+  animated?: boolean;
 }) {
   const s = SIZES[size];
   return (
     <span className="inline-flex items-center gap-2.5">
       <span
         aria-hidden
-        className={`${s.box} inline-flex shrink-0 items-center justify-center bg-gradient-to-br from-signal to-signal-deep shadow-pop ring-1 ring-inset ring-white/20`}
+        className={`${s.box} relative inline-flex shrink-0 items-center justify-center overflow-hidden bg-gradient-to-br from-signal to-signal-deep shadow-pop ring-1 ring-inset ring-white/20`}
       >
         <svg viewBox="0 0 24 24" fill="none" className={s.svg}>
-          {BARS.map((bar) => (
+          {BARS.map((bar, i) => (
             <rect
               key={bar.x}
               x={bar.x}
@@ -40,9 +44,12 @@ export function Logo({
               rx="1.2"
               fill="white"
               fillOpacity="0.95"
+              className={animated ? 'logo-eq-bar' : undefined}
+              style={animated ? { animationDelay: `${i * 0.22}s` } : undefined}
             />
           ))}
         </svg>
+        {animated && <span className="logo-sweep" />}
       </span>
       {withText && (
         <span

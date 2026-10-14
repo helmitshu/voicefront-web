@@ -26,9 +26,9 @@ interface ToastContextValue {
 const ToastContext = createContext<ToastContextValue | null>(null);
 
 const TONE_STYLES: Record<ToastTone, string> = {
-  success: 'border-clinic/40 bg-white text-ink',
-  error: 'border-danger/40 bg-white text-ink',
-  info: 'border-signal/40 bg-white text-ink',
+  success: 'border-clinic/40 bg-card text-ink',
+  error: 'border-danger/40 bg-card text-ink',
+  info: 'border-signal/40 bg-card text-ink',
 };
 
 const TONE_DOT: Record<ToastTone, string> = {
