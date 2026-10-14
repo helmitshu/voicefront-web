@@ -12,6 +12,7 @@ import {
   requirePlatformAdmin,
 } from '../middleware/auth';
 import { hashPassword } from '../lib/passwords';
+import { normalizePhone } from '../lib/phone';
 import { randomSuffix, toSlug } from '../lib/slug';
 import { defaultBusinessHours } from '../domain/agent-config';
 import { industryDefaults, industryPersona } from '../domain/prompt-templates';
@@ -64,8 +65,8 @@ import {
 import {
   createAssistantForTenant,
   createPhoneNumberInVapi,
+  fetchVapiPhoneNumbers,
   findAssistantPhoneNumber,
-  listVapiPhoneNumbers,
   repointAllPhoneNumbers,
   syncAssistantForTenant,
   syncAllAssistants,
@@ -961,12 +962,14 @@ adminRouter.get(
   }),
 );
 
-/* Outbound caller-ID numbers for the demo (US + CA), chosen from Vapi. */
+/* Outbound caller-ID numbers for the demo (US + CA), chosen from Vapi. Uses
+ * the strict list: when Vapi can't be read the request fails, so the page can
+ * show a real error instead of claiming the account has no numbers. */
 adminRouter.get(
   '/demo/numbers',
   requireFullAdmin,
   asyncHandler(async (_req, res) => {
-    const [available, assigned] = await Promise.all([listVapiPhoneNumbers(), getDemoNumbers()]);
+    const [available, assigned] = await Promise.all([fetchVapiPhoneNumbers(), getDemoNumbers()]);
     res.json({ available, assigned });
   }),
 );
@@ -1277,12 +1280,34 @@ adminRouter.get(
         })
       : [];
     const nameById = new Map(tenants.map((t) => [t.id, t.companyName]));
+
+    // Merge in the LIVE Vapi inventory so numbers that exist on the account
+    // but were never pooled are visible (and addable) instead of invisible.
+    // The pool itself still loads when Vapi can't be read — the failure is
+    // reported in vapiError so the page can say so instead of implying the
+    // pool is the whole account.
+    let unpooled: Array<{ id: string; number: string }> = [];
+    let vapiTotal = 0;
+    let vapiError: string | null = null;
+    try {
+      const live = await fetchVapiPhoneNumbers();
+      vapiTotal = live.length;
+      const pooledIds = new Set(numbers.map((n) => n.vapiPhoneId).filter(Boolean));
+      const pooledNumbers = new Set(numbers.map((n) => normalizePhone(n.number)));
+      unpooled = live.filter((n) => !pooledIds.has(n.id) && !pooledNumbers.has(normalizePhone(n.number)));
+    } catch (err) {
+      vapiError = err instanceof HttpError ? err.message : 'Could not read your Vapi account.';
+    }
+
     res.json({
       available,
       numbers: numbers.map((n) => ({
         ...toPoolEntry(n),
         assignedCompany: n.assignedTenantId ? (nameById.get(n.assignedTenantId) ?? null) : null,
       })),
+      unpooled,
+      vapiTotal,
+      vapiError,
     });
   }),
 );
@@ -1451,7 +1476,11 @@ adminRouter.get(
   asyncHandler(async (req, res) => {
     const lead = await prisma.lead.findUnique({ where: { id: req.params.id } });
     if (!lead) throw new HttpError(404, 'Lead not found.', 'LEAD_NOT_FOUND');
-    res.json({ email: buildOutreachEmail(lead) });
+    // Render the preview with the configured mailing address, exactly like
+    // the test send — the founder copies this draft verbatim, so its footer
+    // must be the real address, never the fallback placeholder.
+    const physicalAddress = (await getSettingValue('OUTREACH_PHYSICAL_ADDRESS')) ?? undefined;
+    res.json({ email: buildOutreachEmail(lead, { physicalAddress }) });
   }),
 );
 
