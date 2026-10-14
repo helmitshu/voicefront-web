@@ -124,7 +124,10 @@ function toEntry(a: Appointment): FounderEntry {
   };
 }
 
-/** Founder's calendar entries (blocks + booked calls) across a date range. */
+/** Founder's calendar entries (blocks + booked calls) across a date range.
+ *  Cancelled entries are excluded: removal is a status-only cancel (the row
+ *  stays in the DB as history and the slot frees up), but the admin calendar
+ *  — the only consumer of this list — must not show what was just removed. */
 export async function listFounderEntries(from: string, to: string): Promise<FounderEntry[]> {
   const { tenant } = await getOrCreateFounderTenant();
   const fromDate = new Date(`${from}T00:00:00Z`);
@@ -135,7 +138,7 @@ export async function listFounderEntries(from: string, to: string): Promise<Foun
     throw new HttpError(400, 'Invalid date range.', 'BAD_RANGE');
   }
   const rows = await prisma.appointment.findMany({
-    where: { tenantId: tenant.id, startsAt: { gte: fromDate, lte: toDate } },
+    where: { tenantId: tenant.id, startsAt: { gte: fromDate, lte: toDate }, status: { not: 'CANCELLED' } },
     orderBy: { startsAt: 'asc' },
     take: 500,
   });
