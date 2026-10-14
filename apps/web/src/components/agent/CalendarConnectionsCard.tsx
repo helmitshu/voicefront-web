@@ -197,7 +197,7 @@ function ConnectionRow({
     <div className="rounded-xl border border-line/60 bg-paper/40 p-4">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-3">
-          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-white ring-1 ring-inset ring-ink/8">
+          <span className="flex h-9 w-9 items-center justify-center rounded-lg bg-card ring-1 ring-inset ring-ink/8">
             {meta.icon}
           </span>
           <div>

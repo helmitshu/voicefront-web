@@ -147,7 +147,7 @@ export function ReactivationSettingsCard() {
                     className={`rounded-full px-3.5 py-1.5 text-[13px] font-medium transition-all disabled:opacity-50 ${
                       draft.inactivityDays === p.days
                         ? 'bg-signal-soft/70 text-signal-deep ring-1 ring-inset ring-signal/25'
-                        : 'bg-white text-ink-muted ring-1 ring-inset ring-ink/8 hover:text-ink'
+                        : 'bg-card text-ink-muted ring-1 ring-inset ring-ink/8 hover:text-ink'
                     }`}
                   >
                     {p.label}
@@ -158,7 +158,7 @@ export function ReactivationSettingsCard() {
 
             {/* Eligible preview */}
             <div className="flex items-center gap-3 rounded-xl border border-signal/15 bg-signal-soft/30 px-4 py-3">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white text-signal-deep ring-1 ring-inset ring-signal/15">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-card text-signal-deep ring-1 ring-inset ring-signal/15">
                 <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-[18px] w-[18px]">
                   <circle cx="8" cy="6.5" r="3" />
                   <path d="M2.5 16c0-3 2.5-5 5.5-5s5.5 2 5.5 5M14 7l2 2 3-3.5" strokeLinecap="round" strokeLinejoin="round" />

@@ -88,7 +88,7 @@ export function CallScreeningCard({ rejectAnonymous, onRejectAnonymousChange, re
 
       {data && data.screenedLast30Days > 0 && (
         <div className="mt-4 flex items-center gap-3 rounded-xl border border-clinic/20 bg-clinic-soft/40 px-4 py-3">
-          <span className="font-display text-2xl font-bold tabular-nums text-[#0b8a74]">
+          <span className="font-display text-2xl font-bold tabular-nums text-clinic">
             {data.screenedLast30Days}
           </span>
           <p className="text-sm text-ink-muted">

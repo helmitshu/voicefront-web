@@ -58,7 +58,7 @@ export function ForwardingNumbersEditor({
         </p>
       )}
       {value.map((entry, index) => (
-        <div key={entry.id} className="rounded-2xl border border-line bg-white p-4">
+        <div key={entry.id} className="rounded-2xl border border-line bg-card p-4">
           <div className="mb-3 flex items-center justify-between">
             <p className="text-sm font-semibold text-ink">Transfer line {index + 1}</p>
             <Button variant="ghost" size="sm" disabled={disabled} onClick={() => remove(entry.id)}>

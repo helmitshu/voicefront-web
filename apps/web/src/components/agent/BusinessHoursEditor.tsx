@@ -25,7 +25,7 @@ export function BusinessHoursEditor({
             key={day}
             className={`flex flex-wrap items-center gap-x-4 gap-y-2 px-4 py-3 ${
               index > 0 ? 'border-t border-line' : ''
-            } ${row.enabled ? 'bg-white' : 'bg-paper/70'}`}
+            } ${row.enabled ? 'bg-card' : 'bg-paper/70'}`}
           >
             <label className="flex w-36 cursor-pointer items-center gap-2.5">
               <input
@@ -47,7 +47,7 @@ export function BusinessHoursEditor({
                   disabled={disabled}
                   onChange={(e) => patchDay(day, { open: e.target.value })}
                   aria-label={`${DAY_LABELS[day]} opening time`}
-                  className="h-9 rounded-lg border border-line bg-white px-2 font-mono text-sm text-ink focus:border-signal focus:outline-none focus:ring-1 focus:ring-signal"
+                  className="h-9 rounded-lg border border-line bg-card px-2 font-mono text-sm text-ink focus:border-signal focus:outline-none focus:ring-1 focus:ring-signal"
                 />
                 <span className="text-sm text-ink-muted">to</span>
                 <input
@@ -56,7 +56,7 @@ export function BusinessHoursEditor({
                   disabled={disabled}
                   onChange={(e) => patchDay(day, { close: e.target.value })}
                   aria-label={`${DAY_LABELS[day]} closing time`}
-                  className="h-9 rounded-lg border border-line bg-white px-2 font-mono text-sm text-ink focus:border-signal focus:outline-none focus:ring-1 focus:ring-signal"
+                  className="h-9 rounded-lg border border-line bg-card px-2 font-mono text-sm text-ink focus:border-signal focus:outline-none focus:ring-1 focus:ring-signal"
                 />
                 {overnight && (
                   <span className="text-xs text-construction" title="Closing time is on the next day">
