@@ -5,50 +5,59 @@ const config: Config = {
   theme: {
     extend: {
       colors: {
+        // Every palette color resolves through a CSS variable (RGB triplet in
+        // globals.css) so the signed-in app can re-theme by swapping variable
+        // values under `[data-theme] .theme-root`. The `:root` values are the
+        // original palette, so marketing/auth (outside .theme-root) never move.
         // Deep charcoal-green for text, and a soft (not harsh) dark band when
         // used as a background. Replaces the old near-black navy.
         ink: {
-          DEFAULT: '#1E2421',
-          soft: '#2C332E',
-          muted: '#66706B',
+          DEFAULT: 'rgb(var(--vf-ink) / <alpha-value>)',
+          soft: 'rgb(var(--vf-ink-soft) / <alpha-value>)',
+          muted: 'rgb(var(--vf-ink-muted) / <alpha-value>)',
           // Near-black teal-charcoal for full-bleed "anchor" sections — the dark
           // moments that give the light pages contrast rhythm and a premium feel.
-          deep: '#0B1714',
-          deeper: '#071210',
+          deep: 'rgb(var(--vf-ink-deep) / <alpha-value>)',
+          deeper: 'rgb(var(--vf-ink-deeper) / <alpha-value>)',
         },
-        // Warm off-white page canvas + tinted surface. `white` stays the pure
-        // elevated surface; `paper` is the calm neutral behind it.
-        paper: '#F6F7F3',
-        surface: '#F1F4F1',
-        line: '#E4E7E2',
+        // Warm off-white page canvas + tinted surface. `card` is the elevated
+        // surface (pure white in the light themes, deep ink in Midnight);
+        // `paper` is the calm neutral behind it.
+        paper: 'rgb(var(--vf-paper) / <alpha-value>)',
+        surface: 'rgb(var(--vf-surface) / <alpha-value>)',
+        card: 'rgb(var(--vf-card) / <alpha-value>)',
+        line: 'rgb(var(--vf-line) / <alpha-value>)',
         // Primary accent: deep, calm teal. Drives CTAs, active states, key
         // badges and small highlights — never large saturated blocks.
+        // Text/icon color that sits ON a signal fill (white on the light
+        // themes' deep teal, deep ink on the dark themes' bright teal).
+        onsignal: 'rgb(var(--vf-on-signal) / <alpha-value>)',
         signal: {
-          DEFAULT: '#0E6B63',
-          deep: '#0A574F',
-          soft: '#D9EEEA',
+          DEFAULT: 'rgb(var(--vf-signal) / <alpha-value>)',
+          deep: 'rgb(var(--vf-signal-deep) / <alpha-value>)',
+          soft: 'rgb(var(--vf-signal-soft) / <alpha-value>)',
         },
         clinic: {
-          DEFAULT: '#0FA98E',
-          soft: '#E2F6F1',
+          DEFAULT: 'rgb(var(--vf-clinic) / <alpha-value>)',
+          soft: 'rgb(var(--vf-clinic-soft) / <alpha-value>)',
         },
         construction: {
-          DEFAULT: '#A56A18',
-          soft: '#F6ECD9',
+          DEFAULT: 'rgb(var(--vf-construction) / <alpha-value>)',
+          soft: 'rgb(var(--vf-construction-soft) / <alpha-value>)',
         },
         // Secondary brand accent: a refined warm gold. Signals value/premium and
         // makes numbers and key marks glow against the dark anchor sections.
         // Used sparingly — never as a large fill. `light` is tuned to luminesce
         // on dark; `deep` reads on the light canvas.
         gold: {
-          DEFAULT: '#C7943F',
-          light: '#E6BE72',
-          deep: '#946C24',
-          soft: '#F4E9D3',
+          DEFAULT: 'rgb(var(--vf-gold) / <alpha-value>)',
+          light: 'rgb(var(--vf-gold-light) / <alpha-value>)',
+          deep: 'rgb(var(--vf-gold-deep) / <alpha-value>)',
+          soft: 'rgb(var(--vf-gold-soft) / <alpha-value>)',
         },
         danger: {
-          DEFAULT: '#C0453F',
-          soft: '#F8E7E5',
+          DEFAULT: 'rgb(var(--vf-danger) / <alpha-value>)',
+          soft: 'rgb(var(--vf-danger-soft) / <alpha-value>)',
         },
       },
       fontFamily: {
