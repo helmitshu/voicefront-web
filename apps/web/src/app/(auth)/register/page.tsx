@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { z } from 'zod';
 import { ApiError, SignupApi, type Industry } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
+import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton';
 import { INDUSTRY_TEMPLATES } from '@/domain/prompt-templates';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Field';
@@ -29,7 +30,7 @@ const INDUSTRY_CARDS: Array<{ value: Industry; icon: string }> = [
 ];
 
 export default function RegisterPage() {
-  const { register } = useAuth();
+  const { register, loginWithGoogle } = useAuth();
   const router = useRouter();
   // Which industries require an invitation code. Trades is open; clinics are
   // invite-only. Default assumes clinic is gated until the config confirms.
@@ -95,6 +96,19 @@ export default function RegisterPage() {
     }
   }
 
+  async function onGoogleCredential(credential: string, selectedIndustry: Industry = industry) {
+    if (submitting) return;
+    setFormError(null);
+    setSubmitting(true);
+    try {
+      await loginWithGoogle(credential, selectedIndustry);
+      router.replace('/onboarding');
+    } catch (err) {
+      setFormError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.');
+      setSubmitting(false);
+    }
+  }
+
   return (
     <div>
       <h1 className="font-display text-2xl font-semibold text-ink">Create your workspace</h1>
@@ -102,6 +116,8 @@ export default function RegisterPage() {
         Your receptionist comes pre-trained for your industry — you&apos;ll hear it answer a real call in
         under two minutes, then go live.
       </p>
+
+      <GoogleSignInButton onCredential={onGoogleCredential} industry={industry} />
 
       <form onSubmit={onSubmit} noValidate className="mt-8 flex flex-col gap-5">
         {formError && (
