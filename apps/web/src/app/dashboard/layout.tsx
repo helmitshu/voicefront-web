@@ -134,6 +134,22 @@ function DashboardChrome({ children }: { children: ReactNode }) {
           </Badge>
         </>
       }
+      mobileTitle={
+        <h1 className="truncate text-[15px] font-semibold tracking-tight text-white">{me.tenant.companyName}</h1>
+      }
+      drawerHeader={
+        <div className="px-2">
+          <p className="truncate text-[15px] font-semibold text-white">{me.tenant.companyName}</p>
+          <p className="mt-1 flex items-center gap-1.5 text-xs text-white/50">
+            {INDUSTRY_LABELS[me.tenant.industry]}
+            <span aria-hidden>·</span>
+            <span className="inline-flex items-center gap-1.5">
+              <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-clinic" />
+              Live
+            </span>
+          </p>
+        </div>
+      }
       headerRight={
         <div className="flex items-center gap-2 rounded-full border border-clinic/20 bg-clinic-soft/60 py-1 pl-2.5 pr-3">
           <span className="relative flex h-2 w-2">
