@@ -15,7 +15,7 @@ export function userInitials(fullName: string): string {
     .join('');
 }
 
-function Avatar({ fullName, size = 'md' }: { fullName: string; size?: 'md' | 'sm' }) {
+export function Avatar({ fullName, size = 'md' }: { fullName: string; size?: 'md' | 'sm' }) {
   return (
     <span
       aria-hidden
@@ -69,6 +69,31 @@ function MenuItems({ onNavigate }: { onNavigate: () => void }) {
         Sign out
       </button>
     </>
+  );
+}
+
+/**
+ * The identity block at the bottom of the small-screen drawer: avatar, full
+ * name and email up top, then Account / Platform Admin / Sign out as plain
+ * rows (no nested popover — the drawer is the menu). Shares its rows with the
+ * sidebar card's popover so both surfaces always offer the same actions.
+ */
+export function DrawerUserSection({ onNavigate }: { onNavigate: () => void }) {
+  const { me } = useAuth();
+  if (!me) return null;
+
+  return (
+    <div>
+      <div className="flex items-center gap-3 px-3 py-2">
+        <Avatar fullName={me.user.fullName} />
+        <span className="min-w-0 flex-1">
+          <span className="block truncate text-[13px] font-semibold text-white">{me.user.fullName}</span>
+          <span className="block truncate text-xs text-white/50">{me.user.email}</span>
+        </span>
+      </div>
+      <div aria-hidden className="mx-2 my-1.5 h-px bg-white/10" />
+      <MenuItems onNavigate={onNavigate} />
+    </div>
   );
 }
 
