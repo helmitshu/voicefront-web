@@ -26,6 +26,7 @@ import { Spinner } from '@/components/ui/Spinner';
 import { VoicePreviewButton } from '@/components/agent/VoicePreviewButton';
 import { DocumentsEditor } from '@/components/agent/DocumentsEditor';
 import { SmsSettingsCard } from '@/components/agent/SmsSettingsCard';
+import { AppearanceCard } from '@/components/app-shell/ThemePicker';
 import { ReactivationSettingsCard } from '@/components/agent/ReactivationSettingsCard';
 import { CalendarConnectionsCard } from '@/components/agent/CalendarConnectionsCard';
 import { CallScreeningCard } from '@/components/agent/CallScreeningCard';
@@ -277,7 +278,7 @@ export default function SettingsPage() {
       </div>
 
       {readOnly && (
-        <p className="flex items-center gap-2.5 rounded-xl border border-construction/25 bg-construction-soft/50 px-4 py-3 text-sm text-[#9a6a1d]">
+        <p className="flex items-center gap-2.5 rounded-xl border border-construction/25 bg-construction-soft/50 px-4 py-3 text-sm text-construction">
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4 shrink-0">
             <rect x="3.5" y="7" width="9" height="6.5" rx="1.5" />
             <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
@@ -287,7 +288,7 @@ export default function SettingsPage() {
       )}
 
       {loaded.assistantId && (
-        <p className="flex items-center gap-2.5 rounded-xl border border-clinic/20 bg-clinic-soft/50 px-4 py-3 text-sm text-[#0b8a74]">
+        <p className="flex items-center gap-2.5 rounded-xl border border-clinic/20 bg-clinic-soft/50 px-4 py-3 text-sm text-clinic">
           <span className="relative flex h-2 w-2 shrink-0">
             <span className="absolute h-full w-full animate-pulse-ring rounded-full bg-clinic" />
             <span className="relative h-2 w-2 rounded-full bg-clinic" />
@@ -296,6 +297,8 @@ export default function SettingsPage() {
           call.
         </p>
       )}
+
+      <AppearanceCard />
 
       <Card>
         <CardHeader title="Persona" description="Who answers, and the first thing callers hear." />
