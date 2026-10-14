@@ -28,7 +28,7 @@ const STATUS_META: Record<
   { label: string; tone: 'signal' | 'success' | 'neutral' | 'danger'; chip: string }
 > = {
   CONFIRMED: { label: 'Confirmed', tone: 'signal', chip: 'bg-signal-soft/70 text-signal-deep ring-signal/15' },
-  COMPLETED: { label: 'Completed', tone: 'success', chip: 'bg-clinic-soft/70 text-[#0b8a74] ring-clinic/20' },
+  COMPLETED: { label: 'Completed', tone: 'success', chip: 'bg-clinic-soft/70 text-clinic ring-clinic/20' },
   CANCELLED: { label: 'Cancelled', tone: 'neutral', chip: 'bg-paper text-ink-muted/70 ring-ink/5 line-through' },
   NO_SHOW: { label: 'No-show', tone: 'danger', chip: 'bg-danger-soft/70 text-danger ring-danger/20' },
 };
@@ -448,7 +448,7 @@ export default function CalendarPage() {
                   onClick={() => setSelected(cell.key)}
                   className={`flex min-h-[92px] flex-col items-stretch gap-1 border-b border-r border-line/40 p-1.5 text-left align-top transition-colors last:border-r-0 ${
                     isSelected ? 'bg-signal-soft/40' : 'hover:bg-paper/80'
-                  } ${cell.inMonth ? 'bg-white' : 'bg-paper/50'}`}
+                  } ${cell.inMonth ? 'bg-card' : 'bg-paper/50'}`}
                 >
                   <span
                     className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${
@@ -578,7 +578,7 @@ export default function CalendarPage() {
                     <Spinner className="h-3.5 w-3.5" /> Checking open slots…
                   </div>
                 ) : availability.freeSlots.length === 0 ? (
-                  <p className="rounded-lg bg-construction-soft/50 px-3 py-2 text-xs text-[#9a6a1d]">
+                  <p className="rounded-lg bg-construction-soft/50 px-3 py-2 text-xs text-construction">
                     {availability.open ? 'This day is fully booked.' : 'The business is closed this day.'}
                   </p>
                 ) : (
