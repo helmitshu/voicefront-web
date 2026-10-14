@@ -93,6 +93,8 @@ export default function CalendarPage() {
   const [appointments, setAppointments] = useState<AppointmentDto[] | null>(null);
   const [externalEvents, setExternalEvents] = useState<ExternalCalendarEvent[]>([]);
   const [dayGrid, setDayGrid] = useState<{ time: string; available: boolean }[] | null>(null);
+  const [dayGridError, setDayGridError] = useState<string | null>(null);
+  const [availabilityError, setAvailabilityError] = useState<string | null>(null);
   const [calStatus, setCalStatus] = useState<CalendarStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -205,12 +207,19 @@ export default function CalendarPage() {
   useEffect(() => {
     let alive = true;
     setDayGrid(null);
+    setDayGridError(null);
     AppointmentsApi.availability(selected)
       .then(({ availability }) => {
         if (alive) setDayGrid(availability.slots ?? []);
       })
-      .catch(() => {
-        if (alive) setDayGrid([]);
+      // A failed availability load is NOT an empty day — surface it as an
+      // error with a retry instead of rendering a wide-open schedule.
+      .catch((err: unknown) => {
+        if (alive) {
+          setDayGridError(
+            err instanceof ApiError ? err.message : 'Could not load the schedule for this day.',
+          );
+        }
       });
     return () => {
       alive = false;
@@ -248,12 +257,19 @@ export default function CalendarPage() {
 
   const loadAvailability = useCallback((date: string) => {
     setAvailability(null);
+    setAvailabilityError(null);
     AppointmentsApi.availability(date)
       .then(({ availability }) => {
         setAvailability(availability);
         setForm((f) => ({ ...f, time: availability.freeSlots[0] ?? '' }));
       })
-      .catch(() => setAvailability({ open: false, freeSlots: [], slots: [], dayLabel: date }));
+      // A failed availability load is NOT "the business is closed this day" —
+      // surface it as an error with a retry instead of a fake closed day.
+      .catch((err: unknown) =>
+        setAvailabilityError(
+          err instanceof ApiError ? err.message : 'Could not check open slots for this day.',
+        ),
+      );
   }, []);
 
   function openForm() {
@@ -546,7 +562,18 @@ export default function CalendarPage() {
                     )}
                   </div>
                 )}
-                {availability === null ? (
+                {availabilityError ? (
+                  <div className="rounded-lg border border-danger/25 bg-danger-soft/50 px-3 py-2">
+                    <p className="text-xs text-ink">Couldn&apos;t check open slots. {availabilityError}</p>
+                    <button
+                      type="button"
+                      onClick={() => loadAvailability(selected)}
+                      className="mt-1 text-xs font-semibold text-signal-deep hover:underline"
+                    >
+                      Try again
+                    </button>
+                  </div>
+                ) : availability === null ? (
                   <div className="flex items-center gap-2 py-1 text-xs text-ink-muted">
                     <Spinner className="h-3.5 w-3.5" /> Checking open slots…
                   </div>
@@ -618,7 +645,18 @@ export default function CalendarPage() {
                   </div>
                 ))}
 
-                {dayGrid === null ? (
+                {dayGridError ? (
+                  <div className="rounded-xl border border-danger/25 bg-danger-soft/50 px-4 py-4">
+                    <p className="text-sm text-ink">
+                      Couldn&apos;t load the schedule for this day. {dayGridError}
+                    </p>
+                    <div className="mt-2">
+                      <Button variant="secondary" size="sm" onClick={() => setReloadKey((k) => k + 1)}>
+                        Try again
+                      </Button>
+                    </div>
+                  </div>
+                ) : dayGrid === null ? (
                   <div className="flex items-center gap-2 py-6 text-xs text-ink-muted">
                     <Spinner className="h-3.5 w-3.5" /> Loading schedule…
                   </div>
