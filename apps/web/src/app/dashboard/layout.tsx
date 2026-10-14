@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react';
 import { RequireAuth, useAuth } from '@/lib/auth-context';
 import { SignedInShell, type ShellNavItem } from '@/components/app-shell/SignedInShell';
+import { ThemeProvider } from '@/lib/theme';
 import { Badge } from '@/components/ui/Card';
 import { INDUSTRY_LABELS } from '@/domain/prompt-templates';
 
@@ -156,7 +157,7 @@ function DashboardChrome({ children }: { children: ReactNode }) {
             <span className="absolute h-full w-full animate-pulse-ring rounded-full bg-clinic" />
             <span className="relative h-2 w-2 rounded-full bg-clinic" />
           </span>
-          <span className="text-xs font-semibold text-[#0b8a74]">Live</span>
+          <span className="text-xs font-semibold text-clinic">Live</span>
         </div>
       }
       mainDecor
@@ -169,7 +170,11 @@ function DashboardChrome({ children }: { children: ReactNode }) {
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   return (
     <RequireAuth>
-      <DashboardChrome>{children}</DashboardChrome>
+      <ThemeProvider>
+        <div className="theme-root">
+          <DashboardChrome>{children}</DashboardChrome>
+        </div>
+      </ThemeProvider>
     </RequireAuth>
   );
 }

@@ -87,8 +87,8 @@ export default function OverviewPage() {
     usage && usage.overLimit
       ? { bar: 'bg-danger', text: 'text-danger' }
       : usage && usage.fractionUsed >= 0.8
-        ? { bar: 'bg-construction', text: 'text-[#9a6a1d]' }
-        : { bar: 'bg-clinic', text: 'text-[#0b8a74]' };
+        ? { bar: 'bg-construction', text: 'text-construction' }
+        : { bar: 'bg-clinic', text: 'text-clinic' };
 
   return (
     <div className="flex animate-fade-up flex-col gap-8">
