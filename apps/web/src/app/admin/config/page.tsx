@@ -19,6 +19,9 @@ export default function AdminConfigPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [demoEnabled, setDemoEnabled] = useState<boolean | null>(null);
   const [demoBusy, setDemoBusy] = useState(false);
+  const [testCallUrl, setTestCallUrl] = useState('https://smilecraft.ca/new-patients/');
+  const [testCallBusy, setTestCallBusy] = useState(false);
+  const [testCallNote, setTestCallNote] = useState<string | null>(null);
   const [repointBusy, setRepointBusy] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
 
@@ -75,6 +78,25 @@ export default function AdminConfigPage() {
       toast(err instanceof ApiError ? err.message : 'Could not re-sync assistants.', 'error');
     } finally {
       setSyncBusy(false);
+    }
+  }
+
+  async function placeTestCall() {
+    const websiteUrl = testCallUrl.trim();
+    if (!websiteUrl) {
+      toast('Paste a clinic website first.', 'error');
+      return;
+    }
+    setTestCallBusy(true);
+    setTestCallNote(null);
+    try {
+      const r = await AdminApi.demoTestCall(websiteUrl);
+      setTestCallNote(`Calling you now — Maya will answer as ${r.clinicName}, calling from ${r.fromNumber}.`);
+      toast('Test call placed — your phone should ring shortly.', 'success');
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not place the test call.', 'error');
+    } finally {
+      setTestCallBusy(false);
     }
   }
 
@@ -201,6 +223,41 @@ export default function AdminConfigPage() {
               {demoEnabled ? 'Turn off demo' : 'Turn on demo'}
             </Button>
           </div>
+        </Card>
+
+        <Card>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="max-w-xl">
+              <h3 className="font-display text-[15px] font-semibold tracking-tight text-ink">
+                Owner test call
+              </h3>
+              <p className="mt-1.5 text-sm leading-relaxed text-ink-muted">
+                Place the personalized receptionist demo to your own phone from here. Maya answers as
+                the clinic on the website below — no landing form, no bot check, no daily cap.
+              </p>
+            </div>
+          </div>
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <div className="w-full max-w-md">
+              <Input
+                placeholder="https://your-clinic.ca"
+                value={testCallUrl}
+                onChange={(e) => setTestCallUrl(e.target.value)}
+              />
+            </div>
+            <Button
+              size="sm"
+              loading={testCallBusy}
+              disabled={!testCallUrl.trim() || demoEnabled === false}
+              onClick={placeTestCall}
+            >
+              Call me
+            </Button>
+          </div>
+          {demoEnabled === false && (
+            <p className="mt-2 text-sm text-[#9a6a1d]">The demo is turned off — turn it on above first.</p>
+          )}
+          {testCallNote && <p className="mt-2 text-sm text-ink-muted">{testCallNote}</p>}
         </Card>
 
         <Card>
