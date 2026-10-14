@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import { z } from 'zod';
 import { ApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
+import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Field';
 
@@ -17,7 +18,7 @@ const LoginSchema = z.object({
 type FieldErrors = Partial<Record<'email' | 'password', string>>;
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const { login, loginWithGoogle } = useAuth();
   const router = useRouter();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -51,10 +52,25 @@ export default function LoginPage() {
     }
   }
 
+  async function onGoogleCredential(credential: string) {
+    if (submitting) return;
+    setFormError(null);
+    setSubmitting(true);
+    try {
+      const me = await loginWithGoogle(credential);
+      router.replace(me.onboarding.isActive ? '/dashboard' : '/onboarding');
+    } catch (err) {
+      setFormError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.');
+      setSubmitting(false);
+    }
+  }
+
   return (
     <div>
       <h1 className="font-display text-2xl font-semibold text-ink">Welcome back</h1>
       <p className="mt-1 text-sm text-ink-muted">Sign in to manage your receptionist.</p>
+
+      <GoogleSignInButton onCredential={onGoogleCredential} />
 
       <form onSubmit={onSubmit} noValidate className="mt-8 flex flex-col gap-5">
         {formError && (
