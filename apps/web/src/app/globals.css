@@ -2,6 +2,119 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ------------------------- theme tokens (RGB triplets) ---------------------- */
+/* The palette in tailwind.config.ts resolves through these variables. The
+   `:root` values are the app's original palette, verbatim — every page keeps
+   them. Inside the signed-in app (`.theme-root`, rendered by the dashboard and
+   admin layouts) the active theme — `data-theme` on <html>, set before first
+   paint by the inline script in the root layout and switched at runtime by
+   ThemeProvider — swaps the values. Themes: pearl (the current look,
+   sharpened), midnight (default; dark futuristic), deepteal (the shell's
+   deep teal carried across the whole product). */
+:root {
+  --vf-ink: 30 36 33;
+  --vf-ink-soft: 44 51 46;
+  --vf-ink-muted: 102 112 107;
+  --vf-ink-deep: 11 23 20;
+  --vf-ink-deeper: 7 18 16;
+  --vf-paper: 246 247 243;
+  --vf-surface: 241 244 241;
+  --vf-card: 255 255 255;
+  --vf-line: 228 231 226;
+  --vf-signal: 14 107 99;
+  --vf-on-signal: 255 255 255;
+  --vf-signal-deep: 10 87 79;
+  --vf-signal-soft: 217 238 234;
+  --vf-clinic: 15 169 142;
+  --vf-clinic-soft: 226 246 241;
+  --vf-construction: 165 106 24;
+  --vf-construction-soft: 246 236 217;
+  --vf-gold: 199 148 63;
+  --vf-gold-light: 230 190 114;
+  --vf-gold-deep: 148 108 36;
+  --vf-gold-soft: 244 233 211;
+  --vf-danger: 192 69 63;
+  --vf-danger-soft: 248 231 229;
+}
+
+html[data-theme='pearl'] .theme-root {
+  --vf-ink: 18 33 29;
+  --vf-ink-soft: 49 65 59;
+  --vf-ink-muted: 93 109 103;
+  --vf-ink-deep: 10 38 32;
+  --vf-ink-deeper: 7 29 23;
+  --vf-paper: 244 241 233;
+  --vf-surface: 241 238 227;
+  --vf-card: 255 255 255;
+  --vf-line: 226 221 207;
+  --vf-signal: 12 122 102;
+  --vf-on-signal: 255 255 255;
+  --vf-signal-deep: 9 92 77;
+  --vf-signal-soft: 217 238 234;
+  --vf-clinic: 14 159 110;
+  --vf-clinic-soft: 223 242 233;
+  --vf-construction: 176 124 31;
+  --vf-construction-soft: 247 236 210;
+  --vf-gold: 199 148 63;
+  --vf-gold-light: 230 190 114;
+  --vf-gold-deep: 148 108 36;
+  --vf-gold-soft: 244 233 211;
+  --vf-danger: 179 64 46;
+  --vf-danger-soft: 248 227 222;
+}
+
+html[data-theme='midnight'] .theme-root {
+  --vf-ink: 233 242 246;
+  --vf-ink-soft: 195 211 220;
+  --vf-ink-muted: 143 165 178;
+  --vf-ink-deep: 4 9 13;
+  --vf-ink-deeper: 3 7 10;
+  --vf-paper: 6 12 17;
+  --vf-surface: 14 28 40;
+  --vf-card: 11 22 31;
+  --vf-line: 27 46 61;
+  --vf-signal: 20 184 166;
+  --vf-on-signal: 4 33 27;
+  --vf-signal-deep: 45 212 191;
+  --vf-signal-soft: 14 46 36;
+  --vf-clinic: 52 211 153;
+  --vf-clinic-soft: 14 46 36;
+  --vf-construction: 227 179 65;
+  --vf-construction-soft: 44 36 16;
+  --vf-gold: 227 179 65;
+  --vf-gold-light: 230 190 114;
+  --vf-gold-deep: 227 179 65;
+  --vf-gold-soft: 44 36 16;
+  --vf-danger: 240 131 107;
+  --vf-danger-soft: 51 27 21;
+}
+
+html[data-theme='deepteal'] .theme-root {
+  --vf-ink: 237 246 242;
+  --vf-ink-soft: 201 222 214;
+  --vf-ink-muted: 147 181 169;
+  --vf-ink-deep: 5 27 22;
+  --vf-ink-deeper: 4 18 14;
+  --vf-paper: 7 35 29;
+  --vf-surface: 15 54 45;
+  --vf-card: 12 46 39;
+  --vf-line: 27 70 59;
+  --vf-signal: 46 211 166;
+  --vf-on-signal: 4 33 27;
+  --vf-signal-deep: 124 240 203;
+  --vf-signal-soft: 14 58 42;
+  --vf-clinic: 62 213 152;
+  --vf-clinic-soft: 14 58 42;
+  --vf-construction: 227 179 65;
+  --vf-construction-soft: 44 42 16;
+  --vf-gold: 227 179 65;
+  --vf-gold-light: 230 190 114;
+  --vf-gold-deep: 227 179 65;
+  --vf-gold-soft: 44 42 16;
+  --vf-danger: 240 131 107;
+  --vf-danger-soft: 51 27 21;
+}
+
 @layer base {
   html {
     @apply antialiased;
@@ -91,8 +204,46 @@
 .bg-wave-2 { animation: bg-wave-2 25s ease-in-out infinite; transform-origin: bottom; }
 .bg-wave-3 { animation: bg-wave-3 31s ease-in-out infinite; transform-origin: bottom; }
 
+/* ------------------------- animated logo (shell only) ----------------------- */
+/* The waveform mark in the signed-in shell breathes: each bar runs a gentle
+   equalizer (transform-only, GPU-friendly) with a staggered delay, and a soft
+   light sweep crosses the tile every few seconds. Subtle and slow — corporate,
+   not playful. transform-box: fill-box makes each SVG rect scale around its
+   own center. */
+@keyframes logo-eq {
+  0%, 100% { transform: scaleY(0.55); }
+  50% { transform: scaleY(1); }
+}
+@keyframes logo-sweep {
+  0%, 55% { transform: translateX(-130%) skewX(-18deg); opacity: 0; }
+  62% { opacity: 0.55; }
+  75%, 100% { transform: translateX(240%) skewX(-18deg); opacity: 0; }
+}
+.logo-eq-bar {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: logo-eq 2.6s ease-in-out infinite;
+}
+.logo-sweep {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 45%;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+  animation: logo-sweep 6.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
 /* Respect users who opt out of motion: stop loops, settle bars statically. */
 @media (prefers-reduced-motion: reduce) {
+  .logo-eq-bar {
+    animation: none !important;
+    transform: scaleY(0.8);
+  }
+  .logo-sweep {
+    animation: none !important;
+    opacity: 0;
+  }
   .animate-wave-bar {
     animation: none !important;
     transform: scaleY(calc(var(--wave-max, 1) * 0.6));
