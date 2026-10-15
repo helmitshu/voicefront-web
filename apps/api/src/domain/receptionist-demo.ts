@@ -107,6 +107,14 @@ export interface ReceptionistContext {
    * collects cold. Null when the number genuinely isn't available.
    */
   prospectPhone: string | null;
+  /**
+   * Web channel only: this demo runs in the prospect's browser, where they
+   * watch a live panel (the sample calendar and the stage cards) that Maya
+   * drives with the set_demo_screen and show_call_summary tools. The prompt
+   * gains a panel-driving block and the tools are attached. Phone calls
+   * never set this, and their prompt stays byte-identical.
+   */
+  screenControl?: boolean;
   timezone: string;
   localToday: { date: string; weekday: string };
   /** The single sample day the demo calendar books on. */
@@ -215,8 +223,13 @@ function knownDataBlock(ctx: ReceptionistContext): string | null {
     'WHAT YOU ALREADY KNOW (the server gives you this before the call starts — never pretend you do not have it):',
   ];
   if (phone) {
+    // The callback candidate arrives by a different road per channel: on the
+    // phone demo the server dialed it, on the web demo the prospect typed it
+    // into the request form. The confirm wording follows the road.
     lines.push(
-      `- The number you dialed for this call: ${phone}. It is the callback candidate. Do NOT collect a callback number cold: in COLLECT, confirm this one instead — "And the best callback number, is it the one I just called you on?" If they say yes, that IS the confirmed callback number (you just reached them on it), and it is the number you pass to hold_appointment. Only if they give you a different number do you collect that one, with the full number discipline below.`,
+      ctx.screenControl
+        ? `- The number they gave on the demo request: ${phone}. It is the callback candidate. Do NOT collect a callback number cold: in COLLECT, confirm this one instead — "And the best callback number, is it the one from your demo request?" If they say yes, that IS the confirmed callback number, and it is the number you pass to hold_appointment. Only if they give you a different number do you collect that one, with the full number discipline below.`
+        : `- The number you dialed for this call: ${phone}. It is the callback candidate. Do NOT collect a callback number cold: in COLLECT, confirm this one instead — "And the best callback number, is it the one I just called you on?" If they say yes, that IS the confirmed callback number (you just reached them on it), and it is the number you pass to hold_appointment. Only if they give you a different number do you collect that one, with the full number discipline below.`,
     );
   }
   if (name) {
@@ -361,6 +374,27 @@ function demoGuardrails(clinicName: string): string {
   ].join('\n');
 }
 
+/**
+ * Web channel only: how Maya drives the on-screen panel the prospect is
+ * watching (the same stage set the sales demo uses). The screens map onto
+ * the spine, never onto a separate script: booking covers COLLECT, OFFER
+ * and HOLD, doublebook is the refusal beat, and the summary tool carries
+ * her real recap right before the closing goodbye. The tool calls are
+ * fire-and-forget, so switching the panel never pauses her speech, and
+ * the two-turn closing shape from the spine still rules the words.
+ */
+function screenControlBlock(): string {
+  return [
+    "CONTROLLING THEIR SCREEN (this demo runs in the prospect's browser, and you have a set_demo_screen tool — they are watching a panel that you drive):",
+    '- The screen must always match where you are on the spine. Call set_demo_screen the moment you move into each part, before you start talking about it, and never describe what they should be seeing before you have switched to it.',
+    "- set_demo_screen('intro') — at the very start, while you greet (STATE 1) and find out what they need (STATE 2).",
+    "- set_demo_screen('booking') — the instant the call turns to booking: collecting the details (STATE 4), offering times (STATE 5), and placing the hold (STATE 6). The live sample calendar only exists on their screen on this screen and the next one, so switch first, then talk.",
+    "- set_demo_screen('doublebook') — when the caller tries to get a second appointment held on this same call, or pushes for a different time after a hold exists, and you have to refuse and offer the change instead (the one-hold rule from STATE 6). If they clearly agree to the change, switch back to 'booking' before you change it.",
+    '- Near the very end, after the caller has answered your closing pivot question and before your final goodbye, call show_call_summary with a REAL recap of this call: headline is what the caller needed in a few words, recap is one or two sentences on what you did for them, written like a note their front desk would read. Then call set_demo_screen(\'close\') as you give the final goodbye.',
+    '- Go back when they ask. If they want the calendar again, call set_demo_screen(\'booking\') and walk them through it. The panel moves backward as freely as forward.',
+  ].join('\n');
+}
+
 /** Builds the full receptionist system prompt for the personalized demo. */
 export function composeReceptionistPrompt(ctx: ReceptionistContext): string {
   const clinicName = sanitizeDemoText(ctx.clinicName, 60) || 'the clinic';
@@ -378,6 +412,7 @@ export function composeReceptionistPrompt(ctx: ReceptionistContext): string {
     `Today is ${ctx.localToday.weekday}, ${ctx.localToday.date} (${ctx.timezone}).`,
     '',
     demoSpine(ctx),
+    ...(ctx.screenControl ? ['', screenControlBlock()] : []),
     '',
     demoGuardrails(clinicName),
   ].join('\n');
