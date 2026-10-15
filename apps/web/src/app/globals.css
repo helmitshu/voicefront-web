@@ -24,7 +24,7 @@
  *   demo --shell / --shell-2 / --shell-edge / --shell-ink / --shell-mut /
  *   --shell-faint → the --vf-shell* scale (the shell is dark in every theme)
  *   demo --glow / --glow-2 → --vf-glow / --vf-glow-2, --grad → --vf-grad,
- *   --grid-line → --vf-grid-line, --topbar → --vf-topbar,
+ *   --topbar → --vf-topbar,
  *   --shadow / --shadow-sm → --vf-shadow / --vf-shadow-sm, --stage → --vf-stage.
  * Midnight is the default. */
 :root {
@@ -67,7 +67,6 @@
   --vf-glow-2: 14 165 198;
   --vf-stage: 10 38 32;
   --vf-grad: linear-gradient(92deg, #0c7a66, #12a594 55%, #0ea5c6);
-  --vf-grid-line: rgba(11, 39, 33, 0.055);
   --vf-topbar: rgba(246, 247, 243, 0.86);
   --vf-shadow: 0 1px 2px rgba(20, 30, 25, 0.03), 0 6px 16px -6px rgba(20, 30, 25, 0.06),
     0 14px 36px -14px rgba(20, 30, 25, 0.06);
@@ -112,7 +111,6 @@ html[data-theme='pearl'] .theme-root {
   --vf-glow-2: 14 165 198;
   --vf-stage: 10 38 32;
   --vf-grad: linear-gradient(92deg, #0c7a66, #12a594 55%, #0ea5c6);
-  --vf-grid-line: rgba(11, 39, 33, 0.055);
   --vf-topbar: rgba(244, 241, 233, 0.86);
   --vf-shadow: 0 18px 44px -22px rgba(11, 39, 33, 0.28), 0 2px 6px rgba(11, 39, 33, 0.05);
   --vf-shadow-sm: 0 8px 22px -12px rgba(11, 39, 33, 0.22);
@@ -156,7 +154,6 @@ html[data-theme='midnight'] .theme-root {
   --vf-glow-2: 56 189 248;
   --vf-stage: 4 9 13;
   --vf-grad: linear-gradient(92deg, #2dd4bf, #34c7e8);
-  --vf-grid-line: rgba(94, 234, 212, 0.05);
   --vf-topbar: rgba(6, 12, 17, 0.85);
   --vf-shadow: 0 22px 50px -22px rgba(0, 0, 0, 0.75), 0 2px 8px rgba(0, 0, 0, 0.4);
   --vf-shadow-sm: 0 10px 26px -12px rgba(0, 0, 0, 0.6);
@@ -200,7 +197,6 @@ html[data-theme='deepteal'] .theme-root {
   --vf-glow-2: 76 201 232;
   --vf-stage: 5 27 22;
   --vf-grad: linear-gradient(92deg, #2ed3a6, #4cc9e8);
-  --vf-grid-line: rgba(94, 234, 212, 0.05);
   --vf-topbar: rgba(7, 35, 29, 0.88);
   --vf-shadow: 0 22px 50px -22px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.3);
   --vf-shadow-sm: 0 10px 26px -12px rgba(0, 0, 0, 0.5);
@@ -270,12 +266,6 @@ html[data-theme='deepteal'] .theme-root {
   /* The demo's shell gradient: lighter shell-2 at the top settling into shell. */
   .bg-shell-grad {
     background-image: linear-gradient(180deg, rgb(var(--vf-shell-2)), rgb(var(--vf-shell)) 30%);
-  }
-  /* The demo's workspace grid backdrop: 44px lines over the page canvas. */
-  .vf-grid-bg {
-    background-image: linear-gradient(var(--vf-grid-line) 1px, transparent 1px),
-      linear-gradient(90deg, var(--vf-grid-line) 1px, transparent 1px);
-    background-size: 44px 44px;
   }
 }
 
