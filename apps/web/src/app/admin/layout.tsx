@@ -113,11 +113,33 @@ const NAV: NavItem[] = [
     ),
   },
   {
+    href: '/admin/ai-team',
+    label: 'AI Team',
+    fullAdminOnly: true,
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-[18px] w-[18px]">
+        <circle cx="7" cy="7" r="3" />
+        <path d="M2.5 16.5a4.5 4.5 0 0 1 8-2.8M12.5 12.5 17 17M14.5 14.5l2-2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
     href: '/admin/audit',
     label: 'Audit log',
     icon: (
       <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-[18px] w-[18px]">
         <path d="M5 3.5h10v13H5zM8 7.5h4M8 10.5h4M8 13.5h2" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
+    href: '/admin/tickets',
+    label: 'Support tickets',
+    fullAdminOnly: true,
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-[18px] w-[18px]">
+        <path d="M3.5 6.5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v2a2.5 2.5 0 0 0 0 5v2a2 2 0 0 1-2 2h-9a2 2 0 0 1-2-2v-2a2.5 2.5 0 0 0 0-5z" strokeLinejoin="round" />
+        <path d="M11 6v2M11 11v2" strokeLinecap="round" strokeDasharray="0.5 2.6" />
       </svg>
     ),
   },
