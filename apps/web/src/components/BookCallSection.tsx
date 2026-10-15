@@ -123,11 +123,11 @@ export function BookCallSection() {
         </div>
         <h3 className="mt-5 font-display text-2xl font-semibold tracking-tight text-ink">You&apos;re booked in</h3>
         <p className="mx-auto mt-3 max-w-sm text-[15px] leading-relaxed text-ink-muted">
-          Your intro call is set for{' '}
+          Your white glove setup call is set for{' '}
           <span className="font-semibold text-ink">{booked.dayLabel} at {to12(booked.time)}</span>
           {timezone ? ` (${tzLabel(timezone)} time)` : ''}. We&apos;ll be in touch at the number you gave us.
         </p>
-        <p className="mt-6 text-sm text-ink-muted">Talk soon — bring any questions about how VoiceFront would fit your front desk.</p>
+        <p className="mt-6 text-sm text-ink-muted">Talk soon. We will plan your setup on the call, and a human takes it from there.</p>
       </div>
     );
   }
@@ -286,7 +286,7 @@ export function BookCallSection() {
               className="w-full rounded-full bg-gradient-to-b from-signal to-signal-deep px-6 py-3.5 text-[15px] font-semibold text-white shadow-pop transition-all duration-200 hover:-translate-y-0.5 hover:shadow-lift disabled:opacity-60">
               {submitting ? 'Booking…' : 'Confirm booking'}
             </button>
-            <p className="text-center text-[11px] text-ink-muted">Free intro call · no account needed · we&apos;ll call you.</p>
+            <p className="text-center text-[11px] text-ink-muted">White glove setup, $500 one time plus your plan · we call you.</p>
           </div>
         )}
       </div>

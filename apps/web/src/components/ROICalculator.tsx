@@ -244,7 +244,7 @@ export function ROICalculator() {
         <div className="mt-6">
           <p className="rounded-xl bg-white/70 px-4 py-3 text-[13px] leading-relaxed text-ink-muted ring-1 ring-inset ring-signal/10">
             VoiceFront answers every one of those calls, 24/7, and books them straight into your
-            VoiceFront calendar. For most clinics, a single recovered {industry.unit} covers the plan.
+            VoiceFront calendar. Recover even one {industry.unit} a month and the plan has paid for itself.
           </p>
           <a
             href="/demo"
