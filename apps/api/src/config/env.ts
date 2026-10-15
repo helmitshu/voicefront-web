@@ -103,6 +103,16 @@ const EnvSchema = z.object({
    */
   GEMINI_API_KEY: z.string().optional(),
   /**
+   * Per-member Gemini keys for the AI team room, one per seat, each from
+   * that member's own Google project, so one member's free-tier quota
+   * burn cannot starve the others. Optional — a member whose own key is
+   * unset falls back to the shared GEMINI_API_KEY above.
+   */
+  TEAM_GEMINI_API_KEY_OMAR: z.string().optional(),
+  TEAM_GEMINI_API_KEY_PRIYA: z.string().optional(),
+  TEAM_GEMINI_API_KEY_DANIEL: z.string().optional(),
+  TEAM_GEMINI_API_KEY_LAYLA: z.string().optional(),
+  /**
    * Kill switch for the personalized (receptionist) demo kind only. Unset =
    * enabled. Set to 'false' to reject demoKind 'receptionist' calls while
    * the sales demo keeps running; the DEMO_ENABLED platform setting still
