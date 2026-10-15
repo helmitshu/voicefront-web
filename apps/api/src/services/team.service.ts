@@ -28,8 +28,16 @@ import { geminiDeclarationsForMember, invokeTeamTool } from './team-tools';
  * - Discuss runs two rounds and an auto summary. The Decision slot on a
  *   discussion is written ONLY by setDecision, which records a
  *   CEO-authored message; no member or summary path touches it.
+ *   Discuss turns are failure-isolated: one member's model failure
+ *   costs that member that round, never the whole discussion, and the
+ *   summary says who could not answer. Only a round 1 where every
+ *   seated member fails is a 502.
  * - A model failure throws an honest 502. A fabricated reply is worse
  *   than an error, so nothing here invents member text.
+ * - Member replies are paced like people: each is stored with a
+ *   visibleAt moment (see pacedVisibleAt) and thread reads hold it
+ *   back until then, naming who is still typing via a pending
+ *   indicator. Owner, CEO and SYSTEM messages are always immediate.
  */
 
 type MemberRow = {
@@ -112,6 +120,11 @@ export async function getThread(threadId: string) {
   return thread;
 }
 
+/**
+ * The full stored history, hidden replies included. Internal only:
+ * prompt building and summaries must see the real conversation, never
+ * the paced view.
+ */
 export async function listMessages(threadId: string) {
   await getThread(threadId);
   return prisma.teamMessage.findMany({
@@ -121,6 +134,38 @@ export async function listMessages(threadId: string) {
   });
 }
 
+export type ThreadPending = {
+  /** Slugs of members with a reply still on its way, in reply order. */
+  memberSlugs: string[];
+  /** When the next hidden reply lands, or null when nothing is pending. */
+  nextVisibleAt: Date | null;
+};
+
+/**
+ * What the room shows: member replies whose visibleAt has not passed
+ * yet are held back, and the pending indicator names who is still
+ * "typing" and when the next reply lands, so the UI can show it.
+ */
+export async function getThreadView(
+  threadId: string,
+): Promise<{ messages: MessageRow[]; pending: ThreadPending }> {
+  const all = (await listMessages(threadId)) as MessageRow[];
+  const now = new Date();
+  const isHidden = (m: MessageRow) =>
+    m.authorType === 'MEMBER' && m.visibleAt !== null && m.visibleAt > now;
+  const messages = all.filter((m) => !isHidden(m));
+  const waiting = all.filter(isHidden);
+  const memberSlugs: string[] = [];
+  for (const m of waiting) {
+    if (m.authorSlug && !memberSlugs.includes(m.authorSlug)) memberSlugs.push(m.authorSlug);
+  }
+  const nextVisibleAt =
+    waiting.length > 0
+      ? new Date(Math.min(...waiting.map((m) => (m.visibleAt as Date).getTime())))
+      : null;
+  return { messages, pending: { memberSlugs, nextVisibleAt } };
+}
+
 type MessageRow = {
   id: string;
   threadId: string;
@@ -128,8 +173,36 @@ type MessageRow = {
   authorSlug: string | null;
   label: string | null;
   body: string;
+  visibleAt: Date | null;
   createdAt: Date;
 };
+
+/* ---------------------------- human pacing ------------------------------ */
+
+/**
+ * Member replies land at a human pace, not machine pace. A reply is
+ * stored right away (so history and summaries see the real conversation)
+ * but carries a visibleAt moment and stays out of thread reads until it
+ * passes. The delay is a thinking beat plus typing time at roughly 18
+ * characters per second, clamped so short replies still feel considered
+ * and long ones never stall the room. Pacing never alters content.
+ */
+const PACING_BASE_MS = 1_500;
+const PACING_CHARS_PER_SECOND = 18;
+const PACING_MIN_MS = 3_000;
+const PACING_MAX_MS = 25_000;
+/** Minimum gap between one member reply becoming visible and the next. */
+const PACING_STAGGER_MS = 4_000;
+
+export function pacedVisibleAt(body: string, notBefore?: Date | null): Date {
+  const typingMs = (body.length / PACING_CHARS_PER_SECOND) * 1_000;
+  const delay = Math.min(
+    PACING_MAX_MS,
+    Math.max(PACING_MIN_MS, PACING_BASE_MS + typingMs),
+  );
+  const at = Date.now() + delay;
+  return new Date(notBefore && notBefore.getTime() > at ? notBefore.getTime() : at);
+}
 
 async function storeMessage(params: {
   threadId: string;
@@ -137,6 +210,7 @@ async function storeMessage(params: {
   authorSlug?: string | null;
   label?: string | null;
   body: string;
+  visibleAt?: Date | null;
 }): Promise<MessageRow> {
   const message = await prisma.teamMessage.create({
     data: {
@@ -145,6 +219,7 @@ async function storeMessage(params: {
       authorSlug: params.authorSlug ?? null,
       label: params.label ?? null,
       body: params.body,
+      visibleAt: params.visibleAt ?? null,
     },
   });
   await prisma.teamThread.update({
@@ -238,6 +313,8 @@ async function memberReply(params: {
   thread: { id: string; contextSummary: string | null };
   member: MemberRow;
   history: MessageRow[];
+  /** Earliest moment this reply may become visible (stagger chaining). */
+  notBefore?: Date | null;
 }): Promise<MessageRow> {
   const members = await ensureTeamMembers();
   const names = new Map(members.map((m) => [m.slug, m.name]));
@@ -256,6 +333,7 @@ async function memberReply(params: {
     authorType: 'MEMBER',
     authorSlug: params.member.slug,
     body: text,
+    visibleAt: pacedVisibleAt(text, params.notBefore),
   });
 }
 
@@ -344,31 +422,61 @@ export async function startDiscussion(params: {
   );
 
   const names = new Map(all.map((m) => [m.slug, m.name]));
-  const ask = async (member: MemberRow, extra: string): Promise<MessageRow> => {
-    const history = (await listMessages(thread.id)) as MessageRow[];
-    const contents = toContents(history.slice(-HISTORY_WINDOW), member.slug, names);
-    contents.push({ role: 'user', parts: [{ text: extra }] });
-    const text = await runMemberConversation({
-      model: member.modelConfig,
-      systemText: memberSystem(member),
-      contents,
-      functionDeclarations: geminiDeclarationsForMember(member.slug),
-      executeTool: (name, args) =>
-        invokeTeamTool({ memberSlug: member.slug, threadId: thread.id }, name, args),
-    });
-    const stored = await storeMessage({
-      threadId: thread.id,
-      authorType: 'MEMBER',
-      authorSlug: member.slug,
-      body: text,
-    });
-    messages.push(stored);
-    return stored;
+  // Replies surface one person at a time: each member's visibleAt is
+  // chained at least PACING_STAGGER_MS after the previous reply's, so
+  // the thread reads like people taking turns, not a wall landing at
+  // once.
+  let nextNotBefore: Date | null = null;
+  // Failure isolation: one member's model failing (after the retry
+  // layer has had its chances) must not kill the whole discussion.
+  // The failed member simply has no message that round; the names are
+  // collected so the auto summary can say so plainly.
+  const failedToAnswer = new Map<string, string>();
+  const ask = async (member: MemberRow, extra: string): Promise<MessageRow | null> => {
+    try {
+      const history = (await listMessages(thread.id)) as MessageRow[];
+      const contents = toContents(history.slice(-HISTORY_WINDOW), member.slug, names);
+      contents.push({ role: 'user', parts: [{ text: extra }] });
+      const text = await runMemberConversation({
+        model: member.modelConfig,
+        systemText: memberSystem(member),
+        contents,
+        functionDeclarations: geminiDeclarationsForMember(member.slug),
+        executeTool: (name, args) =>
+          invokeTeamTool({ memberSlug: member.slug, threadId: thread.id }, name, args),
+      });
+      const stored = await storeMessage({
+        threadId: thread.id,
+        authorType: 'MEMBER',
+        authorSlug: member.slug,
+        body: text,
+        visibleAt: pacedVisibleAt(text, nextNotBefore),
+      });
+      if (stored.visibleAt) {
+        nextNotBefore = new Date(stored.visibleAt.getTime() + PACING_STAGGER_MS);
+      }
+      messages.push(stored);
+      return stored;
+    } catch (err) {
+      console.warn(
+        `[team] Discussion turn failed for ${member.slug} (thread ${thread.id}): ${err instanceof Error ? err.message : String(err)}`,
+      );
+      failedToAnswer.set(member.slug, member.name);
+      return null;
+    }
   };
 
   // Round 1: positions.
+  let round1Answers = 0;
   for (const member of seated) {
-    await ask(member, `Discussion topic: ${topic}\n\nGive your position on this topic, in your seat, in a few short lines.`);
+    if (await ask(member, `Discussion topic: ${topic}\n\nGive your position on this topic, in your seat, in a few short lines.`)) {
+      round1Answers += 1;
+    }
+  }
+  // A discussion where nobody could speak is a failure, honestly
+  // reported; anything short of that continues with who is left.
+  if (round1Answers === 0) {
+    throw new HttpError(502, 'No team member could answer just now. Please try again.', 'MODEL_ERROR');
   }
   // Round 2: each member must agree with one point and challenge another.
   for (const member of seated) {
@@ -376,19 +484,39 @@ export async function startDiscussion(params: {
   }
 
   // Auto summary: authored SYSTEM, labeled, never a member's voice, and
-  // it never touches the Decision slot.
+  // it never touches the Decision slot. The summary step is told which
+  // members could not answer so it can say so plainly; if the summary
+  // call itself fails, a plain SYSTEM note takes its place rather than
+  // failing a discussion the members did complete.
+  const failedNames = [...failedToAnswer.values()];
   const history = (await listMessages(thread.id)) as MessageRow[];
   const transcript = history
     .map((m) => `${m.authorType === 'MEMBER' ? (names.get(m.authorSlug ?? '') ?? m.authorSlug) : m.authorType}: ${m.body}`)
     .join('\n');
-  const parts = await callTeamModel({
-    model: seated[0].modelConfig,
-    systemText:
-      'You write a neutral auto summary of a team discussion: each position in one line, where they agreed, what they challenged, and the open questions. Short and plain. You are not a participant and you make no decision.',
-    contents: [{ role: 'user', parts: [{ text: transcript.slice(0, 12_000) }] }],
-  });
-  const summaryText = partsToText(parts);
-  if (!summaryText) throw new HttpError(502, 'The discussion summary could not be written just now.', 'MODEL_ERROR');
+  const summaryInput =
+    transcript.slice(0, 12_000) +
+    (failedNames.length > 0
+      ? `\n\nNote: ${failedNames.join(', ')} could not answer in this discussion. Say so plainly in the summary.`
+      : '');
+  let summaryText = '';
+  try {
+    const parts = await callTeamModel({
+      model: seated[0].modelConfig,
+      systemText:
+        'You write a neutral auto summary of a team discussion: each position in one line, where they agreed, what they challenged, and the open questions. Short and plain. You are not a participant and you make no decision.',
+      contents: [{ role: 'user', parts: [{ text: summaryInput }] }],
+    });
+    summaryText = partsToText(parts);
+  } catch (err) {
+    console.warn(
+      `[team] Discussion summary failed (thread ${thread.id}): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  if (!summaryText) {
+    summaryText =
+      'Auto summary unavailable: the summary step could not be completed for this discussion.' +
+      (failedNames.length > 0 ? ` ${failedNames.join(', ')} could not answer.` : '');
+  }
   messages.push(
     await storeMessage({
       threadId: thread.id,
