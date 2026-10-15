@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import {
@@ -38,6 +38,46 @@ function matchesFilter(call: CallDto, filter: CallFilter): boolean {
       return true;
   }
 }
+
+/** Phone-only section tabs for this page (below sm). Page-local sections,
+    not app navigation: the drawer and sidebar keep that job. */
+type HomeTab = 'overview' | 'receptionist' | 'calls';
+
+const HOME_TABS: { key: HomeTab; label: string; icon: ReactNode }[] = [
+  {
+    key: 'overview',
+    label: 'Overview',
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-5 w-5">
+        <rect x="3" y="3" width="6" height="6" rx="1.5" />
+        <rect x="11" y="3" width="6" height="6" rx="1.5" />
+        <rect x="3" y="11" width="6" height="6" rx="1.5" />
+        <rect x="11" y="11" width="6" height="6" rx="1.5" />
+      </svg>
+    ),
+  },
+  {
+    key: 'receptionist',
+    label: 'Receptionist',
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-5 w-5">
+        <path d="M4.5 8.5v3M10 5.5v9M15.5 8.5v3" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    key: 'calls',
+    label: 'Calls',
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-5 w-5">
+        <path
+          d="M4 3.5h3l1.5 4-2 1.5a11 11 0 0 0 4.5 4.5l1.5-2 4 1.5v3a1.5 1.5 0 0 1-1.6 1.5C8.3 16.9 3.1 11.7 2.5 5.1A1.5 1.5 0 0 1 4 3.5Z"
+          strokeLinejoin="round"
+        />
+      </svg>
+    ),
+  },
+];
 
 const TIME_FMT = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' });
 
@@ -95,6 +135,10 @@ export default function OverviewPage() {
   const [recent, setRecent] = useState<CallDto[] | null>(null);
   const [inboundNumber, setInboundNumber] = useState<string | null | undefined>(undefined);
   const [callFilter, setCallFilter] = useState<CallFilter>('all');
+  // Which home section a phone shows (below sm only). Held in page state;
+  // at sm and up every section renders regardless, so nothing reads this
+  // on larger screens.
+  const [homeTab, setHomeTab] = useState<HomeTab>('overview');
   // Each block loads independently: one failing endpoint degrades only its
   // own section (with a retry) instead of blanking the whole home page.
   const [statsError, setStatsError] = useState<string | null>(null);
@@ -243,12 +287,27 @@ export default function OverviewPage() {
 
   const filteredRecent = recent?.filter((call) => matchesFilter(call, callFilter)) ?? null;
 
+  // Phone section wrappers: below sm only the active group shows, stacked
+  // with the page's usual gap. At sm and up every wrapper is sm:contents,
+  // so it drops out of the layout and the sections render exactly as they
+  // did before the tabs existed.
+  const sectionClass = (tab: HomeTab) =>
+    homeTab === tab ? 'flex flex-col gap-6 sm:contents' : 'hidden sm:contents';
+
+  const selectHomeTab = (tab: HomeTab) => {
+    setHomeTab(tab);
+    const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    window.scrollTo({ top: 0, behavior: reduceMotion ? 'auto' : 'smooth' });
+  };
+
   return (
-    <div className="flex animate-fade-up flex-col gap-6 sm:gap-8">
-      <div>
-        <p className="mb-2 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-signal">
-          {eyebrow}
-        </p>
+    <>
+      <div className="flex animate-fade-up flex-col gap-6 pb-20 sm:gap-8 sm:pb-0">
+        <div className={sectionClass('overview')}>
+          <div>
+            <p className="mb-2 font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-signal">
+              {eyebrow}
+            </p>
         <h1 className="font-display text-[26px] font-bold tracking-[-0.015em] text-ink sm:text-[36px]">
           {greeting}
           {firstName ? `, ${firstName}.` : '.'}
@@ -332,6 +391,9 @@ export default function OverviewPage() {
         </div>
       )}
 
+        </div>
+
+        <div className={sectionClass('receptionist')}>
       <div className="grid gap-4 lg:grid-cols-[1.55fr_1fr]">
         {/* Receptionist status: the demo's dark live panel, carrying the real
             number and settings states. It shows an on-a-call state only while
@@ -463,9 +525,12 @@ export default function OverviewPage() {
           )}
         </Card>
       </div>
+        </div>
 
-      {/* Recent calls: the demo's table, fed by the real call list, with the
-          demo's outcome filters working over the loaded rows. */}
+        <div className={sectionClass('calls')}>
+      {/* Recent calls: fed by the real call list, with the demo's outcome
+          filters working over the loaded rows. At sm and up the table below
+          renders as it always has; on phones the same rows show as cards. */}
       <Card className="p-5 sm:p-[22px]">
         <div className="mb-2 flex flex-wrap items-center justify-between gap-3">
           <div>
@@ -523,7 +588,62 @@ export default function OverviewPage() {
             No calls match that filter
           </p>
         ) : (
-          <table className="w-full border-collapse">
+          <>
+            {/* Phones: the same filtered rows as compact cards, same data,
+                same badges, same detail target as the table rows. */}
+            <div className="flex flex-col gap-2.5 sm:hidden">
+              {filteredRecent.map((call) => (
+                <Link
+                  key={call.id}
+                  href={`/dashboard/calls/${call.id}`}
+                  className="block rounded-[14px] border border-line bg-surface p-3.5 transition-colors hover:bg-surface3"
+                >
+                  <span className="flex items-center gap-3">
+                    <span
+                      aria-hidden
+                      className="grid h-[34px] w-[34px] shrink-0 place-items-center rounded-full border border-line bg-surface3 text-signal"
+                    >
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4">
+                        <path
+                          d="M3.2 2.8h2.4l1.2 3.2-1.6 1.2a8.8 8.8 0 0 0 3.6 3.6l1.2-1.6 3.2 1.2v2.4a1.2 1.2 0 0 1-1.3 1.2C6.6 13.5 2.5 9.4 2 4.1a1.2 1.2 0 0 1 1.2-1.3Z"
+                          strokeLinejoin="round"
+                        />
+                      </svg>
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-bold text-ink">
+                        {call.callerNumber ? formatPhone(call.callerNumber) : 'Unknown caller'}
+                      </span>
+                      <span className="block truncate text-xs text-ink-faint">
+                        {formatDateTime(call.startedAt)}
+                      </span>
+                    </span>
+                    {call.endedAt === null ? (
+                      <Badge tone="success" dot>
+                        On a call
+                      </Badge>
+                    ) : call.appointmentBooked ? (
+                      <Badge tone="success">Booked</Badge>
+                    ) : (
+                      <CallStatusBadge status={call.status} />
+                    )}
+                  </span>
+                  <span className="mt-2.5 block truncate text-sm text-ink-soft">
+                    {call.endedAt === null ? 'Call in progress' : (call.summary ?? call.outcome ?? '—')}
+                  </span>
+                  <span className="mt-1 block text-xs tabular-nums text-ink-muted">
+                    {call.endedAt === null
+                      ? formatDuration(
+                          Math.max(0, Math.floor((nowMs - new Date(call.startedAt).getTime()) / 1000)),
+                        )
+                      : formatDuration(call.durationSeconds)}
+                    {' · '}
+                    {TIME_FMT.format(new Date(call.startedAt))}
+                  </span>
+                </Link>
+              ))}
+            </div>
+            <table className="hidden w-full border-collapse sm:table">
             <thead className="hidden sm:table-header-group">
               <tr>
                 {['Caller', 'Summary', 'Outcome', 'Duration', 'When'].map((heading) => (
@@ -595,9 +715,52 @@ export default function OverviewPage() {
                 </tr>
               ))}
             </tbody>
-          </table>
+            </table>
+          </>
         )}
       </Card>
-    </div>
+        </div>
+      </div>
+
+      {/* Phone section tabs: fixed to the bottom of the screen below sm,
+          switching which home section shows. Page sections only, the app
+          navigation stays in the topbar and drawer. Rendered outside the
+          animated page root so the fade transform cannot trap the fixed
+          positioning, and the page root carries bottom padding below sm
+          so the bar never covers content. */}
+      <nav
+        aria-label="Home sections"
+        className="fixed inset-x-0 bottom-0 z-30 border-t border-line bg-[var(--vf-topbar)] backdrop-blur-[14px] sm:hidden"
+      >
+        <div className="grid grid-cols-3 pb-[env(safe-area-inset-bottom)]" role="tablist">
+          {HOME_TABS.map((tab) => {
+            const active = homeTab === tab.key;
+            return (
+              <button
+                key={tab.key}
+                type="button"
+                role="tab"
+                aria-selected={active}
+                onClick={() => selectHomeTab(tab.key)}
+                className={`flex flex-col items-center gap-1 px-2 py-2.5 text-[11px] font-bold transition-colors ${
+                  active ? 'text-signal-deep' : 'text-ink-muted hover:text-ink'
+                }`}
+              >
+                <span className="relative">
+                  {tab.icon}
+                  {tab.key === 'receptionist' && liveCall && (
+                    <span
+                      aria-hidden
+                      className="live-dot absolute -right-1.5 -top-0.5 h-1.5 w-1.5 rounded-full bg-clinic"
+                    />
+                  )}
+                </span>
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+    </>
   );
 }
