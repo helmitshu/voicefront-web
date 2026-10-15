@@ -31,6 +31,7 @@ import { unsubscribeRouter } from './routes/unsubscribe.routes';
 import { geoRouter } from './routes/geo.routes';
 import { supportRouter } from './routes/support.routes';
 import { billingRouter } from './routes/billing.routes';
+import { publicRouter } from './routes/public.routes';
 
 export function createApp(): express.Express {
   const app = express();
@@ -86,6 +87,7 @@ export function createApp(): express.Express {
   app.use('/api/geo', geoRouter);
   app.use('/api/support', supportRouter);
   app.use('/api/billing', billingRouter);
+  app.use('/api/public', publicRouter);
   app.use('/api/booking', bookingRouter);
   app.use('/api/unsubscribe', unsubscribeRouter);
 
