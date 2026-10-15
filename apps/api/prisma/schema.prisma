@@ -1056,3 +1056,187 @@ model DemoHold {
   @@index([demoSessionId])
   @@map("demo_holds")
 }
+
+/// What kind of conversation a team thread is: a 1:1 direct message with
+/// one member, a group thread, the CEO room, or a structured discussion.
+enum TeamThreadType {
+  DM
+  GROUP
+  CEO
+  DISCUSS
+}
+
+/// Who authored a team message: the owner (Hakim), a team member, the CEO
+/// persona, or the system itself.
+enum TeamAuthorType {
+  OWNER
+  MEMBER
+  CEO
+  SYSTEM
+}
+
+/// Lifecycle of a filed work item for the AI team.
+enum WorkItemStatus {
+  QUEUED
+  IN_PROGRESS
+  DONE
+}
+
+/// Kind of draft a team member produced for owner review.
+enum TeamDraftKind {
+  EMAIL
+  COPY
+  AD
+  POST
+  QA_REPORT
+  SCORECARD
+  RESEARCH_BRIEF
+  DOSSIER
+  BOARD_PACK
+  CONTENT
+  OTHER
+}
+
+/// A member of the founder's AI team (Omar, Priya, Daniel, Layla). Platform
+/// level, not tenant-scoped: the founder works with the team, customers
+/// never see it. Seeded from TEAM_MEMBERS in services/team-content.ts.
+model TeamMember {
+  id            String   @id @default(cuid())
+  slug          String   @unique
+  name          String
+  role          String
+  avatarPath    String   @map("avatar_path")
+  personaPrompt String   @db.Text @map("persona_prompt")
+  modelConfig   String   @default("gemini-3.8-flash") @map("model_config")
+  statusLine    String   @default("") @map("status_line")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("team_members")
+}
+
+/// A conversation with or among AI team members. `memberSlug` names the
+/// member for DM threads; `decision` / `decisionAt` record a CEO-room
+/// decision when one is made; `contextSummary` is a rolling summary used
+/// to keep long threads in context.
+model TeamThread {
+  id             String         @id @default(cuid())
+  type           TeamThreadType
+  title          String?
+  memberSlug     String?        @map("member_slug")
+  topic          String?        @db.Text
+  decision       String?        @db.Text
+  decisionAt     DateTime?      @map("decision_at")
+  contextSummary String?        @db.Text @map("context_summary")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  messages TeamMessage[]
+
+  @@index([type])
+  @@map("team_threads")
+}
+
+/// One message in a team thread. `authorSlug` is the member slug when
+/// authorType is MEMBER (or the CEO persona); `label` is an optional
+/// display label shown alongside the message.
+model TeamMessage {
+  id         String        @id @default(cuid())
+  threadId   String        @map("thread_id")
+  thread     TeamThread    @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  authorType TeamAuthorType @map("author_type")
+  authorSlug String?       @map("author_slug")
+  label      String?
+  body       String        @db.Text
+  createdAt  DateTime      @default(now()) @map("created_at")
+
+  @@index([threadId, createdAt])
+  @@map("team_messages")
+}
+
+/// Something the team filed to be done (by the owner or a later process).
+/// `sourceThreadId` is a plain thread id kept for traceability, with no
+/// foreign key so a work item survives its thread.
+model WorkItem {
+  id             String         @id @default(cuid())
+  title          String
+  detail         String?        @db.Text
+  ownerSlug      String         @map("owner_slug")
+  status         WorkItemStatus @default(QUEUED)
+  sourceThreadId String?        @map("source_thread_id")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  @@index([status, createdAt(sort: Desc)])
+  @@map("work_items")
+}
+
+/// A draft artifact a team member produced for owner review (an email, a
+/// scorecard, a dossier, and so on). Drafts are never sent automatically.
+model TeamDraft {
+  id             String       @id @default(cuid())
+  memberSlug     String       @map("member_slug")
+  kind           TeamDraftKind
+  title          String
+  body           String       @db.Text
+  sourceThreadId String?      @map("source_thread_id")
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+
+  @@index([createdAt(sort: Desc)])
+  @@map("team_drafts")
+}
+
+/// Audit row for one tool a team member invoked: what went in, what came
+/// back, and whether it worked. Summaries only, never raw secrets.
+model TeamToolLog {
+  id            String   @id @default(cuid())
+  memberSlug    String   @map("member_slug")
+  tool          String
+  inputSummary  String   @db.Text @map("input_summary")
+  resultSummary String   @db.Text @map("result_summary")
+  ok            Boolean  @default(true)
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([createdAt(sort: Desc)])
+  @@map("team_tool_logs")
+}
+
+/// A durable note a team member keeps about their own seat's work.
+model TeamNote {
+  id         String   @id @default(cuid())
+  memberSlug String   @map("member_slug")
+  body       String   @db.Text
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  @@index([memberSlug, createdAt(sort: Desc)])
+  @@map("team_notes")
+}
+
+/// A captured failure case for regression tracking (usually from QA).
+/// `callLogId` is a plain call id kept for traceability, with no foreign
+/// key; `checksJson` holds the structured checks that failed.
+model FailureCase {
+  id          String   @id @default(cuid())
+  title       String
+  description String   @db.Text
+  callLogId   String?  @map("call_log_id")
+  checksJson  Json?    @map("checks_json")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@map("failure_cases")
+}
+
+/// A page the team watches for changes, keyed by URL: the last-seen
+/// content hash and when it was last checked.
+model TeamPageWatch {
+  id            String   @id @default(cuid())
+  url           String   @unique
+  contentHash   String   @map("content_hash")
+  lastCheckedAt DateTime @map("last_checked_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("team_page_watches")
+}
