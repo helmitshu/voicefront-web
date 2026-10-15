@@ -43,6 +43,16 @@ const LoginSchema = z.object({
   password: z.string().min(1),
 });
 
+/** The three signed-in app themes (mirrors AppTheme in the web app). */
+const APP_THEMES = ['pearl', 'midnight', 'deepteal'] as const;
+type AppTheme = (typeof APP_THEMES)[number];
+
+/** Stored theme values are validated on write; anything unexpected that
+ *  somehow lands in the column reads back as "no account choice". */
+function toAppTheme(value: string | null): AppTheme | null {
+  return APP_THEMES.includes(value as AppTheme) ? (value as AppTheme) : null;
+}
+
 interface MeResponse {
   user: {
     id: string;
@@ -53,6 +63,10 @@ interface MeResponse {
     isPlatformAdmin: boolean;
     /** Operator access level, or null for ordinary customers. */
     adminRole: 'ADMIN' | 'SUPPORT' | null;
+    /** App theme saved to the account, or null when never chosen. */
+    theme: AppTheme | null;
+    /** Calm mode saved to the account, or null when never chosen. */
+    calmMode: boolean | null;
   };
   tenant: {
     id: string;
@@ -82,6 +96,8 @@ async function buildMe(userId: string): Promise<MeResponse> {
       role: user.role,
       isPlatformAdmin: adminRole !== null,
       adminRole,
+      theme: toAppTheme(user.theme),
+      calmMode: user.calmMode ?? null,
     },
     tenant: {
       id: user.tenant.id,
@@ -361,6 +377,37 @@ authRouter.get(
   requireAuth,
   asyncHandler(async (req, res) => {
     const auth = getAuth(req);
+    res.json(await buildMe(auth.userId));
+  }),
+);
+
+const PreferencesSchema = z
+  .object({
+    /** App theme to save to the account; null clears the saved choice. */
+    theme: z.enum(APP_THEMES).nullable().optional(),
+    /** Calm mode to save to the account; null clears the saved choice. */
+    calmMode: z.boolean().nullable().optional(),
+  })
+  .refine((value) => value.theme !== undefined || value.calmMode !== undefined, {
+    message: 'Nothing to update.',
+  });
+
+/**
+ * Save display preferences (app theme, calm mode) to the signed-in user's
+ * account so they follow the user across devices. Either field may be sent
+ * on its own; a field sent as null clears that saved choice. Responds with
+ * the full me payload, same as GET /me.
+ */
+authRouter.patch(
+  '/preferences',
+  requireAuth,
+  asyncHandler(async (req, res) => {
+    const auth = getAuth(req);
+    const body = PreferencesSchema.parse(req.body);
+    const data: { theme?: string | null; calmMode?: boolean | null } = {};
+    if (body.theme !== undefined) data.theme = body.theme;
+    if (body.calmMode !== undefined) data.calmMode = body.calmMode;
+    await prisma.user.update({ where: { id: auth.userId }, data });
     res.json(await buildMe(auth.userId));
   }),
 );
