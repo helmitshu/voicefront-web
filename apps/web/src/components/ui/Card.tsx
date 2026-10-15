@@ -12,7 +12,7 @@ export function Card({
 }) {
   return (
     <div
-      className={`rounded-2xl border border-line/70 bg-card shadow-card transition-shadow duration-200 ${padded ? 'p-6' : ''} ${className}`}
+      className={`rounded-[18px] border border-line bg-card shadow-card transition-shadow duration-200 ${padded ? 'p-6' : ''} ${className}`}
     >
       {children}
     </div>
@@ -34,11 +34,11 @@ export function CardHeader({ title, description, action }: { title: string; desc
 export type BadgeTone = 'neutral' | 'signal' | 'success' | 'warning' | 'danger';
 
 const BADGE_TONES: Record<BadgeTone, string> = {
-  neutral: 'bg-paper text-ink-muted ring-ink/10',
+  neutral: 'bg-surface3 text-ink-muted ring-ink/10',
   signal: 'bg-signal-soft/70 text-signal-deep ring-signal/20',
-  success: 'bg-clinic-soft/70 text-clinic ring-clinic/25',
-  warning: 'bg-construction-soft/70 text-construction ring-construction/30',
-  danger: 'bg-danger-soft/70 text-danger ring-danger/25',
+  success: 'bg-clinic-soft text-signal-deep ring-clinic/25',
+  warning: 'bg-construction-soft text-construction ring-construction/30',
+  danger: 'bg-danger-soft text-danger ring-danger/25',
 };
 
 const BADGE_DOTS: Record<BadgeTone, string> = {
@@ -60,7 +60,7 @@ export function Badge({
 }) {
   return (
     <span
-      className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium ring-1 ring-inset ${BADGE_TONES[tone]}`}
+      className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-1 text-[11.5px] font-extrabold ring-1 ring-inset ${BADGE_TONES[tone]}`}
     >
       {dot && <span aria-hidden className={`h-1.5 w-1.5 rounded-full ${BADGE_DOTS[tone]}`} />}
       {children}
@@ -121,41 +121,33 @@ export function StatCard({
   label: string;
   value: string;
   sublabel?: string;
+  /** Kept for call-site compatibility; the demo KPI treatment is uniform. */
   accent?: boolean;
   icon?: ReactNode;
 }) {
+  void accent;
   return (
-    <Card className="group relative flex flex-col gap-3 overflow-hidden hover:shadow-card-hover" padded>
-      {accent && (
-        <span
-          aria-hidden
-          className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-signal/50 to-transparent"
-        />
-      )}
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-ink-muted">{label}</p>
-        {icon && (
-          <span
-            aria-hidden
-            className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ring-1 ring-inset ${
-              accent
-                ? 'bg-signal-soft/70 text-signal-deep ring-signal/15'
-                : 'bg-paper text-ink-muted ring-ink/5'
-            }`}
-          >
-            {icon}
-          </span>
-        )}
-      </div>
-      <div>
-        <p
-          className={`font-display text-[32px] font-semibold leading-none tracking-tight ${
-            accent ? 'text-signal-deep' : 'text-ink'
-          }`}
-        >
+    <Card className="group relative overflow-hidden hover:shadow-card-hover" padded={false}>
+      {/* The demo KPI's signal strip across the top edge. */}
+      <span aria-hidden className="bg-grad pointer-events-none absolute inset-x-0 top-0 h-[2px] opacity-[0.85]" />
+      <div className="p-4 pb-3.5 sm:p-5 sm:pb-4">
+        <div className="flex items-center justify-between gap-3">
+          <p className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-ink-faint">{label}</p>
+          {icon && (
+            <span
+              aria-hidden
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface3 text-signal"
+            >
+              {icon}
+            </span>
+          )}
+        </div>
+        <p className="mt-2.5 font-display text-[25px] font-bold leading-none tracking-[-0.02em] text-ink tabular-nums sm:mt-3 sm:text-[34px]">
           {value}
         </p>
-        {sublabel && <p className="mt-2 text-xs leading-relaxed text-ink-muted">{sublabel}</p>}
+        {sublabel && (
+          <p className="mt-1.5 text-xs font-bold leading-relaxed text-signal sm:text-[12.5px]">{sublabel}</p>
+        )}
       </div>
     </Card>
   );

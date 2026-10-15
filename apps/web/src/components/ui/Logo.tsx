@@ -1,18 +1,19 @@
 const SIZES = {
-  sm: { box: 'h-7 w-7 rounded-lg', svg: 'h-3.5 w-3.5', text: 'text-base' },
-  md: { box: 'h-9 w-9 rounded-[10px]', svg: 'h-[18px] w-[18px]', text: 'text-lg' },
-  lg: { box: 'h-12 w-12 rounded-xl', svg: 'h-6 w-6', text: 'text-2xl' },
+  sm: { box: 'h-[34px] w-[34px]', text: 'text-base' },
+  md: { box: 'h-[42px] w-[42px]', text: 'text-[19px]' },
+  lg: { box: 'h-12 w-12', text: 'text-2xl' },
 } as const;
 
-/** Voice waveform mark: five rounded bars, tallest center — a spoken word. */
-const BARS = [
-  { x: 1.4, h: 8 },
-  { x: 6.1, h: 15 },
-  { x: 10.8, h: 21 },
-  { x: 15.5, h: 12 },
-  { x: 20.2, h: 6 },
-];
+/** Bar heights (%), tallest center — the demo's waveform geometry. */
+const BAR_HEIGHTS = [42, 68, 100, 64, 40];
 
+/**
+ * The VoiceFront mark, ported from the approved design demo: a dark teal
+ * tile (identical in every theme) holding five gradient waveform bars, with
+ * the wordmark set in the display face and its period in the theme glow.
+ * `animated` (shell only) adds the orbiting ring, the equalizer motion and
+ * the light sweep from globals.css — all stilled under reduced motion.
+ */
 export function Logo({
   size = 'md',
   tone = 'dark',
@@ -22,42 +23,39 @@ export function Logo({
   size?: keyof typeof SIZES;
   tone?: 'dark' | 'light';
   withText?: boolean;
-  /** Shell-only: gentle equalizer motion + a soft light sweep (globals.css,
-      disabled under prefers-reduced-motion). Layout never changes. */
   animated?: boolean;
 }) {
   const s = SIZES[size];
   return (
-    <span className="inline-flex items-center gap-2.5">
-      <span
-        aria-hidden
-        className={`${s.box} relative inline-flex shrink-0 items-center justify-center overflow-hidden bg-gradient-to-br from-signal to-signal-deep shadow-pop ring-1 ring-inset ring-white/20`}
-      >
-        <svg viewBox="0 0 24 24" fill="none" className={s.svg}>
-          {BARS.map((bar, i) => (
-            <rect
-              key={bar.x}
-              x={bar.x}
-              y={12 - bar.h / 2}
-              width="2.4"
-              height={bar.h}
-              rx="1.2"
-              fill="white"
-              fillOpacity="0.95"
-              className={animated ? 'logo-eq-bar' : undefined}
-              style={animated ? { animationDelay: `${i * 0.22}s` } : undefined}
-            />
-          ))}
-        </svg>
-        {animated && <span className="logo-sweep" />}
+    <span className="inline-flex items-center gap-3">
+      <span className="relative inline-flex flex-none">
+        {animated && <span aria-hidden className="logo-ring" />}
+        <span
+          aria-hidden
+          className={`logo-mark relative inline-flex shrink-0 items-center justify-center overflow-hidden ${s.box}`}
+        >
+          <span className="flex h-[56%] w-[62%] items-center justify-center gap-[9%]">
+            {BAR_HEIGHTS.map((height, i) => (
+              <span
+                key={height}
+                className={`logo-bar ${animated ? 'logo-eq-bar' : ''}`}
+                style={{
+                  height: `${height}%`,
+                  ...(animated ? { animationDelay: `${i * 0.18}s` } : undefined),
+                }}
+              />
+            ))}
+          </span>
+          {animated && <span aria-hidden className="logo-sweep" />}
+        </span>
       </span>
       {withText && (
         <span
-          className={`font-display font-semibold tracking-tight ${s.text} ${
+          className={`font-display font-bold tracking-[-0.02em] ${s.text} ${
             tone === 'light' ? 'text-white' : 'text-ink'
           }`}
         >
-          VoiceFront
+          VoiceFront<span className="text-glow">.</span>
         </span>
       )}
     </span>
