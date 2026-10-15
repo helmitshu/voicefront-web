@@ -6,8 +6,10 @@ import { useToast } from '@/components/ui/Toast';
 import {
   AgentApi,
   ApiError,
+  BillingApi,
   type AgentSettingsDto,
   type AgentSettingsPatch,
+  type BillingStatus,
 } from '@/lib/api';
 import { TIMEZONE_OPTIONS, timezoneShortLabel, type BusinessHours, type ForwardingNumber } from '@/domain/agent-config';
 import { INDUSTRY_TEMPLATES } from '@/domain/prompt-templates';
@@ -99,6 +101,121 @@ function clampNumber(value: string, min: number, max: number, fallback: number):
 }
 
 const E164_REGEX = /^\+[1-9]\d{6,14}$/;
+
+function formatBillingDate(iso: string | null): string | null {
+  if (!iso) return null;
+  return new Date(iso).toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  });
+}
+
+/**
+ * Billing card (Build 2): plan, mirrored status, trial or period end, and
+ * the minute cap, with the Stripe customer portal for everything else
+ * (card updates, invoices, cancellation). Hidden entirely for pre-launch
+ * exempt workspaces, and when billing was never configured and never
+ * started — there is nothing to show either way.
+ */
+function BillingCard({ isOwner }: { isOwner: boolean }) {
+  const { toast } = useToast();
+  const [billing, setBilling] = useState<BillingStatus | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    BillingApi.status()
+      .then(({ billing: loaded }) => {
+        if (!cancelled) setBilling(loaded);
+      })
+      .catch(() => {
+        /* no card when billing state can't load */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (!billing || billing.billingExempt) return null;
+  if (!billing.configured && billing.state === 'NOT_STARTED') return null;
+
+  const planName = billing.tier === 'STARTER' ? 'Starter' : billing.tier === 'CORE' ? 'Core' : null;
+  const trialEnd = formatBillingDate(billing.trialEndsAt);
+  const periodEnd = formatBillingDate(billing.currentPeriodEnd);
+  const statusLine =
+    billing.state === 'TRIALING'
+      ? `Free trial${trialEnd ? `, ends ${trialEnd}` : ''}`
+      : billing.state === 'ACTIVE'
+        ? `Active${periodEnd ? `, renews ${periodEnd}` : ''}`
+        : billing.state === 'PAST_DUE'
+          ? 'Payment failed. Your receptionist keeps answering while it is retried.'
+          : billing.state === 'CANCELED'
+            ? 'Cancelled'
+            : 'No subscription yet';
+  const notStarted = billing.state === 'NOT_STARTED' || billing.state === 'INCOMPLETE';
+
+  async function manage() {
+    setBusy(true);
+    try {
+      const { url } = await BillingApi.portal();
+      window.location.href = url;
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not open billing. Please try again.', 'error');
+      setBusy(false);
+    }
+  }
+
+  async function startTrial() {
+    setBusy(true);
+    try {
+      const { url } = await BillingApi.checkout({ tier: 'CORE' });
+      window.location.href = url;
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not start checkout. Please try again.', 'error');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="Billing"
+        description="Your plan and subscription, managed securely through Stripe."
+      />
+      <div className="flex flex-col gap-1.5 text-sm text-ink">
+        <p>
+          <span className="font-medium">Plan:</span>{' '}
+          {planName ? `${planName} (${billing.pricingRegion})` : 'None'}
+        </p>
+        <p>
+          <span className="font-medium">Status:</span> {statusLine}
+        </p>
+        <p>
+          <span className="font-medium">Included minutes:</span> {billing.monthlyMinuteLimit} per month
+        </p>
+        {billing.cancelAtPeriodEnd && periodEnd && (
+          <p className="text-ink-muted">Cancels at the end of the current period ({periodEnd}).</p>
+        )}
+      </div>
+      <div className="mt-5">
+        {isOwner ? (
+          notStarted ? (
+            <Button loading={busy} onClick={startTrial}>
+              Start free trial
+            </Button>
+          ) : (
+            <Button variant="secondary" loading={busy} onClick={manage}>
+              Manage billing
+            </Button>
+          )
+        ) : (
+          <p className="text-sm text-ink-muted">Ask an owner to manage billing.</p>
+        )}
+      </div>
+    </Card>
+  );
+}
 
 export default function SettingsPage() {
   const { me } = useAuth();
@@ -299,6 +416,8 @@ export default function SettingsPage() {
       )}
 
       <AppearanceCard />
+
+      <BillingCard isOwner={me?.user.role === 'OWNER'} />
 
       <Card>
         <CardHeader title="Persona" description="Who answers, and the first thing callers hear." />
