@@ -22,16 +22,16 @@ export const DEFAULT_THEME: AppTheme = 'midnight';
 
 export const THEMES: { key: AppTheme; label: string; blurb: string; swatches: [string, string, string] }[] = [
   {
-    key: 'midnight',
-    label: 'Midnight',
-    blurb: 'Dark and futuristic, teal on deep ink',
-    swatches: ['#060C11', '#0B161F', '#2DD4BF'],
-  },
-  {
     key: 'pearl',
     label: 'Pearl',
     blurb: 'The classic look, warm cream and deep teal',
     swatches: ['#F4F1E9', '#FFFFFF', '#0C7A66'],
+  },
+  {
+    key: 'midnight',
+    label: 'Midnight',
+    blurb: 'Dark and futuristic, teal on deep ink',
+    swatches: ['#060C11', '#0B161F', '#2DD4BF'],
   },
   {
     key: 'deepteal',
