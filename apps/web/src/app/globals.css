@@ -350,6 +350,12 @@ html[data-theme='deepteal'] .theme-root {
   transform-origin: center;
   animation: logo-eq 2.6s ease-in-out infinite;
 }
+/* Receptionist panel bars move faster while a call is actually in progress.
+   The reduced-motion block below stills .logo-eq-bar entirely, this class
+   included, since both classes sit on the same element. */
+.logo-eq-live {
+  animation-duration: 1.05s;
+}
 .logo-sweep {
   position: absolute;
   top: -30%;
