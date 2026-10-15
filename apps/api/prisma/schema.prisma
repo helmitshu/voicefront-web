@@ -25,6 +25,20 @@ enum Role {
   AGENT
 }
 
+/// Why a workspace filed a support ticket with the platform team, usually
+/// through the in-app support agent (Adam). BAD_CALL = the receptionist
+/// handled a call badly; the ticket can point at that call.
+enum SupportTicketCategory {
+  ISSUE
+  BAD_CALL
+  OTHER
+}
+
+enum SupportTicketStatus {
+  OPEN
+  RESOLVED
+}
+
 enum CallStatus {
   COMPLETED
   FORWARDED
@@ -119,67 +133,68 @@ enum JobStatus {
 }
 
 model Tenant {
-  id                 String             @id @default(cuid())
-  companyName        String             @map("company_name")
+  id                      String             @id @default(cuid())
+  companyName             String             @map("company_name")
   /// White-label identifier; maps to `<slug>.yourplatform.com` in production.
-  slug               String             @unique
-  industry           Industry
-  subscriptionStatus SubscriptionStatus @default(TRIALING) @map("subscription_status")
+  slug                    String             @unique
+  industry                Industry
+  subscriptionStatus      SubscriptionStatus @default(TRIALING) @map("subscription_status")
   /// Operator-set suspension. When true: users can't log in and the receptionist
   /// refuses calls. Distinct from billing status and from a hard delete.
-  isBlocked          Boolean            @default(false) @map("is_blocked")
+  isBlocked               Boolean            @default(false) @map("is_blocked")
   /// Tenant-facing profit markup applied to provider call costs, in basis
   /// points (5000 = +50%). Adjustable per tenant by the platform operator.
-  markupBps          Int                @default(5000) @map("markup_bps")
+  markupBps               Int                @default(5000) @map("markup_bps")
   /// Hard cap on answered call minutes per calendar month. Protects the shared
   /// provider account: once a tenant crosses this, their receptionist stops
   /// answering until the month rolls over (or the operator raises the cap for
   /// a higher tier). Enforced per call in the assistant-request webhook.
-  monthlyMinuteLimit Int                @default(500) @map("monthly_minute_limit")
+  monthlyMinuteLimit      Int                @default(500) @map("monthly_minute_limit")
   /// Server-owned price book: 'USD' (the default for everyone) or 'CAD'.
   /// CAD is granted only by the Canadian-business verification
   /// (services/pricing-region.service: the business website, or facts a
   /// demo lead already verified) or by a platform admin override. No
   /// client-supplied field can set it. This column is the single source
   /// the Stripe checkout will read once checkout exists.
-  pricingRegion String @default("USD") @map("pricing_region")
+  pricingRegion           String             @default("USD") @map("pricing_region")
   /// How pricingRegion was granted: 'website' | 'demo-lead' | 'admin'.
   /// Null = never verified or overridden (still on the USD default).
-  pricingRegionSource String? @map("pricing_region_source")
+  pricingRegionSource     String?            @map("pricing_region_source")
   /// When pricingRegion was last set by verification or an admin override.
-  pricingRegionVerifiedAt DateTime? @map("pricing_region_verified_at")
+  pricingRegionVerifiedAt DateTime?          @map("pricing_region_verified_at")
   /// Operator entitlement: when true the receptionist books across multiple
   /// Providers/Services; when false it's a single shared calendar (the simple
   /// case) regardless of any Providers defined. Set by the platform admin.
-  multiProviderEnabled  Boolean         @default(false) @map("multi_provider_enabled")
+  multiProviderEnabled    Boolean            @default(false) @map("multi_provider_enabled")
   /// When true, the customer may flip `multiProviderEnabled` themselves from
   /// their dashboard; otherwise only the platform admin controls it.
-  multiProviderSelfManage Boolean       @default(false) @map("multi_provider_self_manage")
+  multiProviderSelfManage Boolean            @default(false) @map("multi_provider_self_manage")
   /// Soft-delete marker. Set when an operator "deletes" a workspace: the tenant
   /// is blocked (no login, no calls) and hidden, but its data is kept so the
   /// delete is recoverable. A retention job hard-deletes (purges) tenants that
   /// have been soft-deleted past the recovery window. Null = live.
-  deletedAt          DateTime?          @map("deleted_at")
-  createdAt          DateTime           @default(now()) @map("created_at")
-  updatedAt          DateTime           @updatedAt @map("updated_at")
+  deletedAt               DateTime?          @map("deleted_at")
+  createdAt               DateTime           @default(now()) @map("created_at")
+  updatedAt               DateTime           @updatedAt @map("updated_at")
 
-  users         User[]
-  onboarding    OnboardingStatus?
-  agentSettings AgentSettings?
-  callLogs      CallLog[]
-  appointments  Appointment[]
-  documents     Document[]
-  providers     Provider[]
-  services      Service[]
-  waitlist      Waitlist[]
-  reactivationLogs ReactivationLog[]
+  users               User[]
+  onboarding          OnboardingStatus?
+  agentSettings       AgentSettings?
+  callLogs            CallLog[]
+  appointments        Appointment[]
+  documents           Document[]
+  providers           Provider[]
+  services            Service[]
+  waitlist            Waitlist[]
+  reactivationLogs    ReactivationLog[]
   calendarConnections CalendarConnection[]
-  blockedCallers BlockedCaller[]
-  screenedCalls  ScreenedCallLog[]
-  jobRequests   JobRequest[]
-  features      TenantFeature[]
-  dispatches    Dispatch[]
-  fsmConnections FsmConnection[]
+  blockedCallers      BlockedCaller[]
+  screenedCalls       ScreenedCallLog[]
+  jobRequests         JobRequest[]
+  features            TenantFeature[]
+  dispatches          Dispatch[]
+  fsmConnections      FsmConnection[]
+  supportTickets      SupportTicket[]
 
   @@map("tenants")
 }
@@ -202,6 +217,8 @@ model User {
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
+  supportTickets SupportTicket[]
+
   @@index([tenantId])
   @@map("users")
 }
@@ -222,35 +239,35 @@ model OnboardingStatus {
 }
 
 model AgentSettings {
-  id                 String   @id @default(cuid())
-  tenantId           String   @unique @map("tenant_id")
-  tenant             Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id                  String  @id @default(cuid())
+  tenantId            String  @unique @map("tenant_id")
+  tenant              Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   /// Vapi assistant ID assigned by founder during customer setup. Null until assigned.
   /// When set, syncs all agent settings to this assistant on save.
-  assistantId        String?  @map("assistant_id")
+  assistantId         String? @map("assistant_id")
   /// Receptionist persona name spoken on calls (e.g. "Maya").
-  displayName        String   @default("Maya") @map("display_name")
+  displayName         String  @default("Maya") @map("display_name")
   /// Tenant-editable instructions; composed with runtime context per call.
-  systemPrompt       String   @db.Text @map("system_prompt")
-  firstMessage       String   @map("first_message")
-  voicemailGreeting  String   @db.Text @map("voicemail_greeting")
+  systemPrompt        String  @map("system_prompt") @db.Text
+  firstMessage        String  @map("first_message")
+  voicemailGreeting   String  @map("voicemail_greeting") @db.Text
   /// JSON: { mon..sun: { enabled, open: "HH:MM", close: "HH:MM" } }
-  businessHours      Json     @map("business_hours")
+  businessHours       Json    @map("business_hours")
   /// JSON: [{ id, label, number(E.164), whenToUse }] — drives live transfers.
-  forwardingNumbers  Json     @default("[]") @map("forwarding_numbers")
-  timezone           String   @default("America/New_York")
+  forwardingNumbers   Json    @default("[]") @map("forwarding_numbers")
+  timezone            String  @default("America/New_York")
   /// E.164 number assigned by the platform operator; maps inbound calls
   /// to this tenant in the webhook. Null until a number is provisioned.
-  inboundPhoneNumber String?  @unique @map("inbound_phone_number")
-  voiceProvider      String   @default("vapi") @map("voice_provider")
+  inboundPhoneNumber  String? @unique @map("inbound_phone_number")
+  voiceProvider       String  @default("vapi") @map("voice_provider")
   /// "Emma" (Vapi V2) — warm, conversational, the most human-sounding match
   /// for the default "Maya" persona. For provider "11labs" this holds an
   /// ElevenLabs voice ID instead.
-  voiceId            String   @default("Emma") @map("voice_id")
+  voiceId             String  @default("Emma") @map("voice_id")
   /// Ambient audio mixed into calls: "office" | "off" — matches the
   /// provider's backgroundSound field. Subtle office ambience makes the
   /// receptionist sound like a real front desk.
-  backgroundSound    String   @default("office") @map("background_sound")
+  backgroundSound     String  @default("office") @map("background_sound")
   /// When true, the receptionist proactively offers the list of providers and
   /// asks the caller to pick one. Default false = book the first available
   /// qualified provider and only honor a specific request if the caller names
@@ -259,7 +276,7 @@ model AgentSettings {
 
   /// Average revenue per appointment in whole dollars. Powers the ROI dashboard
   /// (estimated revenue the receptionist captured). Owner-editable.
-  avgAppointmentValue Int     @default(150) @map("avg_appointment_value")
+  avgAppointmentValue Int @default(150) @map("avg_appointment_value")
 
   /// Spam screening: when true the receptionist refuses calls that arrive with
   /// no caller ID (withheld / anonymous). OFF by default and strictly opt-in —
@@ -272,67 +289,67 @@ model AgentSettings {
   /// Hard ceiling on a single call's length, in seconds. A safety backstop, not
   /// a target — normal calls end naturally long before this. Owner-editable with
   /// a sane floor so it can never be set low enough to cut a real booking short.
-  maxCallDurationSeconds Int    @default(600) @map("max_call_duration_seconds")
+  maxCallDurationSeconds Int     @default(600) @map("max_call_duration_seconds")
   /// End the call after this many seconds of total silence (dead-air robocalls).
   /// Floored well above a natural pause so it never hangs up on a live caller.
-  silenceTimeoutSeconds  Int    @default(30)  @map("silence_timeout_seconds")
+  silenceTimeoutSeconds  Int     @default(30) @map("silence_timeout_seconds")
   /// Optional custom closing line the receptionist uses to wrap up gracefully as
   /// a call runs long. Null = a sensible built-in default. Soft/behavioural —
   /// steers the agent to a warm close, never an abrupt cut.
-  wrapUpMessage          String? @db.Text @map("wrap_up_message")
+  wrapUpMessage          String? @map("wrap_up_message") @db.Text
 
   // ── SMS notifications ────────────────────────────────────────────────────
   /// Master switch. SMS only fires when the platform has Twilio configured AND
   /// this is true. Tenants opt in — default off so nobody gets surprise texts.
-  smsEnabled              Boolean  @default(false) @map("sms_enabled")
+  smsEnabled              Boolean @default(false) @map("sms_enabled")
   /// Send a confirmation SMS immediately after a booking is made.
-  smsConfirmation         Boolean  @default(true)  @map("sms_confirmation")
+  smsConfirmation         Boolean @default(true) @map("sms_confirmation")
   /// Send a reminder SMS 24 hours before the appointment.
-  smsReminder24h          Boolean  @default(true)  @map("sms_reminder_24h")
+  smsReminder24h          Boolean @default(true) @map("sms_reminder_24h")
   /// Send a reminder SMS 1 hour before the appointment.
-  smsReminder1h           Boolean  @default(false) @map("sms_reminder_1h")
+  smsReminder1h           Boolean @default(false) @map("sms_reminder_1h")
   /// Custom confirmation message. Null = use platform default.
   /// Variables: {customerName} {businessName} {date} {time}
-  smsConfirmationTemplate String?  @db.Text @map("sms_confirmation_template")
+  smsConfirmationTemplate String? @map("sms_confirmation_template") @db.Text
   /// Custom 24-hour reminder message. Null = use platform default.
-  smsReminder24hTemplate  String?  @db.Text @map("sms_reminder_24h_template")
+  smsReminder24hTemplate  String? @map("sms_reminder_24h_template") @db.Text
   /// Custom 1-hour reminder message. Null = use platform default.
-  smsReminder1hTemplate   String?  @db.Text @map("sms_reminder_1h_template")
+  smsReminder1hTemplate   String? @map("sms_reminder_1h_template") @db.Text
   /// Text the next person on the waitlist when a slot opens (a cancellation).
-  smsWaitlist             Boolean  @default(true)  @map("sms_waitlist")
+  smsWaitlist             Boolean @default(true) @map("sms_waitlist")
   /// Custom waitlist-opening message. Null = use platform default.
-  smsWaitlistTemplate     String?  @db.Text @map("sms_waitlist_template")
+  smsWaitlistTemplate     String? @map("sms_waitlist_template") @db.Text
 
   // ── Reactivation / recall campaign ───────────────────────────────────────
   /// When true, a daily job texts lapsed customers an invite to rebook.
   reactivationEnabled        Boolean @default(false) @map("reactivation_enabled")
   /// A customer is "lapsed" once this many days pass since their last visit.
-  reactivationInactivityDays Int     @default(180)   @map("reactivation_inactivity_days")
+  reactivationInactivityDays Int     @default(180) @map("reactivation_inactivity_days")
   /// Custom recall message. Null = use platform default.
-  reactivationTemplate       String? @db.Text @map("reactivation_template")
+  reactivationTemplate       String? @map("reactivation_template") @db.Text
 
   // ── Trades emergency routing ─────────────────────────────────────────────
   /// Text this number the moment an EMERGENCY job is captured (e.g. the on-call
   /// owner's mobile). Null = no instant alert. Requires smsEnabled + platform
   /// Twilio. E.164. Primarily for CONSTRUCTION tenants.
-  emergencyAlertPhone        String? @map("emergency_alert_phone")
+  emergencyAlertPhone       String? @map("emergency_alert_phone")
   /// Ordered on-call roster for the ON_CALL_DISPATCH feature: a JSON array of
   /// { name, phone(E.164) }. On an emergency job the receptionist rings these
   /// in order, escalating to the next on no-answer. Empty = nobody to dispatch.
-  onCallRoster               Json    @default("[]") @map("on_call_roster")
+  onCallRoster              Json    @default("[]") @map("on_call_roster")
   /// Seconds to wait for a contact to accept before escalating to the next.
-  dispatchEscalationSeconds  Int     @default(120)  @map("dispatch_escalation_seconds")
+  dispatchEscalationSeconds Int     @default(120) @map("dispatch_escalation_seconds")
   /// MISSED_CALL_TEXTBACK feature: message sent when a connected call ends with
   /// no booking and no job captured. Null = platform default. {businessName}.
-  missedCallTemplate         String? @db.Text @map("missed_call_template")
+  missedCallTemplate        String? @map("missed_call_template") @db.Text
   /// SERVICE_AREA feature: the ZIP codes / cities the business serves, as a JSON
   /// string array. The receptionist confirms a job address is in-area before
   /// booking and flags out-of-area calls. Empty = no area configured.
-  serviceAreaZips            Json    @default("[]") @map("service_area_zips")
+  serviceAreaZips           Json    @default("[]") @map("service_area_zips")
   /// Optional human note shown alongside the area (e.g. "within 25 mi of downtown").
-  serviceAreaNote            String? @map("service_area_note")
+  serviceAreaNote           String? @map("service_area_note")
 
-  updatedAt          DateTime @updatedAt @map("updated_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("agent_settings")
 }
@@ -385,41 +402,41 @@ model Service {
 }
 
 model Appointment {
-  id            String            @id @default(cuid())
-  tenantId      String            @map("tenant_id")
-  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id                 String            @id @default(cuid())
+  tenantId           String            @map("tenant_id")
+  tenant             Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   /// The provider this appointment is with. Null = unassigned / single-resource
   /// business (the solo case). Overlap is checked within the same providerId.
-  providerId    String?           @map("provider_id")
-  provider      Provider?         @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  providerId         String?           @map("provider_id")
+  provider           Provider?         @relation(fields: [providerId], references: [id], onDelete: SetNull)
   /// The service booked, when the tenant defines services. Sets the duration.
-  serviceId     String?           @map("service_id")
-  service       Service?          @relation(fields: [serviceId], references: [id], onDelete: SetNull)
-  customerName  String            @map("customer_name")
-  customerPhone String?           @map("customer_phone")
+  serviceId          String?           @map("service_id")
+  service            Service?          @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  customerName       String            @map("customer_name")
+  customerPhone      String?           @map("customer_phone")
   /// Why the customer is coming in — spoken by the caller, shown on the calendar.
-  reason        String?           @db.Text
-  startsAt      DateTime          @map("starts_at")
-  endsAt        DateTime          @map("ends_at")
+  reason             String?           @db.Text
+  startsAt           DateTime          @map("starts_at")
+  endsAt             DateTime          @map("ends_at")
   /// IANA timezone the appointment was booked in (display + slot math).
-  timezone      String
-  status        AppointmentStatus @default(CONFIRMED)
-  source        AppointmentSource @default(VOICE_AGENT)
+  timezone           String
+  status             AppointmentStatus @default(CONFIRMED)
+  source             AppointmentSource @default(VOICE_AGENT)
   /// Provider call id of the booking call (server-side only, like CallLog's).
-  externalCallId String?          @map("external_call_id")
+  externalCallId     String?           @map("external_call_id")
   /// Per-provider synced event ids, e.g. { "google": "...", "microsoft": "..." }.
   /// Populated by calendar sync (phase 2); empty object until connected.
-  externalEventIds Json           @default("{}") @map("external_event_ids")
-  notes         String?           @db.Text
+  externalEventIds   Json              @default("{}") @map("external_event_ids")
+  notes              String?           @db.Text
   /// Set only for the public landing-page demo: isolates each visitor's
   /// throwaway bookings under the shared demo tenant. Null for real bookings.
-  demoSessionId String?           @map("demo_session_id")
+  demoSessionId      String?           @map("demo_session_id")
   // ── SMS sent timestamps (null = not yet sent) ────────────────────────────
-  confirmationSentAt DateTime?     @map("confirmation_sent_at")
-  reminder24hSentAt  DateTime?     @map("reminder_24h_sent_at")
-  reminder1hSentAt   DateTime?     @map("reminder_1h_sent_at")
-  createdAt     DateTime          @default(now()) @map("created_at")
-  updatedAt     DateTime          @updatedAt @map("updated_at")
+  confirmationSentAt DateTime?         @map("confirmation_sent_at")
+  reminder24hSentAt  DateTime?         @map("reminder_24h_sent_at")
+  reminder1hSentAt   DateTime?         @map("reminder_1h_sent_at")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
 
   @@index([tenantId, startsAt])
   @@index([providerId])
@@ -462,12 +479,12 @@ model Waitlist {
 /// avoid re-texting a lapsed customer within their inactivity window, so a
 /// customer hears from us at most once per lapse — never on a loop.
 model ReactivationLog {
-  id        String   @id @default(cuid())
-  tenantId  String   @map("tenant_id")
-  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id       String   @id @default(cuid())
+  tenantId String   @map("tenant_id")
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   /// E.164 phone the recall text went to.
-  phone     String
-  sentAt    DateTime @default(now()) @map("sent_at")
+  phone    String
+  sentAt   DateTime @default(now()) @map("sent_at")
 
   @@index([tenantId, phone, sentAt])
   @@map("reactivation_logs")
@@ -510,32 +527,32 @@ model TenantFeature {
 /// The customer dashboard shows it as a queue; EMERGENCY rows fire an instant
 /// owner SMS. Populated by the captureJobRequest voice tool (or by hand).
 model JobRequest {
-  id             String            @id @default(cuid())
-  tenantId       String            @map("tenant_id")
-  tenant         Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
-  customerName   String            @map("customer_name")
-  customerPhone  String?           @map("customer_phone")
+  id                String            @id @default(cuid())
+  tenantId          String            @map("tenant_id")
+  tenant            Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customerName      String            @map("customer_name")
+  customerPhone     String?           @map("customer_phone")
   /// Where the work is. Trades go TO the customer, so the address IS the job.
-  serviceAddress String?           @db.Text @map("service_address")
+  serviceAddress    String?           @map("service_address") @db.Text
   /// Short label for the work, e.g. "burst pipe", "panel upgrade", "no heat".
-  jobType        String?           @map("job_type")
-  urgency        JobUrgency        @default(ROUTINE)
+  jobType           String?           @map("job_type")
+  urgency           JobUrgency        @default(ROUTINE)
   /// What the caller described, in their words — the detail a tech needs.
-  description    String?           @db.Text
+  description       String?           @db.Text
   /// Caller's stated callback preference, free text ("this afternoon", "after 5").
-  preferredCallback String?        @map("preferred_callback")
-  status         JobStatus         @default(NEW)
-  source         AppointmentSource @default(VOICE_AGENT)
+  preferredCallback String?           @map("preferred_callback")
+  status            JobStatus         @default(NEW)
+  source            AppointmentSource @default(VOICE_AGENT)
   /// Provider call id of the originating call (server-side only, like CallLog's).
-  externalCallId String?           @map("external_call_id")
+  externalCallId    String?           @map("external_call_id")
   /// Staff notes added from the dashboard.
-  notes          String?           @db.Text
+  notes             String?           @db.Text
   /// Set only for the public landing-page demo; null for real jobs.
-  demoSessionId  String?           @map("demo_session_id")
-  createdAt      DateTime          @default(now()) @map("created_at")
-  updatedAt      DateTime          @updatedAt @map("updated_at")
+  demoSessionId     String?           @map("demo_session_id")
+  createdAt         DateTime          @default(now()) @map("created_at")
+  updatedAt         DateTime          @updatedAt @map("updated_at")
 
-  dispatches     Dispatch[]
+  dispatches Dispatch[]
 
   @@index([tenantId, status, createdAt(sort: Desc)])
   @@index([tenantId, urgency])
@@ -569,7 +586,7 @@ model Dispatch {
   createdAt        DateTime       @default(now()) @map("created_at")
   updatedAt        DateTime       @updatedAt @map("updated_at")
 
-  attempts         DispatchAttempt[]
+  attempts DispatchAttempt[]
 
   @@index([tenantId, status])
   @@index([status, updatedAt])
@@ -608,12 +625,12 @@ model FsmConnection {
   provider       FsmProvider
   /// AES-256-GCM encrypted credential blob (API key / OAuth tokens), JSON-shaped
   /// per provider. Never returned to clients.
-  credentialsEnc String              @db.Text @map("credentials_enc")
+  credentialsEnc String              @map("credentials_enc") @db.Text
   /// Display label for the connected account (e.g. the company/tenant name).
   accountLabel   String?             @map("account_label")
   status         FsmConnectionStatus @default(CONNECTED)
   /// Last error surfaced during a connection test or push, for the UI.
-  lastError      String?             @db.Text @map("last_error")
+  lastError      String?             @map("last_error") @db.Text
   /// Push captured jobs into this system.
   pushJobs       Boolean             @default(true) @map("push_jobs")
   createdAt      DateTime            @default(now()) @map("created_at")
@@ -636,8 +653,8 @@ model CalendarConnection {
   tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   provider        CalendarProvider
   /// AES-256-GCM encrypted OAuth tokens (see lib/secret-box).
-  accessTokenEnc  String           @db.Text @map("access_token_enc")
-  refreshTokenEnc String           @db.Text @map("refresh_token_enc")
+  accessTokenEnc  String           @map("access_token_enc") @db.Text
+  refreshTokenEnc String           @map("refresh_token_enc") @db.Text
   /// When the current access token expires; refreshed on use just before.
   expiresAt       DateTime         @map("expires_at")
   /// The connected account (for display + as the Graph/Calendar user context).
@@ -649,7 +666,7 @@ model CalendarConnection {
   /// Block availability using this calendar's busy times (inbound).
   blockBusy       Boolean          @default(true) @map("block_busy")
   /// Last error surfaced during a sync attempt (e.g. revoked access), for the UI.
-  lastError       String?          @db.Text @map("last_error")
+  lastError       String?          @map("last_error") @db.Text
   createdAt       DateTime         @default(now()) @map("created_at")
   updatedAt       DateTime         @updatedAt @map("updated_at")
 
@@ -741,7 +758,7 @@ model Lead {
 /// Values are AES-256-GCM encrypted; env vars act as fallback defaults.
 model PlatformSetting {
   key       String   @id
-  valueEnc  String   @db.Text @map("value_enc")
+  valueEnc  String   @map("value_enc") @db.Text
   updatedBy String   @map("updated_by")
   updatedAt DateTime @updatedAt @map("updated_at")
 
@@ -834,7 +851,7 @@ model CallLog {
   transcript        String?    @db.Text
   /// Provider-hosted recording URL — internal only; tenants stream audio
   /// through the platform's masked media proxy instead.
-  recordingUrl      String?    @db.Text @map("recording_url")
+  recordingUrl      String?    @map("recording_url") @db.Text
   /// AI-extracted call outcome (Vapi structuredDataPlan). These individual
   /// columns are the filterable/sortable ones; `structuredData` keeps the full
   /// blob (callerName, callbackNumber, topic, + anything new) for display and
@@ -849,8 +866,39 @@ model CallLog {
   structuredData    Json?      @map("structured_data")
   createdAt         DateTime   @default(now()) @map("created_at")
 
+  supportTickets SupportTicket[]
+
   @@index([tenantId, startedAt(sort: Desc)])
   @@map("call_logs")
+}
+
+/// A ticket a workspace files with the platform team, normally through the
+/// in-app support agent (Adam) after the user confirms a summary: a plain
+/// support issue, a report that the receptionist handled a call badly
+/// (BAD_CALL, optionally pointing at the CallLog), or anything else.
+/// Tenant-scoped by construction; the platform team reads them through the
+/// admin tickets endpoint. The row IS the record — filing is never a
+/// side effect of chat text alone.
+model SupportTicket {
+  id              String                @id @default(cuid())
+  tenantId        String                @map("tenant_id")
+  tenant          Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdByUserId String                @map("created_by_user_id")
+  createdBy       User                  @relation(fields: [createdByUserId], references: [id], onDelete: Cascade)
+  category        SupportTicketCategory
+  subject         String
+  details         String                @db.Text
+  /// The call a BAD_CALL report is about, when one was picked. SetNull on
+  /// call delete so an old ticket never blocks call retention cleanup.
+  callLogId       String?               @map("call_log_id")
+  callLog         CallLog?              @relation(fields: [callLogId], references: [id], onDelete: SetNull)
+  status          SupportTicketStatus   @default(OPEN)
+  createdAt       DateTime              @default(now()) @map("created_at")
+  updatedAt       DateTime              @updatedAt @map("updated_at")
+
+  @@index([status, createdAt(sort: Desc)])
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@map("support_tickets")
 }
 
 model DemoLead {
@@ -876,7 +924,7 @@ model DemoLead {
   websiteUrl    String?  @map("website_url")
   factsJson     Json?    @map("facts_json")
   /// Which demo mode they're entering ("web" or "call").
-  mode          String   // "web" or "call"
+  mode          String // "web" or "call"
   createdAt     DateTime @default(now()) @map("created_at")
 
   @@index([demoSessionId])
@@ -969,7 +1017,7 @@ model DemoCall {
   endedReason     String?   @map("ended_reason")
   summary         String?   @db.Text
   transcript      String?   @db.Text
-  recordingUrl    String?   @db.Text @map("recording_url")
+  recordingUrl    String?   @map("recording_url") @db.Text
   startedAt       DateTime? @map("started_at")
   endedAt         DateTime? @map("ended_at")
   createdAt       DateTime  @default(now()) @map("created_at")
