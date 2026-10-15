@@ -834,6 +834,7 @@ function TierCard({ tier, currency, compact = false }: { tier: PricingTier; curr
   const trialHref = authed ? primaryHref : `/register?plan=${tier.plan}`;
   return (
     <div
+      data-plan={tier.plan}
       className={`relative flex h-full flex-col rounded-3xl p-8 ${
         tier.hero
           ? 'border border-signal/30 bg-ink-deep text-white shadow-lift'
@@ -895,7 +896,7 @@ function TierCard({ tier, currency, compact = false }: { tier: PricingTier; curr
 
 export function PricingSection({ currency }: { currency: Currency }) {
   return (
-    <section className="px-6 py-24 md:py-32">
+    <section id="pricing" className="scroll-mt-32 px-6 py-24 md:py-32">
       <div className="mx-auto max-w-6xl">
         <Reveal className="mx-auto max-w-2xl text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-deep">Pricing</p>
@@ -940,7 +941,7 @@ export function PricingSection({ currency }: { currency: Currency }) {
 /** Compact pricing strip for the home page: the same two plans, one glance. */
 export function PricingStripSection({ currency }: { currency: Currency }) {
   return (
-    <section className="border-t border-line/60 px-6 py-24 md:py-28">
+    <section id="pricing" className="scroll-mt-32 border-t border-line/60 px-6 py-24 md:py-28">
       <div className="mx-auto max-w-6xl">
         <Reveal className="flex flex-wrap items-end justify-between gap-6">
           <div className="max-w-xl">
@@ -978,7 +979,7 @@ export function PricingStripSection({ currency }: { currency: Currency }) {
 
 export function BookSection() {
   return (
-    <section className="border-t border-line/60 bg-surface/50 px-6 py-24 md:py-32">
+    <section id="book" className="scroll-mt-32 border-t border-line/60 bg-surface/50 px-6 py-24 md:py-32">
       <div className="mx-auto max-w-6xl">
         <Reveal className="mx-auto max-w-2xl text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-deep">White glove setup</p>
@@ -1004,7 +1005,7 @@ export function BookSection() {
 
 export function FaqSection() {
   return (
-    <section className="border-t border-line/60 bg-paper/50 px-6 py-24 md:py-32">
+    <section id="faq" className="scroll-mt-32 border-t border-line/60 bg-paper/50 px-6 py-24 md:py-32">
       <div className="mx-auto max-w-3xl">
         <Reveal className="text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-deep">FAQ</p>

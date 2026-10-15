@@ -1323,6 +1323,36 @@ export function InteractiveDemo() {
     };
   }, []);
 
+  // Lyla, the page host, can fill this form and start the demo on the
+  // visitor's word. She dispatches window events; the form answers with
+  // its own state and its own submit path, exactly as if the visitor had
+  // typed the details and clicked Continue themselves.
+  const submitLeadRef = useRef(submitLead);
+  useEffect(() => {
+    submitLeadRef.current = submitLead;
+  });
+  useEffect(() => {
+    const onPrefill = (event: Event) => {
+      const detail = (event as CustomEvent<Record<string, unknown>>).detail ?? {};
+      setForm((f) => ({
+        ...f,
+        ...(typeof detail.name === 'string' && detail.name ? { name: detail.name } : {}),
+        ...(typeof detail.email === 'string' && detail.email ? { email: detail.email } : {}),
+        ...(typeof detail.phone === 'string' && detail.phone ? { phone: detail.phone } : {}),
+        ...(typeof detail.website === 'string' && detail.website ? { website: detail.website } : {}),
+      }));
+    };
+    const onStart = () => {
+      void submitLeadRef.current({ preventDefault: () => undefined } as React.FormEvent);
+    };
+    window.addEventListener('lyla:prefill', onPrefill);
+    window.addEventListener('lyla:start-demo', onStart);
+    return () => {
+      window.removeEventListener('lyla:prefill', onPrefill);
+      window.removeEventListener('lyla:start-demo', onStart);
+    };
+  }, []);
+
   // Poll the live calendar while a session is open, so the agent's bookings
   // (and the "after they hang up" final one) appear on screen. The response
   // also carries the screen Ava last set server-side — a fallback in case the
