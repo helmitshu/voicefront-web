@@ -1513,3 +1513,36 @@ export const VoiceApi = {
 export function mediaUrl(mediaToken: string): string {
   return `${API_URL}/api/media/${mediaToken}`;
 }
+
+/* --------------------------- support agent ------------------------------ */
+
+export interface SupportChatMessage {
+  role: 'user' | 'assistant';
+  text: string;
+}
+
+export interface SupportPendingProposal {
+  proposalId: string;
+  summary: string;
+}
+
+export interface SupportChatResponse {
+  reply: string;
+  /** A booking-window change the agent proposed this turn, awaiting the
+   *  user's confirmation in the chat UI. Null when nothing is proposed. */
+  pendingProposal: SupportPendingProposal | null;
+}
+
+export interface SupportApplyResponse {
+  applied: boolean;
+  summary: string;
+  /** The agent's own confirmation line, shown as its next chat message. */
+  assistantMessage: string;
+}
+
+export const SupportApi = {
+  chat: (messages: SupportChatMessage[]) =>
+    api<SupportChatResponse>('/api/support/chat', { method: 'POST', body: { messages } }),
+  apply: (proposalId: string) =>
+    api<SupportApplyResponse>('/api/support/apply', { method: 'POST', body: { proposalId } }),
+};
