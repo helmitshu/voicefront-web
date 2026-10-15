@@ -64,7 +64,7 @@ export function SupportWidget() {
   const [messages, setMessages] = useState<ChatMessage[]>([
     msg(
       'assistant',
-      `Hi, I'm ${SUPPORT_PERSONA.name} from VoiceFront support. Ask me how anything works, or tell me a change to make, like "only book weekday mornings".`,
+      `Hi, I'm ${SUPPORT_PERSONA.name} from VoiceFront Customer Care. Ask me how anything works, or tell me a change to make, like "only book weekday mornings".`,
     ),
   ]);
   const [input, setInput] = useState('');

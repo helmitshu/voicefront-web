@@ -6,7 +6,7 @@
  */
 export const SUPPORT_PERSONA = {
   name: 'Adam',
-  role: 'Support',
+  role: 'Customer Care Specialist',
   avatarPath: '/support-agent.jpg',
 } as const;
 
