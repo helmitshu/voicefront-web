@@ -4,13 +4,14 @@ import {
   SocialProofSection,
   StatBandSection,
   BeyondAnsweringSection,
+  PricingStripSection,
   FinalCtaSection,
 } from '@/components/marketing/sections';
 
 export const metadata: Metadata = {
-  title: { absolute: 'VoiceFront — The AI receptionist that answers every call and books appointments' },
+  title: { absolute: 'VoiceFront: The AI receptionist for dental clinics that answers every call' },
   description:
-    'VoiceFront answers every call in a voice your customers can’t tell from a person, then books the appointment straight into your calendar. 24/7. No hold music, no missed revenue.',
+    'VoiceFront is an AI receptionist built for dental clinics. She answers every call in about a second and books patients into your VoiceFront calendar, 24/7. Hear the live demo, then start a 7-day free trial.',
 };
 
 export default function HomePage() {
@@ -20,6 +21,7 @@ export default function HomePage() {
       <SocialProofSection />
       <StatBandSection />
       <BeyondAnsweringSection />
+      <PricingStripSection />
       <FinalCtaSection />
     </>
   );
