@@ -29,17 +29,22 @@ vi.hoisted(() => {
  *    instruction), closes with a SYSTEM auto summary, and leaves the
  *    Decision slot empty until setDecision records a CEO message;
  *  - work items list, create, and change status;
- *  - human pacing: member replies are stored with a future visibleAt
- *    and stay out of the thread view until it passes (the view names
- *    who is pending instead); discuss replies stagger at least 4s
- *    apart in order; owner, CEO and SYSTEM messages are immediate; a
- *    failed model call leaves no message and no pending state;
+ *  - human pacing: member replies are stored with a near-future
+ *    visibleAt (a breath, never more than about two seconds) and stay
+ *    out of the thread view until it passes (the view names who is
+ *    pending instead); owner, CEO and SYSTEM messages are immediate;
+ *    a failed model call leaves no message and no pending state;
+ *  - discuss starts instantly: the start call returns the thread and
+ *    the topic while the debate runs in the background (the suite
+ *    awaits it through awaitDiscussion); both rounds answer in
+ *    parallel from a shared snapshot per round;
  *  - model hardening: transient 503s retry (bounded at 3 attempts,
  *    with backoff) and can still land a reply, a persistent 503 ends
  *    in the honest 502, non-transient failures never retry, and a
  *    discuss isolates a member whose turns all fail, continuing with
- *    the rest and telling the summary who could not answer; only a
- *    round 1 where every member fails is a 502;
+ *    the rest and telling the summary who could not answer; a round 1
+ *    where every member fails leaves an honest SYSTEM note in the
+ *    thread instead of a failed start;
  *  - discuss summary key: the auto summary runs on the first answering
  *    member's own key (seen on the fetch stub's x-goog-api-key header),
  *    not the shared chain, and falls back to the shared key when that
@@ -306,6 +311,7 @@ vi.stubGlobal('fetch', fetchMock);
 
 import { teamRouter } from './team.routes';
 import { errorHandler } from '../middleware/error';
+import { awaitDiscussion } from '../services/team.service';
 
 let server: Server;
 let base = '';
@@ -453,8 +459,14 @@ describe('AI Team routes', () => {
     expect(thread.type).toBe('DISCUSS');
     expect(thread.decision).toBeNull();
 
-    const messages = res.json.messages as any[];
-    expect(messages[0].authorType).toBe('OWNER');
+    // The start returns the moment the topic is stored; the debate
+    // itself runs in the background and is awaited here.
+    const startMessages = res.json.messages as any[];
+    expect(startMessages).toHaveLength(1);
+    expect(startMessages[0].authorType).toBe('OWNER');
+    await awaitDiscussion(thread.id);
+
+    const messages = db.teamMessage.filter((m) => m.threadId === thread.id);
     const memberMessages = messages.filter((m) => m.authorType === 'MEMBER');
     expect(memberMessages).toHaveLength(4); // 2 members x 2 rounds
     const summary = messages[messages.length - 1];
@@ -494,8 +506,8 @@ describe('AI Team routes', () => {
     const replyRow = stored.find((m) => m.authorType === 'MEMBER')!;
     expect(replyRow.visibleAt).toBeInstanceOf(Date);
     const delay = replyRow.visibleAt.getTime() - replyRow.createdAt.getTime();
-    expect(delay).toBeGreaterThanOrEqual(2_500);
-    expect(delay).toBeLessThanOrEqual(25_000);
+    expect(delay).toBeGreaterThanOrEqual(400);
+    expect(delay).toBeLessThanOrEqual(2_000);
     // The owner message itself is never paced.
     expect(stored.find((m) => m.authorType === 'OWNER')!.visibleAt ?? null).toBeNull();
 
@@ -526,7 +538,7 @@ describe('AI Team routes', () => {
     expect(view.json.pending.memberSlugs).toEqual(['layla']);
   });
 
-  it('human pacing: discuss replies are staggered in order, the summary is immediate', async () => {
+  it('human pacing: discuss replies land within about two seconds, the summary is immediate', async () => {
     geminiResponder = (system) =>
       system.includes('auto summary') ? 'Positions, agreements, open questions.' : 'A short position.';
     const res = await call('POST', '/api/admin/team/discuss', {
@@ -535,24 +547,29 @@ describe('AI Team routes', () => {
     });
     expect(res.status).toBe(201);
     const threadId = res.json.thread.id;
+    await awaitDiscussion(threadId);
 
     const stored = db.teamMessage.filter((m) => m.threadId === threadId);
     const memberRows = stored.filter((m) => m.authorType === 'MEMBER');
     expect(memberRows).toHaveLength(4);
-    const times = memberRows.map((m) => (m.visibleAt as Date).getTime());
-    for (const t of times) expect(t).toBeGreaterThan(Date.now());
-    for (let i = 1; i < times.length; i += 1) {
-      expect(times[i] - times[i - 1]).toBeGreaterThanOrEqual(4_000);
+    // Every reply's pacing delay is a breath: at least a beat, never
+    // more than about two seconds past its own store moment.
+    for (const row of memberRows) {
+      const delay = (row.visibleAt as Date).getTime() - row.createdAt.getTime();
+      expect(delay).toBeGreaterThanOrEqual(400);
+      expect(delay).toBeLessThanOrEqual(2_000);
     }
     // The SYSTEM summary is never paced.
     const summary = stored.find((m) => m.authorType === 'SYSTEM')!;
     expect(summary.visibleAt ?? null).toBeNull();
 
-    // In the room, only the topic and the summary show; both members
-    // are named as still typing.
+    // In the room right after the run, the member replies are still a
+    // breath away; both members are named as typing, and the debate
+    // itself is over (no longer active).
     const view = await call('GET', `/api/admin/team/threads/${threadId}/messages`);
     expect(view.json.messages.some((m: any) => m.authorType === 'MEMBER')).toBe(false);
     expect([...view.json.pending.memberSlugs].sort()).toEqual(['omar', 'priya']);
+    expect(view.json.pending.active).toBe(false);
   });
 
   it('human pacing: CEO channel messages are immediate and never pending', async () => {
@@ -652,6 +669,7 @@ describe('AI Team routes', () => {
     expect(res.status).toBe(201);
     expect(res.json.thread.decision).toBeNull();
     const threadId = res.json.thread.id;
+    await awaitDiscussion(threadId);
 
     const stored = db.teamMessage.filter((m) => m.threadId === threadId);
     const memberRows = stored.filter((m) => m.authorType === 'MEMBER');
@@ -675,6 +693,7 @@ describe('AI Team routes', () => {
       memberSlugs: ['omar', 'priya'],
     });
     expect(res.status).toBe(201);
+    await awaitDiscussion(res.json.thread.id);
 
     // Both members answered and Omar is seated first, so the summary
     // borrows his key rather than running on the shared chain.
@@ -704,6 +723,7 @@ describe('AI Team routes', () => {
       memberSlugs: ['omar', 'layla'],
     });
     expect(res.status).toBe(201);
+    await awaitDiscussion(res.json.thread.id);
 
     const summaryCall = geminiRequests.find((r) => r.system.includes('auto summary'));
     expect(summaryCall).toBeDefined();
@@ -714,19 +734,22 @@ describe('AI Team routes', () => {
     expect(laylaCall!.apiKey).toBe('test-key-for-team-suite');
   }, 30_000);
 
-  it('discuss isolation: every member failing round 1 is an honest 502', async () => {
+  it('discuss isolation: every member failing round 1 leaves an honest note in the thread', async () => {
     geminiFailFor = () => true;
     const res = await call('POST', '/api/admin/team/discuss', {
       topic: 'Should the demo call clinics back automatically?',
       memberSlugs: ['omar', 'priya'],
     });
-    expect(res.status).toBe(502);
+    // The start itself succeeds; the failure surfaces in the thread.
+    expect(res.status).toBe(201);
+    const threadId = res.json.thread.id;
+    await awaitDiscussion(threadId);
 
-    const discussThreads = db.teamThread.filter((t) => t.type === 'DISCUSS');
-    expect(discussThreads).toHaveLength(1);
-    const stored = db.teamMessage.filter((m) => m.threadId === discussThreads[0].id);
-    // Only the owner's topic is stored: no member turns, no summary.
-    expect(stored.map((m) => m.authorType)).toEqual(['OWNER']);
+    const stored = db.teamMessage.filter((m) => m.threadId === threadId);
+    // The topic, then a plain SYSTEM note: no member turns, no summary.
+    expect(stored.map((m) => m.authorType)).toEqual(['OWNER', 'SYSTEM']);
+    expect(stored[1].body).toContain('could answer just now');
+    expect(stored[1].label ?? null).toBeNull();
     // Two members, three bounded attempts each, and round 2 never ran.
     expect(geminiRequests).toHaveLength(6);
   }, 30_000);
