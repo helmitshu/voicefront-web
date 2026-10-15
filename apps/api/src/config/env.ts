@@ -113,6 +113,22 @@ const EnvSchema = z.object({
   TEAM_GEMINI_API_KEY_DANIEL: z.string().optional(),
   TEAM_GEMINI_API_KEY_LAYLA: z.string().optional(),
   /**
+   * Lyla's own Gemini key (the public landing-page host), from her own
+   * Google project on the same billing account, so public chat spend and
+   * quota stay separate from the signed-in product. Optional for now:
+   * while unset she falls back to the shared GEMINI_API_KEY and logs the
+   * fallback once. The endpoint, prompt, tool registry and data are fully
+   * separate either way; provisioning this key is a later founder step.
+   */
+  LYLA_GEMINI_API_KEY: z.string().optional(),
+  /**
+   * Global daily circuit breaker for Lyla's public chat: once this many
+   * chat sessions have started in one UTC day, her chat stops being
+   * offered (the demo lead form keeps working). Bounds public model spend
+   * no matter what any single visitor does.
+   */
+  LYLA_DAILY_SESSION_LIMIT: z.coerce.number().int().positive().default(300),
+  /**
    * Kill switch for the personalized (receptionist) demo kind only. Unset =
    * enabled. Set to 'false' to reject demoKind 'receptionist' calls while
    * the sales demo keeps running; the DEMO_ENABLED platform setting still
