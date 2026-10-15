@@ -69,6 +69,7 @@ export function Badge({
 }
 
 const CALL_STATUS_META: Record<CallStatus, { label: string; tone: BadgeTone }> = {
+  IN_PROGRESS: { label: 'In progress', tone: 'signal' },
   COMPLETED: { label: 'Completed', tone: 'success' },
   FORWARDED: { label: 'Transferred', tone: 'signal' },
   VOICEMAIL: { label: 'Voicemail', tone: 'warning' },
