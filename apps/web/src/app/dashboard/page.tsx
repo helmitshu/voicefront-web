@@ -103,7 +103,7 @@ function useTweenedNumber(value: number): number {
   useEffect(() => {
     const from = displayRef.current;
     if (from === value) return;
-    if (!primedRef.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    if (!primedRef.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches || document.documentElement.dataset.calm === '1') {
       primedRef.current = true;
       displayRef.current = value;
       setDisplay(value);
