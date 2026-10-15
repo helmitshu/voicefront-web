@@ -643,7 +643,7 @@ export default function SettingsPage() {
             dirty ? 'translate-y-0 opacity-100' : 'pointer-events-none translate-y-6 opacity-0'
           }`}
         >
-          <div className="mx-auto flex max-w-2xl items-center justify-between gap-4 rounded-2xl border border-line/70 bg-white/95 px-5 py-3 shadow-lift backdrop-blur-md">
+          <div className="mx-auto flex max-w-2xl items-center justify-between gap-4 rounded-2xl border border-line bg-card/95 px-5 py-3 shadow-lift backdrop-blur-md">
             <p className="flex items-center gap-2.5 text-sm text-ink">
               <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-construction" />
               You have unsaved changes.
