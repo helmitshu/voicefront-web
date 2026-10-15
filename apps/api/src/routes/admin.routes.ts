@@ -17,6 +17,7 @@ import { randomSuffix, toSlug } from '../lib/slug';
 import { defaultBusinessHours } from '../domain/agent-config';
 import { industryDefaults, industryPersona } from '../domain/prompt-templates';
 import { getTenantFeatures, setFeatureByAdmin } from '../services/features.service';
+import { listSupportTickets } from '../services/support-ticket.service';
 import {
   SETTING_KEYS,
   SETTING_META,
@@ -1285,6 +1286,26 @@ adminRouter.get(
         createdAt: e.createdAt.toISOString(),
       })),
     });
+  }),
+);
+
+/* ---------------------------- support tickets ----------------------------- */
+/* The platform team's inbox for tickets customers file through the in-app   */
+/* support agent (Adam): issues and bad-call reports, newest first. Full     */
+/* admins only — a ticket can carry a customer's call details.              */
+
+const TicketListQuerySchema = z.object({
+  status: z.enum(['OPEN', 'RESOLVED']).optional(),
+  tenantId: z.string().trim().min(1).max(100).optional(),
+});
+
+adminRouter.get(
+  '/tickets',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const query = TicketListQuerySchema.parse(req.query);
+    const tickets = await listSupportTickets(query);
+    res.json({ tickets });
   }),
 );
 

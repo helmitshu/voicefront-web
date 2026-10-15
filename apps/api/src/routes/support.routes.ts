@@ -4,7 +4,11 @@ import { z } from 'zod';
 import { prisma } from '../lib/prisma';
 import { asyncHandler, HttpError } from '../lib/http';
 import { getAuth, requireAuth, requireRole } from '../middleware/auth';
-import { applyPendingProposal, runSupportChat } from '../services/support-agent.service';
+import {
+  applyPendingProposal,
+  filePendingTicket,
+  runSupportChat,
+} from '../services/support-agent.service';
 
 export const supportRouter = Router();
 supportRouter.use(requireAuth);
@@ -32,13 +36,19 @@ const ChatBodySchema = z.object({
     )
     .min(1)
     .max(20),
+  /**
+   * The app route the user is on, so the agent can anchor answers to that
+   * page. Only ever resolved against the server-side page map; an unknown
+   * or junk value adds no context and is never an error.
+   */
+  page: z.string().trim().min(1).max(200).optional(),
 });
 
 supportRouter.post(
   '/chat',
   asyncHandler(async (req, res) => {
     const auth = getAuth(req);
-    const { messages } = ChatBodySchema.parse(req.body);
+    const { messages, page } = ChatBodySchema.parse(req.body);
     const user = await prisma.user.findUnique({
       where: { id: auth.userId },
       select: { email: true },
@@ -50,6 +60,7 @@ supportRouter.post(
       userEmail: user.email,
       userRole: auth.role,
       messages,
+      pagePath: page,
     });
     res.json(result);
   }),
@@ -82,5 +93,33 @@ supportRouter.post(
       proposalId,
     });
     res.json({ applied: true, summary: applied.summary, assistantMessage: applied.assistantMessage });
+  }),
+);
+
+const FileTicketBodySchema = z.object({
+  proposalId: z.string().trim().min(1).max(100),
+});
+
+/**
+ * The ticket card's "File this ticket" button. Same confirm discipline as
+ * /apply (only a server-held proposal for this user can be filed), but no
+ * role gate: any signed-in user may report an issue or a bad call.
+ */
+supportRouter.post(
+  '/file-ticket',
+  asyncHandler(async (req, res) => {
+    const auth = getAuth(req);
+    const { proposalId } = FileTicketBodySchema.parse(req.body);
+    const filed = await filePendingTicket({
+      tenantId: auth.tenantId,
+      userId: auth.userId,
+      proposalId,
+    });
+    res.json({
+      filed: true,
+      reference: filed.reference,
+      summary: filed.summary,
+      assistantMessage: filed.assistantMessage,
+    });
   }),
 );
