@@ -19,9 +19,13 @@ const RegisterSchema = z.object({
   fullName: z.string().trim().min(2, 'Please enter your name').max(80),
   email: z.string().trim().email('Please enter a valid email'),
   password: z.string().min(8, 'Use at least 8 characters').max(128),
+  // Optional. When given, the API reads the site to verify the pricing
+  // region (Canadian businesses are billed in CAD). The API enforces the
+  // URL shape; here it is only length-capped.
+  website: z.string().trim().max(300).optional(),
 });
 
-type FieldKey = 'accessCode' | 'companyName' | 'fullName' | 'email' | 'password';
+type FieldKey = 'accessCode' | 'companyName' | 'fullName' | 'email' | 'password' | 'website';
 type FieldErrors = Partial<Record<FieldKey, string>>;
 
 const INDUSTRY_CARDS: Array<{ value: Industry; icon: string }> = [
@@ -54,6 +58,7 @@ export default function RegisterPage() {
     fullName: '',
     email: '',
     password: '',
+    website: '',
   });
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
@@ -88,7 +93,9 @@ export default function RegisterPage() {
     try {
       // Only send a code for invite-only industries; trades signs up open.
       const accessCode = codeRequired ? (parsed.data.accessCode ?? '').trim() || undefined : undefined;
-      await register({ ...parsed.data, accessCode, industry });
+      // An empty website field means no website, not an empty URL.
+      const website = (parsed.data.website ?? '').trim() || undefined;
+      await register({ ...parsed.data, accessCode, website, industry });
       router.replace('/onboarding');
     } catch (err) {
       setFormError(err instanceof ApiError ? err.message : 'Something went wrong. Please try again.');
@@ -180,6 +187,16 @@ export default function RegisterPage() {
           error={fieldErrors.companyName}
           placeholder={industry === 'CLINIC' ? 'Northside Family Clinic' : 'Granite Ridge Builders'}
           autoComplete="organization"
+        />
+        <Input
+          label="Business website (optional)"
+          value={values.website}
+          onChange={(e) => setField('website', e.target.value)}
+          error={fieldErrors.website}
+          hint="We read your site to set your pricing and prepare your receptionist."
+          placeholder="https://yourclinic.ca"
+          autoComplete="url"
+          inputMode="url"
         />
         <Input
           label="Your name"
