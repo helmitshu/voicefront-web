@@ -22,14 +22,25 @@ mediaRouter.get(
       where: { id: payload.cid, tenantId: payload.tid },
       select: { recordingUrl: true },
     });
-    if (!log || !log.recordingUrl) {
+    let recordingUrl = log?.recordingUrl ?? null;
+    if (!recordingUrl) {
+      // Simulated calls (Adam proofs and drills) are not CallLog rows: their
+      // tokens carry the run id in the same claim, tenant-checked the same
+      // way, so a proof's before/after audio plays through this same proxy.
+      const run = await prisma.simulatedCallRun.findFirst({
+        where: { id: payload.cid, tenantId: payload.tid },
+        select: { resultRecordingUrl: true, patientRecordingUrl: true },
+      });
+      recordingUrl = run?.resultRecordingUrl ?? run?.patientRecordingUrl ?? null;
+    }
+    if (!recordingUrl) {
       throw new HttpError(404, 'No recording is available for this call.', 'NO_RECORDING');
     }
 
     const range = req.headers.range;
     let upstream: Response;
     try {
-      upstream = await fetch(log.recordingUrl, {
+      upstream = await fetch(recordingUrl, {
         headers: range ? { Range: range } : undefined,
         redirect: 'follow',
       });

@@ -21,6 +21,13 @@ import {
   type AppointmentMatch,
 } from '../services/appointment.service';
 import { getOrCreateDemoTenant, captureDemoCall, setDemoScreen, setDemoSummary } from '../services/demo.service';
+import {
+  captureSimulationEnd,
+  findOpenSimulationRun,
+  getSimulationRunById,
+  markSimulationAnswered,
+  simulationScopeId,
+} from '../services/adam-simulation.service';
 import { createJobRequest } from '../services/job.service';
 import { founderAvailability, bookFounderCall } from '../services/founder.service';
 import { resolveBookingContext } from '../services/providers.service';
@@ -59,6 +66,9 @@ const MetadataSchema = z
     channel: z.enum(['phone', 'web']).optional(),
     /** Set on landing-page demo assistants to isolate the visitor's calendar. */
     demoSessionId: z.string().optional(),
+    /** Set on simulated-patient runs (Adam proofs and drills) by OUR code. */
+    simulationRunId: z.string().optional(),
+    simulationLeg: z.enum(['patient', 'receptionist']).optional(),
   })
   .passthrough();
 
@@ -271,6 +281,27 @@ async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolC
     const settings = await findTenantByNumber(message.phoneNumber?.number);
     tenantId = settings?.tenantId ?? null;
   }
+  // Simulated-patient runs (Adam proofs and drills) arrive on the tenant's
+  // own assistant metadata, which the webhook itself issued moments earlier.
+  // The run row is the authority: a marker that does not resolve to a run of
+  // THIS tenant refuses every tool, and a resolved run redirects all booking
+  // writes into the demo sandbox under a per-run scope, so a simulated
+  // patient can never create, move, or cancel a real appointment or job.
+  // Settings (hours, timezone) still load from the real tenant below.
+  const simulationRunId = metadata?.simulationRunId ?? null;
+  let simScopeId: string | null = null;
+  let simulationRefused = false;
+  if (simulationRunId) {
+    const run = await getSimulationRunById(simulationRunId);
+    if (!run || !tenantId || run.tenantId !== tenantId) {
+      simulationRefused = true;
+    } else {
+      simScopeId = simulationScopeId(run.id);
+    }
+  }
+  /** Where booking reads/writes land: the demo session, the simulation
+   *  sandbox scope, or (real calls) null = the tenant's live calendar. */
+  const bookingScopeId = demoSessionId ?? simScopeId;
   const calls = message.toolCallList ?? message.toolCalls ?? [];
   // The caller's own number, used to find the appointment they want to change.
   const callerNumber = message.call?.customer?.number ?? null;
@@ -283,6 +314,11 @@ async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolC
   // Multi-provider routing only engages when the operator enabled it for this
   // tenant; otherwise the calendar is a single shared resource (the simple case).
   const multiProvider = settings?.tenant?.multiProviderEnabled ?? false;
+  // The tenant whose calendar the booking tools touch. For a simulated call
+  // this is the demo tenant even though the settings above (hours, timezone)
+  // came from the real tenant: the receptionist behaves exactly like the real
+  // one, but nothing it books can land on the real calendar.
+  const dataTenantId = simScopeId ? (await getOrCreateDemoTenant()).tenant.id : tenantId;
 
   const results: Array<{ toolCallId: string; result: string }> = [];
   for (const call of calls) {
@@ -290,10 +326,14 @@ async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolC
     const args = parseToolArguments(call.arguments ?? call.function?.arguments);
     let result: string;
     try {
+      if (simulationRefused) {
+        // A simulation marker that does not resolve to a run of this tenant:
+        // no tool runs at all, the receptionist takes a message instead.
+        result = "I'm sorry, I can't reach the calendar right now. Let me take a message instead.";
       // Screen control (web sales demo): Ava drives the prospect's on-screen
       // panel. The browser reacts to the live tool-call event; we also record it
       // here so the calendar poll can reconcile. Independent of tenant settings.
-      if (name === 'set_demo_screen') {
+      } else if (name === 'set_demo_screen') {
         const rawScreen = (args as { screen?: unknown }).screen;
         const screen = typeof rawScreen === 'string' ? rawScreen : '';
         if (demoSessionId && setDemoScreen(demoSessionId, screen)) {
@@ -357,15 +397,17 @@ async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolC
         result = "I'm sorry, I can't reach the calendar right now. Let me take a message instead.";
       } else if (name === 'checkAvailability') {
         const a = AvailabilityArgsSchema.parse(args);
-        const ctx = multiProvider
+        // Simulated calls skip multi-provider routing: their bookings land
+        // in the demo sandbox, which has no provider roster to route by.
+        const ctx = multiProvider && !simScopeId
           ? await resolveBookingContext(tenantId, { providerName: a.providerName, serviceName: a.serviceName })
           : null;
         const slots = await findFreeSlots({
-          tenantId,
+          tenantId: dataTenantId!,
           timezone: settings.timezone,
           businessHours: settings.businessHours,
           date: a.date,
-          demoSessionId,
+          demoSessionId: bookingScopeId,
           providerId: ctx?.providerId ?? null,
           providerIds: ctx?.candidateProviderIds,
           slotMinutes: ctx?.durationMinutes ?? undefined,
@@ -383,11 +425,11 @@ async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolC
         }
       } else if (name === 'bookAppointment') {
         const booking = BookingArgsSchema.parse(args);
-        const ctx = multiProvider
+        const ctx = multiProvider && !simScopeId
           ? await resolveBookingContext(tenantId, { providerName: booking.providerName, serviceName: booking.serviceName })
           : null;
         const appointment = await bookAppointment({
-          tenantId,
+          tenantId: dataTenantId!,
           timezone: settings.timezone,
           businessHours: settings.businessHours,
           customerName: booking.customerName,
@@ -397,13 +439,14 @@ async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolC
           time: booking.time,
           source: 'VOICE_AGENT',
           externalCallId: message.call?.id ?? null,
-          demoSessionId,
+          demoSessionId: bookingScopeId,
           providerId: ctx?.providerId ?? null,
           candidateProviderIds: ctx?.candidateProviderIds,
           serviceId: ctx?.serviceId ?? null,
           durationMinutes: ctx?.durationMinutes ?? undefined,
         });
-        void sendBookingConfirmation(appointment.id).catch(() => {});
+        // A simulated booking never triggers a real confirmation message.
+        if (!simScopeId) void sendBookingConfirmation(appointment.id).catch(() => {});
         const local = utcToZonedParts(appointment.startsAt, appointment.timezone);
         const dayLabel = new Intl.DateTimeFormat('en-US', {
           timeZone: appointment.timezone,
@@ -416,12 +459,12 @@ async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolC
       } else if (name === 'findAppointment') {
         const a = FindAppointmentArgsSchema.parse(args);
         const matches = await findUpcomingAppointments({
-          tenantId,
+          tenantId: dataTenantId!,
           timezone: settings.timezone,
           phone: a.customerPhone ?? callerNumber,
           name: a.customerName ?? null,
           date: a.date ?? null,
-          demoSessionId,
+          demoSessionId: bookingScopeId,
         });
         if (matches.length === 0) {
           result =
@@ -435,12 +478,12 @@ async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolC
       } else if (name === 'rescheduleAppointment') {
         const a = RescheduleArgsSchema.parse(args);
         const matches = await findUpcomingAppointments({
-          tenantId,
+          tenantId: dataTenantId!,
           timezone: settings.timezone,
           phone: a.customerPhone ?? callerNumber,
           name: a.customerName ?? null,
           date: a.currentDate ?? null,
-          demoSessionId,
+          demoSessionId: bookingScopeId,
         });
         if (matches.length === 0) {
           result =
@@ -449,7 +492,7 @@ async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolC
           result = `There's more than one upcoming appointment (${describeMatches(matches)}). Which one should I move?`;
         } else {
           const updated = await updateAppointment(
-            tenantId,
+            dataTenantId!,
             matches[0].id,
             { date: a.date, time: a.time },
             settings.businessHours,
@@ -460,12 +503,12 @@ async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolC
       } else if (name === 'cancelAppointment') {
         const a = CancelArgsSchema.parse(args);
         const matches = await findUpcomingAppointments({
-          tenantId,
+          tenantId: dataTenantId!,
           timezone: settings.timezone,
           phone: a.customerPhone ?? callerNumber,
           name: a.customerName ?? null,
           date: a.date ?? null,
-          demoSessionId,
+          demoSessionId: bookingScopeId,
         });
         if (matches.length === 0) {
           result =
@@ -475,13 +518,13 @@ async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolC
         } else {
           const m = matches[0];
           // Status-only cancel; no time validation, so business hours are unused.
-          await updateAppointment(tenantId, m.id, { status: 'CANCELLED' }, null);
+          await updateAppointment(dataTenantId!, m.id, { status: 'CANCELLED' }, null);
           result = `Done — I've cancelled the appointment on ${formatDay(m.startsAt, m.timezone)} at ${to12h(m.local.time)}. Is there anything else I can help with?`;
         }
       } else if (name === 'captureJobRequest') {
         const a = JobCaptureArgsSchema.parse(args);
         const job = await createJobRequest({
-          tenantId,
+          tenantId: dataTenantId!,
           customerName: a.customerName,
           // Fall back to the caller's own number when they don't give one.
           customerPhone: a.customerPhone ?? callerNumber,
@@ -492,7 +535,7 @@ async function handleToolCalls(message: ToolCallsMessage): Promise<Array<{ toolC
           preferredCallback: a.preferredCallback ?? null,
           source: 'VOICE_AGENT',
           externalCallId: message.call?.id ?? null,
-          demoSessionId,
+          demoSessionId: bookingScopeId,
         });
         result =
           job.urgency === 'EMERGENCY'
@@ -542,6 +585,9 @@ async function findTenantByNumber(rawNumber: string | undefined) {
 async function recordCallStarted(message: StatusUpdateMessage): Promise<void> {
   const metadata = message.assistant?.metadata ?? message.call?.assistant?.metadata;
   if (metadata?.demoSessionId) return;
+  // Simulated calls never open a tenant call row, same as demo calls: the
+  // run record is their only trace.
+  if (metadata?.simulationRunId) return;
 
   let tenantId = metadata?.tenantId ?? null;
   if (!tenantId) {
@@ -592,6 +638,61 @@ async function isKnownDemoSession(sessionId: string | null | undefined): Promise
     prisma.appointment.findFirst({ where: { demoSessionId: sessionId }, select: { id: true } }),
   ]);
   return lead !== null || appointment !== null;
+}
+
+type SettingsWithTenant = NonNullable<Awaited<ReturnType<typeof findTenantByNumber>>>;
+
+/**
+ * Builds the transient receptionist for a call from the tenant's LIVE
+ * settings: knowledge files, provider roster, service area, the webhook
+ * server URL. Shared by the assistant-request fallback (no persistent
+ * assistant provisioned yet) and the simulated-call branch (which must
+ * never hand back the persistent assistant, because its metadata would not
+ * carry the run marker). Demo calls never embed the shared webhook secret.
+ */
+async function buildTransientReceptionist(
+  settings: SettingsWithTenant,
+  opts: { isDemo: boolean },
+) {
+  const multiProviderTenant = settings.tenant.multiProviderEnabled;
+  const [publicApiUrl, webhookSecret, documents, providers, services] = await Promise.all([
+    getSettingValue('PUBLIC_API_URL'),
+    getSettingValue('VAPI_WEBHOOK_SECRET'),
+    prisma.document.findMany({
+      where: { tenantId: settings.tenantId, status: { not: 'failed' } },
+      select: { vapiFileId: true },
+    }),
+    multiProviderTenant
+      ? prisma.provider.findMany({
+          where: { tenantId: settings.tenantId, active: true },
+          orderBy: { name: 'asc' },
+          select: { name: true, title: true },
+        })
+      : Promise.resolve([] as Array<{ name: string; title: string | null }>),
+    multiProviderTenant
+      ? prisma.service.findMany({
+          where: { tenantId: settings.tenantId, active: true },
+          orderBy: { name: 'asc' },
+          select: { name: true, durationMinutes: true },
+        })
+      : Promise.resolve([] as Array<{ name: string; durationMinutes: number }>),
+  ]);
+  // SERVICE_AREA feature: pass the serviced area into the prompt when it's on.
+  const serviceAreaOn = await isFeatureEnabled(settings.tenantId, 'SERVICE_AREA');
+  const areaZips = serviceAreaOn ? parseServiceAreaZips(settings.serviceAreaZips) : [];
+  return buildTransientAssistant(settings.tenant, settings, 'phone', new Date(), {
+    serverUrl: publicApiUrl ? `${publicApiUrl}/api/vapi/inbound` : undefined,
+    // Never embed the shared secret in a demo response: demo server
+    // messages are unauthenticated by design (the isDemo bypass above), so
+    // a secret here would hand it to whoever forged the demo payload. Demo
+    // assistants reach this webhook through the bypass instead.
+    serverSecret: opts.isDemo ? undefined : (webhookSecret ?? undefined),
+    knowledgeFileIds: documents.map((d) => d.vapiFileId),
+    ...(multiProviderTenant && providers.length > 1
+      ? { providers, services, offerProviderChoice: settings.offerProviderChoice }
+      : {}),
+    ...(areaZips.length > 0 ? { serviceArea: { zips: areaZips, note: settings.serviceAreaNote } } : {}),
+  });
 }
 
 /** Pull a demo session id out of the raw webhook body, if present. Public
@@ -688,6 +789,36 @@ inboundRouter.post(
         return;
       }
 
+      // Simulated-patient run: Adam placed an outbound patient call to this
+      // line moments ago (proofs and drills). Serve a TRANSIENT receptionist
+      // built from the live settings — never the persistent assistant, whose
+      // metadata would not carry the run marker, and the run must be
+      // captured as a simulation, not logged as a patient call. The marker
+      // rides this assistant's metadata into the run's later webhooks, which
+      // is also what keeps its bookings out of the real calendar. A lookup
+      // failure must never break a real patient call, so it falls through
+      // to the normal paths.
+      if (!isDemo && callerNumber) {
+        let simRun: Awaited<ReturnType<typeof findOpenSimulationRun>> = null;
+        try {
+          simRun = await findOpenSimulationRun({ tenantId: settings.tenantId, callerNumber });
+        } catch (err) {
+          console.warn('[webhook] simulation lookup failed:', err);
+        }
+        if (simRun) {
+          await markSimulationAnswered(simRun.id, parsed.success ? (parsed.data.call?.id ?? null) : null);
+          const assistant = await buildTransientReceptionist(settings, { isDemo: false });
+          assistant.metadata = {
+            tenantId: settings.tenantId,
+            channel: 'phone',
+            simulationRunId: simRun.id,
+            simulationLeg: 'receptionist',
+          };
+          res.status(200).json({ assistant });
+          return;
+        }
+      }
+
       // Prefer the tenant's dedicated persistent assistant when one is
       // provisioned: Vapi loads a warm, pre-built agent (snappier first
       // response, kept in sync on every settings save) instead of one rebuilt
@@ -700,45 +831,7 @@ inboundRouter.post(
 
       // Fallback: no dedicated assistant yet — build a transient one inline so
       // the receptionist still answers (e.g. before provisioning completes).
-      const multiProviderTenant = settings.tenant.multiProviderEnabled;
-      const [publicApiUrl, webhookSecret, documents, providers, services] = await Promise.all([
-        getSettingValue('PUBLIC_API_URL'),
-        getSettingValue('VAPI_WEBHOOK_SECRET'),
-        prisma.document.findMany({
-          where: { tenantId: settings.tenantId, status: { not: 'failed' } },
-          select: { vapiFileId: true },
-        }),
-        multiProviderTenant
-          ? prisma.provider.findMany({
-              where: { tenantId: settings.tenantId, active: true },
-              orderBy: { name: 'asc' },
-              select: { name: true, title: true },
-            })
-          : Promise.resolve([] as Array<{ name: string; title: string | null }>),
-        multiProviderTenant
-          ? prisma.service.findMany({
-              where: { tenantId: settings.tenantId, active: true },
-              orderBy: { name: 'asc' },
-              select: { name: true, durationMinutes: true },
-            })
-          : Promise.resolve([] as Array<{ name: string; durationMinutes: number }>),
-      ]);
-      // SERVICE_AREA feature: pass the serviced area into the prompt when it's on.
-      const serviceAreaOn = await isFeatureEnabled(settings.tenantId, 'SERVICE_AREA');
-      const areaZips = serviceAreaOn ? parseServiceAreaZips(settings.serviceAreaZips) : [];
-      const assistant = buildTransientAssistant(settings.tenant, settings, 'phone', new Date(), {
-        serverUrl: publicApiUrl ? `${publicApiUrl}/api/vapi/inbound` : undefined,
-        // Never embed the shared secret in a demo response: demo server
-        // messages are unauthenticated by design (the isDemo bypass above), so
-        // a secret here would hand it to whoever forged the demo payload. Demo
-        // assistants reach this webhook through the bypass instead.
-        serverSecret: isDemo ? undefined : (webhookSecret ?? undefined),
-        knowledgeFileIds: documents.map((d) => d.vapiFileId),
-        ...(multiProviderTenant && providers.length > 1
-          ? { providers, services, offerProviderChoice: settings.offerProviderChoice }
-          : {}),
-        ...(areaZips.length > 0 ? { serviceArea: { zips: areaZips, note: settings.serviceAreaNote } } : {}),
-      });
+      const assistant = await buildTransientReceptionist(settings, { isDemo });
       res.status(200).json({ assistant });
       return;
     }
@@ -789,6 +882,32 @@ inboundRouter.post(
           });
         } catch (err) {
           console.error('[webhook] Failed to capture demo call:', err);
+        }
+        res.status(200).json({});
+        return;
+      }
+
+      // Simulated-patient runs (Adam proofs and drills): both legs carry
+      // the run marker OUR code issued, so the run captures the result and
+      // NO tenant call row is ever written for either leg — simulated calls
+      // stay out of the call history, the stats, and the usage numbers.
+      const simMeta = report.assistant?.metadata ?? report.call?.assistant?.metadata;
+      if (simMeta?.simulationRunId) {
+        try {
+          await captureSimulationEnd({
+            runId: simMeta.simulationRunId,
+            leg: simMeta.simulationLeg === 'patient' ? 'patient' : 'receptionist',
+            externalCallId: report.call?.id ?? null,
+            startedAt: parseDate(report.startedAt),
+            endedAt: parseDate(report.endedAt),
+            summary: report.analysis?.summary ?? report.summary ?? null,
+            transcript: report.artifact?.transcript ?? report.transcript ?? null,
+            recordingUrl: report.artifact?.recordingUrl ?? report.recordingUrl ?? null,
+            structuredData: report.analysis?.structuredData ?? null,
+            successEvaluation: report.analysis?.successEvaluation ?? null,
+          });
+        } catch (err) {
+          console.error('[webhook] Failed to capture simulated call:', err);
         }
         res.status(200).json({});
         return;

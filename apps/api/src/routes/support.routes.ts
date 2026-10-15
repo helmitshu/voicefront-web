@@ -5,10 +5,15 @@ import { prisma } from '../lib/prisma';
 import { asyncHandler, HttpError } from '../lib/http';
 import { getAuth, requireAuth, requireRole } from '../middleware/auth';
 import {
+  applyPendingKnowledge,
   applyPendingProposal,
+  createDirectSupportTicket,
   filePendingTicket,
+  runPendingSimulation,
   runSupportChat,
 } from '../services/support-agent.service';
+import { DRILL_SCENARIOS } from '../services/adam-simulation.service';
+import { dismissWeeklyReview } from '../services/adam-knowledge.service';
 
 export const supportRouter = Router();
 supportRouter.use(requireAuth);
@@ -100,6 +105,12 @@ const FileTicketBodySchema = z.object({
   proposalId: z.string().trim().min(1).max(100),
 });
 
+const ReportBodySchema = z.object({
+  category: z.enum(['ISSUE', 'BAD_CALL', 'OTHER']).optional(),
+  subject: z.string().trim().min(1).max(140),
+  details: z.string().trim().min(1).max(2000),
+});
+
 /**
  * The ticket card's "File this ticket" button. Same confirm discipline as
  * /apply (only a server-held proposal for this user can be filed), but no
@@ -116,6 +127,113 @@ supportRouter.post(
       proposalId,
     });
     res.json({
+      filed: true,
+      reference: filed.reference,
+      summary: filed.summary,
+      assistantMessage: filed.assistantMessage,
+    });
+  }),
+);
+
+/**
+ * The proof/drill card's Confirm button. Owner/manager only, same as the
+ * settings writes: a simulated call spends real call time. The run path
+ * (caps, placement, audit) is shared verbatim with the chat tool.
+ */
+supportRouter.post(
+  '/run-simulated-call',
+  requireRole('OWNER', 'MANAGER'),
+  asyncHandler(async (req, res) => {
+    const auth = getAuth(req);
+    const { proposalId } = ApplyBodySchema.parse(req.body);
+    const user = await prisma.user.findUnique({
+      where: { id: auth.userId },
+      select: { email: true },
+    });
+    if (!user) throw new HttpError(401, 'Please sign in to continue.', 'UNAUTHENTICATED');
+    const run = await runPendingSimulation({
+      tenantId: auth.tenantId,
+      userId: auth.userId,
+      userEmail: user.email,
+      userRole: auth.role,
+      proposalId,
+    });
+    res.json({ ran: true, runId: run.runId, summary: run.summary, assistantMessage: run.assistantMessage });
+  }),
+);
+
+/**
+ * The knowledge card's Confirm button. Owner/manager only. Writes through
+ * the same knowledge path as the chat tool's apply (upload, Document row,
+ * re-sync) with the audit entry recorded by the service.
+ */
+supportRouter.post(
+  '/apply-knowledge',
+  requireRole('OWNER', 'MANAGER'),
+  asyncHandler(async (req, res) => {
+    const auth = getAuth(req);
+    const { proposalId } = ApplyBodySchema.parse(req.body);
+    const user = await prisma.user.findUnique({
+      where: { id: auth.userId },
+      select: { email: true },
+    });
+    if (!user) throw new HttpError(401, 'Please sign in to continue.', 'UNAUTHENTICATED');
+    const applied = await applyPendingKnowledge({
+      tenantId: auth.tenantId,
+      userId: auth.userId,
+      userEmail: user.email,
+      proposalId,
+    });
+    res.json({ applied: true, summary: applied.summary, assistantMessage: applied.assistantMessage });
+  }),
+);
+
+/** The drill library, for the widget's scenario picker. */
+supportRouter.get(
+  '/drill-scenarios',
+  asyncHandler(async (_req, res) => {
+    res.json({
+      scenarios: DRILL_SCENARIOS.map((s) => ({ id: s.id, title: s.title, goal: s.goal })),
+    });
+  }),
+);
+
+const DismissReviewBodySchema = z.object({
+  reviewId: z.string().trim().min(1).max(100),
+});
+
+/** Dismisses the pending weekly knowledge review for this workspace. */
+supportRouter.post(
+  '/weekly-review/dismiss',
+  requireRole('OWNER', 'MANAGER'),
+  asyncHandler(async (req, res) => {
+    const auth = getAuth(req);
+    const { reviewId } = DismissReviewBodySchema.parse(req.body);
+    const dismissed = await dismissWeeklyReview(auth.tenantId, reviewId);
+    if (!dismissed) {
+      throw new HttpError(404, 'That review is not waiting in this workspace.', 'REVIEW_NOT_FOUND');
+    }
+    res.json({ dismissed: true });
+  }),
+);
+
+/**
+ * The widget's model-free report form. Tenant and user come only from the
+ * JWT; the body cannot choose a workspace, attach a call, or set a status.
+ * This path stays available when the model is down, including for a report
+ * about the support assistant itself.
+ */
+supportRouter.post(
+  '/report',
+  asyncHandler(async (req, res) => {
+    const auth = getAuth(req);
+    const input = ReportBodySchema.parse(req.body);
+    const filed = await createDirectSupportTicket({
+      tenantId: auth.tenantId,
+      userId: auth.userId,
+      input,
+    });
+    res.status(201).json({
       filed: true,
       reference: filed.reference,
       summary: filed.summary,
