@@ -166,3 +166,60 @@ describe('buildSupportSystemText', () => {
     expect(prompt).toContain('Never add promises about response times');
   });
 });
+
+/* ------------- red team fix: knowledge honesty and coverage -------------- */
+
+describe('knowledge block coverage and the no-denial rule', () => {
+  const prompt = buildSupportSystemText({
+    companyName: 'Alpha Dental',
+    industry: 'CLINIC',
+    receptionistName: 'Maya',
+    timezone: 'America/Toronto',
+    currentHoursText: 'Monday to Friday 8 AM to 5 PM',
+    page: null,
+  });
+
+  /**
+   * The Settings card titles as rendered on the Settings page. Source:
+   * apps/web/src/app/dashboard/settings/page.tsx (the CardHeader title
+   * props, in page order). This suite never reads web sources from disk,
+   * so the titles are pinned here explicitly: when a card ships or is
+   * renamed on that page, update this list and the knowledge block
+   * together. The test fails if any title drops out of Adam's knowledge,
+   * which is what turns a missing card into a false answer to a clinic.
+   */
+  const SETTINGS_CARD_TITLES = [
+    'Persona',
+    'Voice & sound',
+    'Call handling instructions',
+    'Knowledge documents',
+    'Voicemail greeting',
+    'Business hours',
+    'Average appointment value',
+    'Live call transfer',
+    'Call length & timing',
+    'Your receptionist number',
+  ];
+
+  it('names every Settings card in the knowledge block', () => {
+    for (const title of SETTINGS_CARD_TITLES) {
+      expect(prompt).toContain(title);
+    }
+  });
+
+  it('describes win-back campaigns (the reactivation texts) truthfully', () => {
+    expect(prompt).toContain('Win-back campaigns');
+    expect(prompt).toContain('inactivity window');
+    expect(prompt).toContain('at most once per lapse');
+  });
+
+  it('replaces the flat denial with honest uncertainty and a ticket offer', () => {
+    expect(prompt).not.toContain('the product does not do that today');
+    expect(prompt).toContain('do not have that detail in front of you');
+    expect(prompt).toContain('offer to file a ticket');
+  });
+
+  it('still forbids inventing features, prices, or policies', () => {
+    expect(prompt).toContain('never invent features, prices, or policies');
+  });
+});
