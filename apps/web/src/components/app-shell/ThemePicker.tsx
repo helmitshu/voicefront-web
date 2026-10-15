@@ -2,6 +2,7 @@
 
 import { THEMES, useTheme, type AppTheme } from '@/lib/theme';
 import { Card, CardHeader } from '@/components/ui/Card';
+import { Toggle } from '@/components/ui/Toggle';
 
 /** Three-dot swatch previewing a theme's canvas, surface, and accent. */
 function Swatches({ colors }: { colors: [string, string, string] }) {
@@ -20,17 +21,18 @@ function Swatches({ colors }: { colors: [string, string, string] }) {
 
 /**
  * Full theme picker for Settings → General: one selectable card per theme
- * with its name, a line of description, and a swatch trio. The choice saves
- * to this device and applies immediately (ThemeProvider + globals.css tokens).
+ * with its name, a line of description, and a swatch trio, plus the calm
+ * mode toggle. Choices apply immediately and save to the account
+ * (ThemeProvider + globals.css tokens), with this device as the cache.
  */
 export function AppearanceCard() {
-  const { theme, setTheme } = useTheme();
+  const { theme, setTheme, calm, setCalm } = useTheme();
 
   return (
     <Card>
       <CardHeader
         title="Appearance"
-        description="How the app looks on this device. Midnight is the default."
+        description="How the app looks. Choices save to your account and follow you across devices. Midnight is the default."
       />
       <div role="radiogroup" aria-label="App theme" className="grid gap-3 sm:grid-cols-3">
         {THEMES.map((option) => {
@@ -68,6 +70,14 @@ export function AppearanceCard() {
             </button>
           );
         })}
+      </div>
+      <div className="mt-5 border-t border-line pt-5">
+        <Toggle
+          checked={calm}
+          onChange={setCalm}
+          label="Reduce motion and effects"
+          description="Calms the animated logo, the live waveform, and the other moving touches across the app."
+        />
       </div>
     </Card>
   );
