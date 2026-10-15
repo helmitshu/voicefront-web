@@ -8,6 +8,8 @@ export const SUPPORT_PERSONA = {
   name: 'Adam',
   role: 'Customer Care Specialist',
   avatarPath: '/support-agent.jpg',
+  identityLine: "I'm an AI assistant from VoiceFront Customer Care.",
+  greeting: "Hi, I'm Adam, an AI assistant from VoiceFront Customer Care.",
 } as const;
 
 /** "Adam" -> "A"; "Adam Rivera" -> "AR". */

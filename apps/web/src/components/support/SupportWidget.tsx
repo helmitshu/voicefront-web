@@ -5,7 +5,11 @@ import { usePathname } from 'next/navigation';
 import {
   ApiError,
   SupportApi,
+  api,
+  mediaUrl,
+  type SupportDrillScenario,
   type SupportPendingProposal,
+  type SupportSimulationResult,
 } from '@/lib/api';
 import { SUPPORT_PERSONA, personaInitials } from './persona';
 
@@ -13,6 +17,13 @@ interface ChatMessage {
   id: number;
   role: 'user' | 'assistant';
   text: string;
+}
+
+interface DirectReportResponse {
+  filed: boolean;
+  reference: string;
+  summary: string;
+  assistantMessage: string;
 }
 
 let nextId = 1;
@@ -67,13 +78,24 @@ export function SupportWidget() {
   const [messages, setMessages] = useState<ChatMessage[]>([
     msg(
       'assistant',
-      `Hi, I'm ${SUPPORT_PERSONA.name} from VoiceFront Customer Care. Ask me about this page, tell me a change to make, like "only book weekday mornings", or report a problem and I will file a ticket for our team.`,
+      `${SUPPORT_PERSONA.greeting} Ask me about this page, tell me a change to make, like "only book weekday mornings", or report a problem and I will file a ticket for our team.`,
     ),
   ]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [pending, setPending] = useState<SupportPendingProposal | null>(null);
   const [applying, setApplying] = useState(false);
+  const [simResult, setSimResult] = useState<SupportSimulationResult | null>(null);
+  const [weeklyReview, setWeeklyReview] = useState<{ reviewId: string; gapCount: number } | null>(null);
+  const [drillOpen, setDrillOpen] = useState(false);
+  const [drillScenarios, setDrillScenarios] = useState<SupportDrillScenario[] | null>(null);
+  const [customScenario, setCustomScenario] = useState('');
+  const [chatFailed, setChatFailed] = useState(false);
+  const [reportOpen, setReportOpen] = useState(false);
+  const [reportSubject, setReportSubject] = useState('');
+  const [reportDetails, setReportDetails] = useState('');
+  const [reportError, setReportError] = useState('');
+  const [reporting, setReporting] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -81,15 +103,17 @@ export function SupportWidget() {
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages, pending, open]);
 
-  async function onSend(e: FormEvent) {
-    e.preventDefault();
-    const text = input.trim();
+  /** Sends one user message (typed, or from a card/picker button) and
+   *  folds the turn's attachments back into the panel state. */
+  async function sendText(text: string) {
     if (!text || sending) return;
     const userMsg = msg('user', text);
     const history = [...messages, userMsg].slice(-20);
     setMessages(history);
-    setInput('');
     setSending(true);
+    setChatFailed(false);
+    setReportOpen(false);
+    setReportError('');
     try {
       const res = await SupportApi.chat(
         history.map(({ role, text: t }) => ({ role, text: t })),
@@ -97,34 +121,118 @@ export function SupportWidget() {
       );
       setMessages((prev) => [...prev, msg('assistant', res.reply)]);
       if (res.pendingProposal) setPending(res.pendingProposal);
+      if (res.simulationResult) setSimResult(res.simulationResult);
+      setWeeklyReview(res.weeklyReview);
     } catch (err) {
       const note =
         err instanceof ApiError
           ? err.message
           : 'Something went wrong on my side. Please try that again.';
       setMessages((prev) => [...prev, msg('assistant', note)]);
+      setChatFailed(true);
     } finally {
       setSending(false);
     }
   }
 
+  async function onSend(e: FormEvent) {
+    e.preventDefault();
+    const text = input.trim();
+    if (!text) return;
+    setInput('');
+    await sendText(text);
+  }
+
+  /** Opens the drill picker, loading the library on first use. */
+  async function toggleDrills() {
+    const next = !drillOpen;
+    setDrillOpen(next);
+    if (next && drillScenarios === null) {
+      try {
+        const res = await SupportApi.drillScenarios();
+        setDrillScenarios(res.scenarios);
+      } catch {
+        setDrillScenarios([]);
+      }
+    }
+  }
+
+  async function onDismissReview() {
+    if (!weeklyReview) return;
+    try {
+      await SupportApi.dismissWeeklyReview(weeklyReview.reviewId);
+      setWeeklyReview(null);
+      setMessages((prev) => [
+        ...prev,
+        msg('assistant', 'Dismissed. That review will not come up again.'),
+      ]);
+    } catch {
+      setMessages((prev) => [
+        ...prev,
+        msg('assistant', 'I could not dismiss that review just now. Please try again.'),
+      ]);
+    }
+  }
+
+  async function onDirectReport(e: FormEvent) {
+    e.preventDefault();
+    const subject = reportSubject.trim();
+    const details = reportDetails.trim();
+    if (!subject || !details || reporting) {
+      setReportError('Add a short subject and the details, then file the ticket.');
+      return;
+    }
+    setReporting(true);
+    setReportError('');
+    try {
+      // Direct ticket endpoint: no chat request and no model call, so this
+      // stays available when the assistant itself is the problem.
+      const res = await api<DirectReportResponse>('/api/support/report', {
+        method: 'POST',
+        body: { subject, details },
+      });
+      setMessages((prev) => [...prev, msg('assistant', res.assistantMessage)]);
+      setReportSubject('');
+      setReportDetails('');
+      setReportOpen(false);
+      setChatFailed(false);
+    } catch (err) {
+      setReportError(
+        err instanceof ApiError
+          ? err.message
+          : 'I could not file that ticket. Please try again.',
+      );
+    } finally {
+      setReporting(false);
+    }
+  }
+
   async function onConfirm() {
     if (!pending || applying) return;
-    const isTicket = pending.kind === 'ticket';
+    const kind = pending.kind;
     setApplying(true);
     try {
-      const res = isTicket
-        ? await SupportApi.fileTicket(pending.proposalId)
-        : await SupportApi.apply(pending.proposalId);
+      const res =
+        kind === 'ticket'
+          ? await SupportApi.fileTicket(pending.proposalId)
+          : kind === 'proof' || kind === 'drill'
+            ? await SupportApi.runSimulatedCall(pending.proposalId)
+            : kind === 'knowledge_addition'
+              ? await SupportApi.applyKnowledge(pending.proposalId)
+              : await SupportApi.apply(pending.proposalId);
       setMessages((prev) => [...prev, msg('assistant', res.assistantMessage)]);
       setPending(null);
     } catch (err) {
       const note =
         err instanceof ApiError
           ? err.message
-          : isTicket
+          : kind === 'ticket'
             ? 'I could not file that ticket. Please try again.'
-            : 'I could not apply that change. Please try again.';
+            : kind === 'proof' || kind === 'drill'
+              ? 'I could not start that call. Please try again.'
+              : kind === 'knowledge_addition'
+                ? 'I could not add that to her knowledge. Please try again.'
+                : 'I could not apply that change. Please try again.';
       setMessages((prev) => [...prev, msg('assistant', note)]);
       setPending(null);
     } finally {
@@ -134,15 +242,19 @@ export function SupportWidget() {
 
   function onCancel() {
     if (!pending) return;
-    const isTicket = pending.kind === 'ticket';
+    const kind = pending.kind;
     setPending(null);
     setMessages((prev) => [
       ...prev,
       msg(
         'assistant',
-        isTicket
+        kind === 'ticket'
           ? 'No problem, I did not file that ticket.'
-          : 'No problem, I left your booking window exactly as it was.',
+          : kind === 'proof' || kind === 'drill'
+            ? 'No problem, I did not run that call.'
+            : kind === 'knowledge_addition'
+              ? 'No problem, I did not add that to her knowledge.'
+              : 'No problem, I left your booking window exactly as it was.',
       ),
     ]);
   }
@@ -201,12 +313,21 @@ export function SupportWidget() {
               <p className="pl-8 text-xs italic text-ink-faint">{SUPPORT_PERSONA.name} is typing…</p>
             )}
 
-            {/* Inline confirmation card for a proposed task: a booking-window
-                change applies on Confirm; a ticket files on "File this ticket". */}
+            {/* Inline confirmation card for a proposed task. The confirm
+                button's label names the act: file the ticket, run the proof
+                or drill call, add the knowledge, or apply the change. */}
             {pending && (
               <div className="ml-8 rounded-xl border border-[rgba(20,184,166,0.4)] bg-clinic-soft px-3.5 py-3">
                 <p className="text-[11px] font-bold uppercase tracking-wide text-signal-deep">
-                  {pending.kind === 'ticket' ? 'File this ticket' : 'Confirm this change'}
+                  {pending.kind === 'ticket'
+                    ? 'File this ticket'
+                    : pending.kind === 'proof'
+                      ? 'Run a proof call'
+                      : pending.kind === 'drill'
+                        ? 'Run a patient drill'
+                        : pending.kind === 'knowledge_addition'
+                          ? 'Add to her knowledge'
+                          : 'Confirm this change'}
                 </p>
                 <p className="mt-1 text-[13.5px] leading-relaxed text-ink">{pending.summary}</p>
                 <div className="mt-2.5 flex gap-2">
@@ -219,10 +340,20 @@ export function SupportWidget() {
                     {applying
                       ? pending.kind === 'ticket'
                         ? 'Filing…'
-                        : 'Applying…'
+                        : pending.kind === 'proof' || pending.kind === 'drill'
+                          ? 'Starting…'
+                          : pending.kind === 'knowledge_addition'
+                            ? 'Adding…'
+                            : 'Applying…'
                       : pending.kind === 'ticket'
                         ? 'File this ticket'
-                        : 'Confirm'}
+                        : pending.kind === 'proof'
+                          ? 'Run the proof call'
+                          : pending.kind === 'drill'
+                            ? 'Start the drill'
+                            : pending.kind === 'knowledge_addition'
+                              ? 'Add to her knowledge'
+                              : 'Confirm'}
                   </button>
                   <button
                     type="button"
@@ -235,10 +366,225 @@ export function SupportWidget() {
                 </div>
               </div>
             )}
+
+            {/* A simulated call's result: before and after for a proof,
+                the graded run for a drill, recordings included. */}
+            {simResult && (
+              <div className="ml-8 rounded-xl border border-line bg-card px-3.5 py-3">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-signal-deep">
+                  {simResult.kind === 'PROOF' ? 'Proof result' : 'Drill result'}
+                </p>
+                <p className="mt-1 text-[13.5px] font-semibold leading-relaxed text-ink">
+                  {simResult.scenarioTitle}
+                </p>
+                {simResult.before && (
+                  <div className="mt-2">
+                    <p className="text-[12.5px] leading-relaxed text-ink-muted">
+                      Before{simResult.before.when ? `, ${simResult.before.when}` : ''}
+                      {simResult.before.successScore !== null
+                        ? `, score ${simResult.before.successScore} of 10`
+                        : ', not scored'}
+                    </p>
+                    {simResult.before.mediaToken && (
+                      <audio controls src={mediaUrl(simResult.before.mediaToken)} className="mt-1 w-full" />
+                    )}
+                  </div>
+                )}
+                {simResult.after ? (
+                  <div className="mt-2">
+                    <p className="text-[12.5px] leading-relaxed text-ink-muted">
+                      {simResult.before ? 'After' : 'Result'}
+                      {simResult.after.successScore !== null
+                        ? `, score ${simResult.after.successScore} of 10`
+                        : ', not scored'}
+                      {typeof simResult.after.durationSeconds === 'number' && simResult.after.durationSeconds > 0
+                        ? `, ${Math.round(simResult.after.durationSeconds / 60) || 1} min call`
+                        : ''}
+                    </p>
+                    {simResult.after.mediaToken && (
+                      <audio controls src={mediaUrl(simResult.after.mediaToken)} className="mt-1 w-full" />
+                    )}
+                  </div>
+                ) : (
+                  simResult.note && (
+                    <p className="mt-2 text-[12.5px] leading-relaxed text-ink-muted">{simResult.note}</p>
+                  )
+                )}
+                {simResult.after && simResult.note && (
+                  <p className="mt-2 text-[12.5px] leading-relaxed text-ink-muted">{simResult.note}</p>
+                )}
+              </div>
+            )}
+
+            {/* The weekly knowledge review, when one is waiting. */}
+            {weeklyReview && (
+              <div className="ml-8 rounded-xl border border-line bg-card px-3.5 py-3">
+                <p className="text-[11px] font-bold uppercase tracking-wide text-signal-deep">
+                  Weekly knowledge review
+                </p>
+                <p className="mt-1 text-[13.5px] leading-relaxed text-ink">
+                  {weeklyReview.gapCount} patient question{weeklyReview.gapCount === 1 ? '' : 's'} this week
+                  had no answer. I can walk you through them and draft the fixes from your own records.
+                </p>
+                <div className="mt-2.5 flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void sendText('Walk me through the weekly review')}
+                    disabled={sending}
+                    className="rounded-full bg-clinic px-3.5 py-1.5 text-[13px] font-bold text-white transition-opacity disabled:opacity-60"
+                  >
+                    Walk me through them
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void onDismissReview()}
+                    className="rounded-full border border-line bg-card px-3.5 py-1.5 text-[13px] font-semibold text-ink-muted transition-colors hover:text-ink"
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {chatFailed && !reportOpen && (
+              <div className="ml-8 rounded-xl border border-line bg-card px-3.5 py-3">
+                <p className="text-[13.5px] leading-relaxed text-ink">
+                  You can still report this directly to our team, including a problem with me.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setReportError('');
+                    setReportOpen(true);
+                  }}
+                  className="mt-2.5 rounded-full border border-line bg-paper px-3.5 py-1.5 text-[13px] font-semibold text-ink transition-colors hover:border-clinic"
+                >
+                  Report with a ticket form
+                </button>
+              </div>
+            )}
           </div>
 
+          {reportOpen && (
+            <form onSubmit={onDirectReport} className="border-t border-line bg-card px-3.5 py-3">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-signal-deep">
+                Report a problem
+              </p>
+              <label className="mt-2.5 block text-[12px] font-semibold text-ink" htmlFor="support-report-subject">
+                Subject
+              </label>
+              <input
+                id="support-report-subject"
+                value={reportSubject}
+                onChange={(e) => setReportSubject(e.target.value)}
+                maxLength={140}
+                className="mt-1 w-full rounded-xl border border-line bg-paper px-3 py-2 text-[13.5px] text-ink outline-none placeholder:text-ink-faint focus:border-clinic"
+                placeholder="What happened?"
+              />
+              <label className="mt-2.5 block text-[12px] font-semibold text-ink" htmlFor="support-report-details">
+                Details
+              </label>
+              <textarea
+                id="support-report-details"
+                value={reportDetails}
+                onChange={(e) => setReportDetails(e.target.value)}
+                maxLength={2000}
+                rows={4}
+                className="mt-1 w-full resize-none rounded-xl border border-line bg-paper px-3 py-2 text-[13.5px] leading-relaxed text-ink outline-none placeholder:text-ink-faint focus:border-clinic"
+                placeholder="Tell our team what went wrong."
+              />
+              {reportError && <p className="mt-2 text-[12.5px] leading-relaxed text-red-700">{reportError}</p>}
+              <div className="mt-2.5 flex gap-2">
+                <button
+                  type="submit"
+                  disabled={reporting || reportSubject.trim().length === 0 || reportDetails.trim().length === 0}
+                  className="rounded-full bg-clinic px-3.5 py-1.5 text-[13px] font-bold text-white transition-opacity disabled:opacity-60"
+                >
+                  {reporting ? 'Filing…' : 'File this ticket'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setReportOpen(false)}
+                  disabled={reporting}
+                  className="rounded-full border border-line bg-card px-3.5 py-1.5 text-[13px] font-semibold text-ink-muted transition-colors hover:text-ink disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          )}
+
+          {/* Drill picker: pick a library scenario or describe your own;
+              either way it goes through Adam, who proposes it for
+              confirmation before anything runs. */}
+          {drillOpen && (
+            <div className="border-t border-line bg-card px-3.5 py-3">
+              <p className="text-[11px] font-bold uppercase tracking-wide text-signal-deep">
+                Patient drills
+              </p>
+              <p className="mt-1 text-[12.5px] leading-relaxed text-ink-muted">
+                A simulated patient calls your receptionist line and plays the scenario. It uses a few
+                minutes of real call time, and {SUPPORT_PERSONA.name} grades the call after.
+              </p>
+              <div className="mt-2.5 flex flex-wrap gap-1.5">
+                {(drillScenarios ?? []).map((s) => (
+                  <button
+                    key={s.id}
+                    type="button"
+                    disabled={sending}
+                    onClick={() => {
+                      setDrillOpen(false);
+                      void sendText(`Run a patient drill: ${s.title}`);
+                    }}
+                    className="rounded-full border border-line bg-paper px-3 py-1.5 text-[12.5px] font-semibold text-ink transition-colors hover:border-clinic disabled:opacity-60"
+                  >
+                    {s.title}
+                  </button>
+                ))}
+                {drillScenarios === null && (
+                  <p className="text-[12.5px] italic text-ink-faint">Loading scenarios…</p>
+                )}
+              </div>
+              <label className="mt-3 block text-[12px] font-semibold text-ink" htmlFor="support-drill-custom">
+                Or describe your own scenario
+              </label>
+              <textarea
+                id="support-drill-custom"
+                value={customScenario}
+                onChange={(e) => setCustomScenario(e.target.value)}
+                maxLength={600}
+                rows={2}
+                className="mt-1 w-full resize-none rounded-xl border border-line bg-paper px-3 py-2 text-[13.5px] leading-relaxed text-ink outline-none placeholder:text-ink-faint focus:border-clinic"
+                placeholder="A parent calling about braces for their teenager…"
+              />
+              <button
+                type="button"
+                disabled={sending || customScenario.trim().length < 10}
+                onClick={() => {
+                  const text = customScenario.trim();
+                  setCustomScenario('');
+                  setDrillOpen(false);
+                  void sendText(`Run a patient drill with my own scenario: ${text}`);
+                }}
+                className="mt-2 rounded-full bg-clinic px-3.5 py-1.5 text-[13px] font-bold text-white transition-opacity disabled:opacity-60"
+              >
+                Use this scenario
+              </button>
+            </div>
+          )}
+
           {/* Input */}
-          <form onSubmit={onSend} className="flex items-center gap-2 border-t border-line px-3 py-2.5">
+          <div className="flex items-center gap-2 border-t border-line px-3 pt-2.5">
+            <button
+              type="button"
+              onClick={() => void toggleDrills()}
+              aria-expanded={drillOpen}
+              className="rounded-full border border-line bg-card px-3 py-1.5 text-[12.5px] font-semibold text-ink-muted transition-colors hover:border-clinic hover:text-ink"
+            >
+              Practice drills
+            </button>
+          </div>
+          <form onSubmit={onSend} className="flex items-center gap-2 px-3 py-2.5">
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
