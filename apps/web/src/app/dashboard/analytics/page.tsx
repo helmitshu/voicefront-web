@@ -349,7 +349,7 @@ function QualityCard({
                   style={{ height: t.avgScore != null ? `${(t.avgScore / 10) * 100}%` : '0', minHeight: t.avgScore != null ? '3px' : '0' }}
                 />
                 {t.avgScore != null && (
-                  <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 hidden -translate-x-1/2 whitespace-nowrap rounded-lg bg-ink px-2 py-1 text-[11px] text-white shadow-lift group-hover:block">
+                  <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 hidden -translate-x-1/2 whitespace-nowrap rounded-lg bg-shell px-2 py-1 text-[11px] text-shell-ink shadow-lift group-hover:block">
                     {fmtDay(t.date)} · {t.avgScore}/10
                   </div>
                 )}
@@ -397,7 +397,7 @@ function DailyChart({ daily }: { daily: AnalyticsOverview['daily'] }) {
               className="w-1/2 rounded-t bg-signal transition-colors group-hover:bg-signal-deep"
               style={{ height: `${(d.bookings / max) * 100}%`, minHeight: d.bookings > 0 ? '2px' : '0' }}
             />
-            <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 hidden -translate-x-1/2 whitespace-nowrap rounded-lg bg-ink px-2 py-1 text-[11px] text-white shadow-lift group-hover:block">
+            <div className="pointer-events-none absolute bottom-full left-1/2 z-10 mb-1 hidden -translate-x-1/2 whitespace-nowrap rounded-lg bg-shell px-2 py-1 text-[11px] text-shell-ink shadow-lift group-hover:block">
               {fmtDay(d.date)} · {d.calls} calls · {d.bookings} booked
             </div>
             <span className="sr-only">{`${d.date}: ${i}`}</span>
