@@ -260,6 +260,41 @@ describe('chat', () => {
     expect((res.body.error as { code?: string })?.code).toBe('SESSION_TURN_LIMIT');
   });
 
+  it('passes a page report through to the model request', async () => {
+    const ip = nextIp();
+    const sessionId = await startSession(ip);
+    state.geminiScript.push(textReply('The form still needs your phone number.'));
+    const res = await post(
+      '/api/public/chat',
+      {
+        sessionId,
+        messages: [{ role: 'user', text: 'It did not start.' }],
+        pageReport: { action: 'start_demo', outcome: 'blocked', detail: 'The demo form is missing: phone.' },
+      },
+      ip,
+    );
+    expect(res.status).toBe(200);
+    const sentBody = state.geminiRequests[0]?.body ?? '';
+    expect(sentBody).toContain('Page report (what the page itself says happened)');
+    expect(sentBody).toContain('The demo form is missing: phone.');
+  });
+
+  it('rejects a malformed page report', async () => {
+    const ip = nextIp();
+    const sessionId = await startSession(ip);
+    const res = await post(
+      '/api/public/chat',
+      {
+        sessionId,
+        messages: [{ role: 'user', text: 'Hi' }],
+        pageReport: { action: 42, outcome: 'blocked' },
+      },
+      ip,
+    );
+    expect(res.status).toBe(400);
+    expect((res.body.error as { code?: string })?.code).toBe('VALIDATION_ERROR');
+  });
+
   it('captures a lead through the full stack, and nothing else is written', async () => {
     const ip = nextIp();
     const sessionId = await startSession(ip);

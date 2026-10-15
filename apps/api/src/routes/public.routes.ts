@@ -63,6 +63,17 @@ const VisitorStateSchema = z
   })
   .optional();
 
+/** The page's own report on an action Lyla fired (the demo form's submit
+ *  outcome). Same discipline as the visitor state: short strings only, so
+ *  it stays a report, never a payload channel. */
+const PageReportSchema = z
+  .object({
+    action: z.string().trim().min(1).max(60).optional(),
+    outcome: z.string().trim().min(1).max(60).optional(),
+    detail: z.string().trim().min(1).max(500).optional(),
+  })
+  .optional();
+
 const SessionStartSchema = z.object({
   turnstileToken: z.string().max(2048).optional(),
   referrer: z.string().trim().max(500).optional(),
@@ -81,6 +92,7 @@ const ChatBodySchema = z.object({
     .min(1)
     .max(20),
   visitorState: VisitorStateSchema,
+  pageReport: PageReportSchema,
   referrer: z.string().trim().max(500).optional(),
   localTime: z.string().trim().max(120).optional(),
 });
@@ -89,6 +101,7 @@ const ProactiveBodySchema = z.object({
   sessionId: z.string().min(10).max(80).startsWith('lyla_'),
   trigger: z.enum(['pricing_dwell', 'form_stall', 'exit_intent']),
   visitorState: VisitorStateSchema,
+  pageReport: PageReportSchema,
   referrer: z.string().trim().max(500).optional(),
   localTime: z.string().trim().max(120).optional(),
 });
@@ -101,12 +114,16 @@ function requireSession(sessionId: string): PublicSession {
   return session;
 }
 
-function turnContext(req: Request, body: { visitorState?: unknown; referrer?: string; localTime?: string }): PublicChatTurnContext {
+function turnContext(
+  req: Request,
+  body: { visitorState?: unknown; pageReport?: unknown; referrer?: string; localTime?: string },
+): PublicChatTurnContext {
   return {
     ip: requestIp(req),
     referrer: body.referrer,
     localTime: body.localTime,
     visitorState: body.visitorState as PublicChatTurnContext['visitorState'],
+    pageReport: body.pageReport as PublicChatTurnContext['pageReport'],
   };
 }
 
