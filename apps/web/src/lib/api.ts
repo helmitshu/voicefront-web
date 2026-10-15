@@ -131,6 +131,11 @@ export interface Me {
     isPlatformAdmin: boolean;
     /** Operator access level: 'ADMIN' (full) | 'SUPPORT' (limited) | null. */
     adminRole: AdminRole | null;
+    /** App theme saved to the account (mirrors AppTheme in lib/theme), or
+     *  null when the user has never chosen one on any device. */
+    theme: 'pearl' | 'midnight' | 'deepteal' | null;
+    /** Calm mode saved to the account, or null when never chosen. */
+    calmMode: boolean | null;
   };
   tenant: {
     id: string;
@@ -302,6 +307,12 @@ export const AuthApi = {
       body: industry ? { credential, industry } : { credential },
     }),
   me: (signal?: AbortSignal) => api<Me>('/api/auth/me', { signal }),
+  /** Save display preferences (app theme, calm mode) to the account so they
+   *  follow the user across devices. Either field may be sent on its own. */
+  updatePreferences: (input: {
+    theme?: 'pearl' | 'midnight' | 'deepteal' | null;
+    calmMode?: boolean | null;
+  }) => api<Me>('/api/auth/preferences', { method: 'PATCH', body: input }),
 };
 
 export const OnboardingApi = {
