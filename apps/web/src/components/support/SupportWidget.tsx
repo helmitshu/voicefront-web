@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { usePathname } from 'next/navigation';
 import {
   ApiError,
   SupportApi,
@@ -51,20 +52,22 @@ function PersonaAvatar({ sizeClass }: { sizeClass: string }) {
 /**
  * The floating support agent for the signed-in app: a bubble carrying the
  * agent's face and name that expands into a chat panel. The agent answers
- * product questions and can propose real changes (the booking window in
- * v1); a proposed change renders as an inline card and only applies when
- * the user taps Confirm.
+ * questions about the page the user is on (the current route rides along
+ * with every chat request) and can propose real tasks: a booking-window
+ * change, or a ticket to the VoiceFront team. A proposal renders as an
+ * inline card and only happens when the user taps the confirm button.
  *
  * Placement: desktop bottom-right. On phone screens the app home carries a
  * fixed bottom tab bar, so below `sm` everything rides higher (bottom-24
  * neighbourhood) and the panel height is capped against the space left.
  */
 export function SupportWidget() {
+  const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [messages, setMessages] = useState<ChatMessage[]>([
     msg(
       'assistant',
-      `Hi, I'm ${SUPPORT_PERSONA.name} from VoiceFront Customer Care. Ask me how anything works, or tell me a change to make, like "only book weekday mornings".`,
+      `Hi, I'm ${SUPPORT_PERSONA.name} from VoiceFront Customer Care. Ask me about this page, tell me a change to make, like "only book weekday mornings", or report a problem and I will file a ticket for our team.`,
     ),
   ]);
   const [input, setInput] = useState('');
@@ -88,7 +91,10 @@ export function SupportWidget() {
     setInput('');
     setSending(true);
     try {
-      const res = await SupportApi.chat(history.map(({ role, text: t }) => ({ role, text: t })));
+      const res = await SupportApi.chat(
+        history.map(({ role, text: t }) => ({ role, text: t })),
+        pathname ?? undefined,
+      );
       setMessages((prev) => [...prev, msg('assistant', res.reply)]);
       if (res.pendingProposal) setPending(res.pendingProposal);
     } catch (err) {
@@ -104,16 +110,21 @@ export function SupportWidget() {
 
   async function onConfirm() {
     if (!pending || applying) return;
+    const isTicket = pending.kind === 'ticket';
     setApplying(true);
     try {
-      const res = await SupportApi.apply(pending.proposalId);
+      const res = isTicket
+        ? await SupportApi.fileTicket(pending.proposalId)
+        : await SupportApi.apply(pending.proposalId);
       setMessages((prev) => [...prev, msg('assistant', res.assistantMessage)]);
       setPending(null);
     } catch (err) {
       const note =
         err instanceof ApiError
           ? err.message
-          : 'I could not apply that change. Please try again.';
+          : isTicket
+            ? 'I could not file that ticket. Please try again.'
+            : 'I could not apply that change. Please try again.';
       setMessages((prev) => [...prev, msg('assistant', note)]);
       setPending(null);
     } finally {
@@ -122,10 +133,17 @@ export function SupportWidget() {
   }
 
   function onCancel() {
+    if (!pending) return;
+    const isTicket = pending.kind === 'ticket';
     setPending(null);
     setMessages((prev) => [
       ...prev,
-      msg('assistant', 'No problem, I left your booking window exactly as it was.'),
+      msg(
+        'assistant',
+        isTicket
+          ? 'No problem, I did not file that ticket.'
+          : 'No problem, I left your booking window exactly as it was.',
+      ),
     ]);
   }
 
@@ -183,11 +201,12 @@ export function SupportWidget() {
               <p className="pl-8 text-xs italic text-ink-faint">{SUPPORT_PERSONA.name} is typing…</p>
             )}
 
-            {/* Inline confirmation card for a proposed change */}
+            {/* Inline confirmation card for a proposed task: a booking-window
+                change applies on Confirm; a ticket files on "File this ticket". */}
             {pending && (
               <div className="ml-8 rounded-xl border border-[rgba(20,184,166,0.4)] bg-clinic-soft px-3.5 py-3">
                 <p className="text-[11px] font-bold uppercase tracking-wide text-signal-deep">
-                  Confirm this change
+                  {pending.kind === 'ticket' ? 'File this ticket' : 'Confirm this change'}
                 </p>
                 <p className="mt-1 text-[13.5px] leading-relaxed text-ink">{pending.summary}</p>
                 <div className="mt-2.5 flex gap-2">
@@ -197,7 +216,13 @@ export function SupportWidget() {
                     disabled={applying}
                     className="rounded-full bg-clinic px-3.5 py-1.5 text-[13px] font-bold text-white transition-opacity disabled:opacity-60"
                   >
-                    {applying ? 'Applying…' : 'Confirm'}
+                    {applying
+                      ? pending.kind === 'ticket'
+                        ? 'Filing…'
+                        : 'Applying…'
+                      : pending.kind === 'ticket'
+                        ? 'File this ticket'
+                        : 'Confirm'}
                   </button>
                   <button
                     type="button"
