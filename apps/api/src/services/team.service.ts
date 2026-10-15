@@ -434,6 +434,11 @@ export async function startDiscussion(params: {
   // The failed member simply has no message that round; the names are
   // collected so the auto summary can say so plainly.
   const failedToAnswer = new Map<string, string>();
+  // Who actually spoke, in the order they first answered. The auto
+  // summary borrows the first answerer's key, so it does not have to
+  // run on the shared pool (which the members' own traffic may have
+  // drained by the time the discussion ends).
+  const answered = new Set<string>();
   const ask = async (member: MemberRow, extra: string): Promise<MessageRow | null> => {
     try {
       const history = (await listMessages(thread.id)) as MessageRow[];
@@ -458,6 +463,7 @@ export async function startDiscussion(params: {
       if (stored.visibleAt) {
         nextNotBefore = new Date(stored.visibleAt.getTime() + PACING_STAGGER_MS);
       }
+      answered.add(member.slug);
       messages.push(stored);
       return stored;
     } catch (err) {
@@ -490,7 +496,12 @@ export async function startDiscussion(params: {
   // it never touches the Decision slot. The summary step is told which
   // members could not answer so it can say so plainly; if the summary
   // call itself fails, a plain SYSTEM note takes its place rather than
-  // failing a discussion the members did complete.
+  // failing a discussion the members did complete. The call runs on
+  // the first answering member's key rather than the shared chain: the
+  // shared pool may be drained by the time the discussion ends, and a
+  // finished discussion should not lose its summary to that. With no
+  // answerer to borrow from it keeps the shared chain (defensive only:
+  // the round 1 gate above has already thrown when nobody answered).
   const failedNames = [...failedToAnswer.values()];
   const history = (await listMessages(thread.id)) as MessageRow[];
   const transcript = history
@@ -501,10 +512,12 @@ export async function startDiscussion(params: {
     (failedNames.length > 0
       ? `\n\nNote: ${failedNames.join(', ')} could not answer in this discussion. Say so plainly in the summary.`
       : '');
+  const summarySlug = seated.find((member) => answered.has(member.slug))?.slug;
   let summaryText = '';
   try {
     const parts = await callTeamModel({
       model: seated[0].modelConfig,
+      memberSlug: summarySlug,
       systemText:
         'You write a neutral auto summary of a team discussion: each position in one line, where they agreed, what they challenged, and the open questions. Short and plain. You are not a participant and you make no decision.',
       contents: [{ role: 'user', parts: [{ text: summaryInput }] }],

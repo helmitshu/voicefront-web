@@ -13,8 +13,11 @@ import { HttpError } from '../lib/http';
  * its own Google project (TEAM_GEMINI_API_KEY_<SLUG>), so one member's
  * free-tier quota burn cannot starve the others. A member with no key
  * of their own falls back to the shared GEMINI_API_KEY (the key Adam
- * and the clinic-facts reader also use); calls that belong to no member
- * (the discuss auto summary) always use the shared key.
+ * and the clinic-facts reader also use). The discuss auto summary
+ * borrows the key of the first member who answered, so a drained
+ * shared pool cannot kill a discussion the members did finish; it
+ * falls back to the shared key when it has no answerer to borrow from,
+ * and calls that belong to no member at all use the shared key.
  *
  * A model failure is an honest 502 (MODEL_ERROR / MODEL_NOT_CONFIGURED).
  * Nothing in this layer ever invents a reply: if Gemini is down, the
@@ -22,10 +25,12 @@ import { HttpError } from '../lib/http';
  *
  * Transient overload is real, though, and the two transient statuses
  * are not the same. A 503 ("high demand") clears in seconds, so it is
- * retried up to 3 attempts with backoff inside one overall timeout. A
- * 429 on a free tier means the quota pool is empty: fast retries only
- * burn it further, so a 429 gets exactly one retry after a long pause,
- * and only when that pause still fits inside the overall timeout.
+ * retried with backoff inside one overall timeout. A 429 on a free
+ * tier means the quota pool is empty: fast retries only burn it
+ * further, so a 429 gets exactly one retry after a long pause, and
+ * only when that pause still fits inside the overall timeout. Either
+ * way, one call never exceeds MAX_MODEL_ATTEMPTS attempts in total,
+ * however the statuses mix.
  * Non-transient errors (400, 401, 403, 404, anything else) are never
  * retried: they would fail the same way three times.
  */
@@ -88,8 +93,9 @@ function memberApiKey(memberSlug: string): string | undefined {
 /**
  * The key a model call runs on. A call made for a member uses that
  * member's own key when one is set, and falls back to the shared
- * GEMINI_API_KEY otherwise; a call with no member (the discuss auto
- * summary) always uses the shared key. Undefined when nothing in the
+ * GEMINI_API_KEY otherwise; a call with no member uses the shared key.
+ * (The discuss auto summary passes the first answering member's slug,
+ * so it runs on that member's chain.) Undefined when nothing in the
  * chain is configured.
  */
 export function teamModelApiKey(memberSlug?: string): string | undefined {
@@ -108,8 +114,8 @@ type CallTeamModelParams = {
   timeoutMs?: number;
   /**
    * The member this call is made for, when it is made for one. Selects
-   * the per-member key chain; omit for shared calls like the discuss
-   * auto summary, which always run on the shared key.
+   * the per-member key chain; omit for calls that belong to no member,
+   * which run on the shared key.
    */
   memberSlug?: string;
 };
@@ -174,12 +180,12 @@ async function attemptTeamModelOnce(
 /**
  * One logical model call. Returns the candidate parts or throws
  * HttpError 502/503. Transient responses are retried inside the one
- * overall timeout, but by status: a 503 retries up to
- * MAX_MODEL_ATTEMPTS attempts total with backoff, while a 429 gets a
- * single retry after QUOTA_RETRY_PAUSE_MS (and only when that pause
- * still leaves time for the attempt); anything else fails on the first
- * attempt. When the retries run out, the failure is the same honest
- * 502 as before.
+ * overall timeout, but by status: a 503 retries with backoff, while a
+ * 429 gets a single retry after QUOTA_RETRY_PAUSE_MS (and only when
+ * that pause still leaves time for the attempt). Both policies share
+ * one cap: MAX_MODEL_ATTEMPTS attempts in total, however the statuses
+ * mix; anything else fails on the first attempt. When the retries run
+ * out, the failure is the same honest 502 as before.
  */
 export async function callTeamModel(params: CallTeamModelParams): Promise<TeamGeminiPart[]> {
   const apiKey = teamModelApiKey(params.memberSlug);
@@ -203,8 +209,11 @@ export async function callTeamModel(params: CallTeamModelParams): Promise<TeamGe
       console.warn(`[team] Gemini transient failure, status ${err.status} (attempt ${attempts}).`);
       if (err.status === 429) {
         // Quota, not weather: the pool is empty and fast retries only
-        // burn what is left of it. One slow retry, if it fits.
+        // burn what is left of it. One slow retry, if it fits. The
+        // total attempt cap binds here too: a 429 landing on the last
+        // allowed attempt buys no extra one, whatever came before it.
         if (quotaRetried) break;
+        if (attempts >= MAX_MODEL_ATTEMPTS) break;
         quotaRetried = true;
         if (Date.now() + QUOTA_RETRY_PAUSE_MS >= deadline) break;
         await sleep(QUOTA_RETRY_PAUSE_MS);

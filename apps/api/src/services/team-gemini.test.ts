@@ -7,13 +7,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
  *  - Key resolution: a call made for a member runs on that member's own
  *    Gemini key (TEAM_GEMINI_API_KEY_<SLUG>, from their own Google
  *    project) when one is set, and falls back to the shared
- *    GEMINI_API_KEY otherwise. A call with no member (the discuss auto
- *    summary path) always uses the shared chain and never borrows a
- *    member's key. Nothing configured anywhere is the honest 503.
+ *    GEMINI_API_KEY otherwise. A call with no member always uses the
+ *    shared chain and never borrows a member's key. (The discuss auto
+ *    summary passes the first answering member's slug, so it runs on
+ *    that member's chain; that choice is pinned at the route level.)
+ *    Nothing configured anywhere is the honest 503.
  *  - Quota-aware retry: a 503 keeps the existing behaviour (3 attempts,
  *    1s then 3s backoff). A 429 means the free-tier pool is empty, so it
  *    gets exactly one retry after a 10s pause, and only when that pause
- *    fits inside the call's overall timeout.
+ *    fits inside the call's overall timeout. The 3-attempt total cap
+ *    binds however the statuses mix: a 429 landing on the last allowed
+ *    attempt buys no extra one.
  *
  * env.ts parses process.env once at import, so each case re-imports the
  * module with a fresh registry after stubbing the key vars (the same
@@ -120,18 +124,18 @@ describe('team model client: per-member key resolution', () => {
     expect(calls[0].apiKey).toBe(PRIYA_KEY);
   });
 
-  it('the summary path (no member) uses the shared key even when member keys are set', async () => {
+  it('a call with no member uses the shared key even when member keys are set', async () => {
     const gemini = await loadGemini({ shared: SHARED_KEY, omar: OMAR_KEY, priya: PRIYA_KEY });
     const calls = stubFetch(() => 200);
 
-    // The discuss auto summary calls callTeamModel with no memberSlug.
+    // No memberSlug: the shared chain, never a member's key.
     await gemini.callTeamModel({ ...PARAMS });
 
     expect(calls).toHaveLength(1);
     expect(calls[0].apiKey).toBe(SHARED_KEY);
   });
 
-  it("the summary path never borrows a member's key when the shared key is unset", async () => {
+  it("a call with no member never borrows a member's key when the shared key is unset", async () => {
     const gemini = await loadGemini({ omar: OMAR_KEY });
     const calls = stubFetch(() => 200);
 
@@ -204,6 +208,33 @@ describe('team model client: quota-aware retry', () => {
       code: 'MODEL_ERROR',
     });
     expect(calls).toHaveLength(1);
+  });
+
+  it('a mixed 503/503/429 sequence stops at 3 attempts total, the 429 buys no extra one', async () => {
+    vi.useFakeTimers();
+    const gemini = await loadGemini({ shared: SHARED_KEY });
+    // The stub would keep answering 429; a fourth call must never fire.
+    const statuses = [503, 503, 429, 429, 429];
+    const calls = stubFetch((index) => statuses[Math.min(index, statuses.length - 1)]);
+
+    const promise = gemini.callTeamModel({ ...PARAMS, memberSlug: 'omar' });
+    const rejected = expect(promise).rejects.toMatchObject({ status: 502, code: 'MODEL_ERROR' });
+    await flushMicrotasks();
+    expect(calls).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await flushMicrotasks();
+    expect(calls).toHaveLength(2);
+
+    await vi.advanceTimersByTimeAsync(3_000);
+    await flushMicrotasks();
+    expect(calls).toHaveLength(3);
+
+    // The 429 landed on the last allowed attempt: no 10s pause is
+    // scheduled and no fourth attempt ever fires.
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(calls).toHaveLength(3);
+    await rejected;
   });
 
   it('a persistent 503 keeps the existing behaviour: 3 attempts, 1s then 3s backoff', async () => {
