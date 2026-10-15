@@ -262,7 +262,7 @@ export function BookCallSection() {
 
             <div className="flex flex-col gap-3">
               <Field label="Your name" value={form.name} onChange={(v) => setForm((f) => ({ ...f, name: v }))} placeholder="Jordan Reyes" autoComplete="name" />
-              <Field label="Type of business" value={form.businessType} onChange={(v) => setForm((f) => ({ ...f, businessType: v }))} placeholder="Dental clinic, roofing, salon…" />
+              <Field label="Type of business" value={form.businessType} onChange={(v) => setForm((f) => ({ ...f, businessType: v }))} placeholder="Dental clinic, orthodontics, physio…" />
               <Field label="Phone" type="tel" value={form.phone} onChange={(v) => setForm((f) => ({ ...f, phone: v }))} placeholder="+1 (555) 123-4567" autoComplete="tel" />
               <Field label="Email" type="email" optional value={form.email} onChange={(v) => setForm((f) => ({ ...f, email: v }))} placeholder="you@company.com" autoComplete="email" />
               <label className="flex flex-col gap-1.5">

@@ -5,14 +5,14 @@ import { useMemo, useState } from 'react';
 /**
  * Public "what are missed calls costing you" calculator. Pure client-side math,
  * no backend. Plain-language questions; the missed-calls answer can be given as
- * a percentage OR a plain count. Per-vertical average values are grounded in
- * real Vancouver-area pricing (2025–26, CAD) and fully editable.
+ * a percentage OR a plain count. Defaults are typical Vancouver-area dental
+ * figures (2025–26, CAD) and fully editable.
  */
 
 interface Vertical {
   key: string;
   label: string;
-  /** Representative value of one booking, CAD — Vancouver-area average. */
+  /** Representative value of one new patient, CAD, Vancouver-area typical. */
   avgValue: number;
   /** Default "out of 10 missed callers, how many would book" (editable). */
   bookPerTen: number;
@@ -20,15 +20,11 @@ interface Vertical {
   unit: string;
 }
 
-// Defaults sourced from Vancouver/BC 2025–26 pricing; all editable on screen.
+// Dental only: the calculator speaks to the clinics VoiceFront is built for.
 const VERTICALS: Vertical[] = [
-  { key: 'clinic', label: 'Dental / medical clinic', avgValue: 300, bookPerTen: 6, unit: 'appointment' },
-  { key: 'salon', label: 'Hair & beauty salon', avgValue: 95, bookPerTen: 6, unit: 'appointment' },
-  { key: 'plumbing', label: 'Plumbing / HVAC service', avgValue: 400, bookPerTen: 5, unit: 'job' },
-  { key: 'hvac', label: 'Heating & cooling install', avgValue: 8000, bookPerTen: 4, unit: 'job' },
-  { key: 'roofing', label: 'Roofing / exteriors', avgValue: 12000, bookPerTen: 3, unit: 'job' },
-  { key: 'auto', label: 'Auto repair', avgValue: 450, bookPerTen: 5, unit: 'visit' },
-  { key: 'other', label: 'Other', avgValue: 400, bookPerTen: 4, unit: 'job' },
+  { key: 'general', label: 'General dental practice', avgValue: 350, bookPerTen: 6, unit: 'new patient' },
+  { key: 'hygiene', label: 'Hygiene and cleanings', avgValue: 180, bookPerTen: 7, unit: 'new patient' },
+  { key: 'cosmetic', label: 'Implants and cosmetic', avgValue: 2500, bookPerTen: 4, unit: 'new patient' },
 ];
 
 const cad = new Intl.NumberFormat('en-CA', {
@@ -64,10 +60,9 @@ function Slider({
 }
 
 export function ROICalculator() {
-  // Default to a common mid-ticket trade + modest volume so the first number a
-  // visitor sees is believable; high-ticket verticals reveal bigger (real)
-  // figures when picked.
-  const [industryKey, setIndustryKey] = useState<string>('plumbing');
+  // Default to a general dental practice at modest volume so the first number
+  // a visitor sees is believable.
+  const [industryKey, setIndustryKey] = useState<string>('general');
   const industry = VERTICALS.find((v) => v.key === industryKey) ?? VERTICALS[0];
 
   const [callsPerWeek, setCallsPerWeek] = useState(20);
@@ -105,8 +100,8 @@ export function ROICalculator() {
     <div className="mx-auto grid w-full max-w-5xl gap-6 lg:grid-cols-[1.05fr_0.95fr]">
       {/* Inputs */}
       <div className="rounded-3xl border border-line/70 bg-white p-6 shadow-card sm:p-8">
-        {/* Q1 — industry */}
-        <p className="text-[15px] font-semibold text-ink">1. What kind of business do you run?</p>
+        {/* Q1 — clinic type */}
+        <p className="text-[15px] font-semibold text-ink">1. Which best describes your clinic?</p>
         <div className="mt-3 flex flex-wrap gap-2">
           {VERTICALS.map((v) => {
             const on = v.key === industryKey;
@@ -160,7 +155,7 @@ export function ROICalculator() {
             </div>
           </div>
           <p className="mt-1 text-[12.5px] text-ink-muted">
-            Calls that ring out after hours, during a job, at lunch, or when the line&apos;s busy.
+            Calls that ring out after hours, at lunch, or while your front desk is with a patient.
           </p>
 
           {missedMode === 'num' ? (
@@ -203,7 +198,7 @@ export function ROICalculator() {
         {/* Q5 — value */}
         <div className="mt-7">
           <p className="text-[15px] font-semibold text-ink">
-            5. What&apos;s one new {industry.unit} worth to you?
+            5. What&apos;s one {industry.unit} worth to you?
           </p>
           <div className="mt-2.5 flex items-center rounded-xl border border-line bg-white px-3.5 shadow-input focus-within:border-signal focus-within:ring-4 focus-within:ring-signal/15">
             <span className="text-ink-muted">$</span>
@@ -217,7 +212,7 @@ export function ROICalculator() {
             <span className="whitespace-nowrap text-[13px] text-ink-muted">CAD</span>
           </div>
           <p className="mt-1.5 text-[12.5px] text-ink-muted">
-            Pre-filled with a typical Vancouver {industry.label.toLowerCase()} — change it to your number.
+            Pre-filled with a typical Vancouver {industry.label.toLowerCase()} figure. Change it to your number.
           </p>
         </div>
       </div>
@@ -233,7 +228,7 @@ export function ROICalculator() {
             <span className="text-xl font-semibold text-ink-muted">/mo</span>
           </p>
           <p className="mt-3 text-[15px] leading-relaxed text-ink-muted">
-            That&apos;s <span className="font-semibold text-ink">{cad.format(yearly)} a year</span> — about{' '}
+            That&apos;s <span className="font-semibold text-ink">{cad.format(yearly)} a year</span>, about{' '}
             <span className="font-semibold text-ink">
               {Math.round(recoveredJobs)} {industry.unit}
               {Math.round(recoveredJobs) === 1 ? '' : 's'} a month
@@ -248,17 +243,17 @@ export function ROICalculator() {
 
         <div className="mt-6">
           <p className="rounded-xl bg-white/70 px-4 py-3 text-[13px] leading-relaxed text-ink-muted ring-1 ring-inset ring-signal/10">
-            VoiceFront answers every one of those calls — 24/7 — and books them straight into your
-            calendar. Most plans pay for themselves with a single recovered {industry.unit}.
+            VoiceFront answers every one of those calls, 24/7, and books them straight into your
+            VoiceFront calendar. For most clinics, a single recovered {industry.unit} covers the plan.
           </p>
           <a
-            href="#book"
+            href="/demo"
             className="mt-4 block rounded-full bg-gradient-to-b from-signal to-signal-deep px-6 py-3.5 text-center text-[15px] font-semibold text-white shadow-pop transition-all duration-150 hover:-translate-y-0.5 hover:shadow-lift"
           >
-            Stop missing these calls →
+            Hear your demo
           </a>
           <p className="mt-3 text-center text-[11px] text-ink-muted/80">
-            Estimate based on your answers · CAD · Vancouver-area averages, fully editable.
+            Estimate based on your answers · CAD · Vancouver-area dental figures, fully editable.
           </p>
         </div>
       </div>
