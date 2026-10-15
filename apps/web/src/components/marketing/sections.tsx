@@ -70,7 +70,7 @@ export function SiteHeader() {
     ...(demoEnabled ? [{ href: '/demo', label: 'Demo' }] : []),
     { href: '/industries', label: 'Industries' },
     { href: '/pricing', label: 'Pricing' },
-    { href: '/book', label: 'Book a call' },
+    { href: '/book', label: 'White glove setup' },
   ];
   const isActive = (href: string) => pathname === href || pathname.startsWith(`${href}/`);
 
@@ -245,7 +245,7 @@ export function HeroSection() {
                 <span className="absolute h-full w-full animate-pulse-ring rounded-full bg-clinic" />
                 <span className="relative h-1.5 w-1.5 rounded-full bg-clinic" />
               </span>
-              AI receptionist for dental clinics · answers in about a second
+              AI receptionist for dental clinics · answers on the first ring
             </span>
           </Reveal>
           <Reveal delay={80}>
@@ -371,9 +371,9 @@ export function HowItWorksSection() {
               icon: (
                 <path d="M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4L12 3zM5 16l.9 2.3L8 19l-2.1.7L5 22l-.9-2.3L2 19l2.1-.7L5 16z" strokeLinejoin="round" strokeLinecap="round" />
               ),
-              title: 'Want it built for you?',
-              body: 'We also build fully custom agents around your workflows, scripts, and tools. Book a 15-minute call with our founder and we deliver one tailored to your business.',
-              cta: { href: '/book', label: 'Book a call with the founder' },
+              title: 'Want it set up for you?',
+              body: 'Prefer not to configure it yourself? White glove setup puts a human on it. For a $500 setup fee we configure your receptionist, your hours and your booking rules, and you go live without touching the dashboard.',
+              cta: { href: '/book', label: 'Book a white glove setup call' },
             },
           ].map((card, i) => (
             <Reveal key={card.title} delay={i * 120}>
@@ -424,9 +424,9 @@ export function StatBandSection() {
         </Reveal>
         <div className="mt-12 grid gap-12 text-center sm:grid-cols-3">
           {[
-            { n: '62%', d: 'of callers who reach voicemail hang up and call another clinic instead' },
+            { n: '0', d: 'callers sent to voicemail while your line is on, every call gets answered' },
             { n: '24/7', d: 'every call answered, nights, weekends and the lunch rush included' },
-            { n: '1 sec', d: 'to pick up, every call, before the second ring' },
+            { n: '1st ring', d: 'she picks up on the first ring, and replies in about a second' },
           ].map((stat, i) => (
             <Reveal key={stat.n} delay={i * 100}>
               <p className="bg-gradient-to-br from-white via-white to-gold-light bg-clip-text font-display text-[58px] font-bold leading-none tracking-tight text-transparent md:text-6xl">
@@ -791,7 +791,7 @@ const PRICING_TIERS: PricingTier[] = [
     minutes: 950,
     overage: { CAD: '$0.75', USD: '$0.50' },
     features: [
-      'Answers every call, day and night, in about a second',
+      'Answers every call, day and night, on the first ring',
       'Books patients into your VoiceFront calendar',
       'Warm transfers to your team, briefed before they pick up',
       'Takes messages when a call is not for her',
@@ -836,7 +836,7 @@ function TierCard({ tier, currency, compact = false }: { tier: PricingTier; curr
     >
       {tier.hero && (
         <span className="absolute -top-3 left-8 rounded-full bg-gradient-to-b from-signal to-signal-deep px-3 py-1 text-[11px] font-bold uppercase tracking-[0.1em] text-white shadow-pop">
-          Most clinics pick Core
+          Recommended
         </span>
       )}
       <p className={`font-display text-lg font-semibold tracking-tight ${tier.hero ? 'text-white' : 'text-ink'}`}>
@@ -943,7 +943,7 @@ export function PricingStripSection({ currency }: { currency: Currency }) {
               Priced in the open.
             </h2>
             <p className="mt-4 text-lg leading-relaxed text-ink-muted">
-              Two plans, $0 setup, and a 7-day free trial on both. Most clinics pick Core.
+              Two plans, $0 setup, and a 7-day free trial on both. Core answers around the clock.
             </p>
           </div>
         </Reveal>
@@ -975,14 +975,15 @@ export function BookSection() {
     <section className="border-t border-line/60 bg-surface/50 px-6 py-24 md:py-32">
       <div className="mx-auto max-w-6xl">
         <Reveal className="mx-auto max-w-2xl text-center">
-          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-deep">Talk to a human</p>
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-deep">White glove setup</p>
           <h2 className="mt-4 font-display text-4xl font-semibold tracking-tight md:text-[44px]">
-            Rather just book a call?
+            Rather have a human set it up?
           </h2>
           <p className="mt-5 text-lg leading-relaxed text-ink-muted">
-            Prefer a real conversation? Grab a time that suits you, pick a slot on our real calendar,
-            tell us a little about your business, and we&apos;ll walk you through exactly how VoiceFront
-            would fit. No account needed.
+            Most clinics set VoiceFront up themselves in about two minutes. If you would rather not
+            touch it, book a setup call and a human will configure everything for you, your
+            receptionist, your hours and your booking rules. White glove setup is $500 one time plus
+            your plan, and this call is where we plan it together.
           </p>
         </Reveal>
         <Reveal delay={150} className="mt-12">
@@ -1095,7 +1096,7 @@ export function SiteFooter() {
     {
       title: 'Company',
       links: [
-        { href: '/book', label: 'Book a call' },
+        { href: '/book', label: 'White glove setup' },
         { href: '/dashboard', label: 'Dashboard' },
         { href: '/login', label: 'Sign in' },
       ],
