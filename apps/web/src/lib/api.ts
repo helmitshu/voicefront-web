@@ -1431,6 +1431,10 @@ export interface DemoCallInput {
   phone: string;
   /** Defaults to 'sales' server-side when omitted. */
   demoKind?: DemoKind;
+  /** How the demo should be delivered. Canadian receptionist demos
+   *  default to 'web' server-side; 'phone' is an explicit choice of the
+   *  callback (and the microphone fallback). Ignored elsewhere. */
+  delivery?: 'phone' | 'web';
   /** The facts the prospect confirmed on the review step (receptionist
    *  kind only). The server re-sanitizes them before use. */
   facts?: ClinicFacts;
@@ -1438,10 +1442,27 @@ export interface DemoCallInput {
 
 export interface DemoCallResponse {
   ok: boolean;
+  mode: 'phone';
   callId: string;
   fromNumber: string;
   country: string | null;
 }
+
+/** A demo start that answers with a browser web call instead of dialing:
+ *  the public key and Maya's assistant config, for the web voice client.
+ *  `phoneFallbackAvailable` tells the page whether it may offer the phone
+ *  call as the fallback when the microphone does not work out. */
+export interface DemoWebCallResponse {
+  ok: boolean;
+  mode: 'web';
+  publicKey: string;
+  assistant: WebAssistantConfig;
+  sessionId: string;
+  country: string | null;
+  phoneFallbackAvailable: boolean;
+}
+
+export type DemoCallResult = DemoCallResponse | DemoWebCallResponse;
 export interface DemoCallRecord {
   id: string;
   durationSeconds: number;
@@ -1460,7 +1481,7 @@ export const DemoApi = {
   start: (input: DemoStartInput = {}) =>
     api<DemoSessionResponse>('/api/demo/session', { method: 'POST', body: input }),
   call: (input: DemoCallInput) =>
-    api<DemoCallResponse>('/api/demo/call', { method: 'POST', body: input }),
+    api<DemoCallResult>('/api/demo/call', { method: 'POST', body: input }),
   clinicFacts: (input: { sessionId: string; websiteUrl: string }) =>
     api<{ facts: ClinicFacts | null }>('/api/demo/clinic-facts', { method: 'POST', body: input }),
   appointments: (sessionId: string) =>
