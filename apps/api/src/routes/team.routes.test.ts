@@ -3,8 +3,13 @@ import type { Server } from 'node:http';
 import express from 'express';
 
 // Set before any import loads config/env (hoisted above the imports).
+// Omar and Priya carry their own keys so the suite can see which key a
+// call ran on; Daniel and Layla deliberately have none, so their calls
+// fall back to the shared key.
 vi.hoisted(() => {
   process.env.GEMINI_API_KEY = 'test-key-for-team-suite';
+  process.env.TEAM_GEMINI_API_KEY_OMAR = 'omar-key-for-team-suite';
+  process.env.TEAM_GEMINI_API_KEY_PRIYA = 'priya-key-for-team-suite';
 });
 
 /**
@@ -34,7 +39,11 @@ vi.hoisted(() => {
  *    in the honest 502, non-transient failures never retry, and a
  *    discuss isolates a member whose turns all fail, continuing with
  *    the rest and telling the summary who could not answer; only a
- *    round 1 where every member fails is a 502.
+ *    round 1 where every member fails is a 502;
+ *  - discuss summary key: the auto summary runs on the first answering
+ *    member's own key (seen on the fetch stub's x-goog-api-key header),
+ *    not the shared chain, and falls back to the shared key when that
+ *    member has no key of their own.
  */
 
 type Row = Record<string, any>;
@@ -251,39 +260,45 @@ let geminiResponder: (systemText: string, contents: any[]) => string = () => 'Sh
 let geminiScript: Array<'fail503'> = [];
 /** Persistent 503 for any call this predicate matches (member isolation). */
 let geminiFailFor: ((system: string, contents: any[]) => boolean) | null = null;
-const geminiRequests: Array<{ system: string; contents: any[] }> = [];
+const geminiRequests: Array<{ system: string; contents: any[]; apiKey: string | undefined }> = [];
 
-const fetchMock = vi.fn(async (url: unknown, init?: { body?: string }) => {
-  const u = String(url);
-  if (u.includes('generativelanguage.googleapis.com')) {
-    const body = JSON.parse(init?.body ?? '{}');
-    const system = body.systemInstruction?.parts?.map((p: any) => p.text).join('\n') ?? '';
-    geminiRequests.push({ system, contents: body.contents ?? [] });
-    const scripted = geminiScript.length > 0 ? geminiScript.shift() : null;
-    if (
-      scripted === 'fail503' ||
-      (geminiFailFor !== null && geminiFailFor(system, body.contents ?? []))
-    ) {
+const fetchMock = vi.fn(
+  async (url: unknown, init?: { body?: string; headers?: Record<string, string> }) => {
+    const u = String(url);
+    if (u.includes('generativelanguage.googleapis.com')) {
+      const body = JSON.parse(init?.body ?? '{}');
+      const system = body.systemInstruction?.parts?.map((p: any) => p.text).join('\n') ?? '';
+      geminiRequests.push({
+        system,
+        contents: body.contents ?? [],
+        apiKey: init?.headers?.['x-goog-api-key'],
+      });
+      const scripted = geminiScript.length > 0 ? geminiScript.shift() : null;
+      if (
+        scripted === 'fail503' ||
+        (geminiFailFor !== null && geminiFailFor(system, body.contents ?? []))
+      ) {
+        return {
+          ok: false,
+          status: 503,
+          text: async () => 'This model is currently experiencing high demand',
+          json: async () => ({}),
+        };
+      }
+      if (geminiMode === 'fail') {
+        return { ok: false, status: 500, text: async () => 'upstream down', json: async () => ({}) };
+      }
+      const text = geminiResponder(system, body.contents ?? []);
       return {
-        ok: false,
-        status: 503,
-        text: async () => 'This model is currently experiencing high demand',
-        json: async () => ({}),
+        ok: true,
+        status: 200,
+        json: async () => ({ candidates: [{ content: { parts: [{ text }] } }] }),
+        text: async () => '',
       };
     }
-    if (geminiMode === 'fail') {
-      return { ok: false, status: 500, text: async () => 'upstream down', json: async () => ({}) };
-    }
-    const text = geminiResponder(system, body.contents ?? []);
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({ candidates: [{ content: { parts: [{ text }] } }] }),
-      text: async () => '',
-    };
-  }
-  return { ok: false, status: 404, text: async () => 'not found', json: async () => ({}) };
-});
+    return { ok: false, status: 404, text: async () => 'not found', json: async () => ({}) };
+  },
+);
 // The suite's own HTTP client must bypass the Gemini stub below, so the
 // real fetch is captured before the stub replaces the global.
 const realFetch = globalThis.fetch.bind(globalThis);
@@ -650,6 +665,53 @@ describe('AI Team routes', () => {
     const summaryCall = geminiRequests.find((r) => r.system.includes('auto summary'));
     expect(summaryCall).toBeDefined();
     expect(JSON.stringify(summaryCall!.contents)).toContain('Priya Nair could not answer');
+  }, 30_000);
+
+  it("discuss summary key: the summary runs on the first answering member's own key", async () => {
+    geminiResponder = (system) =>
+      system.includes('auto summary') ? 'Positions and open questions.' : 'A short position.';
+    const res = await call('POST', '/api/admin/team/discuss', {
+      topic: 'Should the demo call clinics back automatically?',
+      memberSlugs: ['omar', 'priya'],
+    });
+    expect(res.status).toBe(201);
+
+    // Both members answered and Omar is seated first, so the summary
+    // borrows his key rather than running on the shared chain.
+    const summaryCall = geminiRequests.find((r) => r.system.includes('auto summary'));
+    expect(summaryCall).toBeDefined();
+    expect(summaryCall!.apiKey).toBe('omar-key-for-team-suite');
+    // Sanity: the members' own turns ran on their own keys.
+    expect(geminiRequests.find((r) => r.system.includes('Omar Haddad'))!.apiKey).toBe(
+      'omar-key-for-team-suite',
+    );
+    expect(geminiRequests.find((r) => r.system.includes('Priya Nair'))!.apiKey).toBe(
+      'priya-key-for-team-suite',
+    );
+  });
+
+  it('discuss summary key: falls back to the shared key when the answering member has none of their own', async () => {
+    geminiResponder = (system) =>
+      system.includes('auto summary') ? 'Positions and open questions.' : 'A short position.';
+    // Omar is seated first but his model is down for every turn; Layla
+    // answers both rounds. The summary borrows the first answerer, who
+    // is Layla, and Layla has no key of her own in this suite, so the
+    // summary lands on the shared key, never on the failed seat's key.
+    geminiFailFor = (system) => system.includes('Omar Haddad');
+
+    const res = await call('POST', '/api/admin/team/discuss', {
+      topic: 'Should the demo call clinics back automatically?',
+      memberSlugs: ['omar', 'layla'],
+    });
+    expect(res.status).toBe(201);
+
+    const summaryCall = geminiRequests.find((r) => r.system.includes('auto summary'));
+    expect(summaryCall).toBeDefined();
+    expect(summaryCall!.apiKey).toBe('test-key-for-team-suite');
+    // Layla's own turns ran on the shared chain too (no key of her own).
+    const laylaCall = geminiRequests.find((r) => r.system.includes('Layla Mansour'));
+    expect(laylaCall).toBeDefined();
+    expect(laylaCall!.apiKey).toBe('test-key-for-team-suite');
   }, 30_000);
 
   it('discuss isolation: every member failing round 1 is an honest 502', async () => {
