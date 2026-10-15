@@ -443,7 +443,7 @@ export default function AdminCalendarPage() {
                 >
                   <span
                     className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold ${
-                      isToday ? 'bg-signal text-white shadow-pop' : cell.inMonth ? 'text-ink' : 'text-ink-muted/50'
+                      isToday ? 'bg-signal text-onsignal shadow-pop' : cell.inMonth ? 'text-ink' : 'text-ink-muted/50'
                     }`}
                   >
                     {cell.day}
