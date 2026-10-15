@@ -378,6 +378,7 @@ export function LylaWidget() {
   const sessionIdRef = useRef<string | null>(null);
   const greetingRef = useRef<string>(LYLA_PERSONA.greeting);
   const turnstileTokenRef = useRef<string | null>(null);
+  const turnstileTokenAtRef = useRef<number>(0);
   const turnstileResetRef = useRef<(() => void) | null>(null);
   const behaviorRef = useRef<BehaviorState>(freshBehavior());
   const proactiveFiredRef = useRef<Set<ProactiveTrigger>>(new Set());
@@ -399,9 +400,28 @@ export function LylaWidget() {
 
   /* ------------------------- session lifecycle ------------------------ */
 
+  // Turnstile tokens expire about five minutes after they are solved, and
+  // the challenge renders on page load, so a visitor who browses first
+  // reaches the panel holding a dead token. Never fire a session start
+  // without a fresh one: reset the challenge and wait for the solve.
+  const waitForFreshToken = useCallback(async (timeoutMs: number): Promise<void> => {
+    if (!TURNSTILE_SITE_KEY) return;
+    const fresh = () =>
+      turnstileTokenRef.current !== null && Date.now() - turnstileTokenAtRef.current < 240_000;
+    if (fresh()) return;
+    turnstileTokenRef.current = null;
+    turnstileTokenAtRef.current = 0;
+    turnstileResetRef.current?.();
+    const deadline = Date.now() + timeoutMs;
+    while (!fresh() && Date.now() < deadline) {
+      await new Promise((resolve) => window.setTimeout(resolve, 250));
+    }
+  }, []);
+
   const startSession = useCallback(async (): Promise<string | null> => {
     if (sessionIdRef.current) return sessionIdRef.current;
     setSessionPhase((phase) => (phase === 'ready' ? phase : 'starting'));
+    await waitForFreshToken(6000);
     try {
       const res = await fetch(`${API_URL}/api/public/session`, {
         method: 'POST',
@@ -428,9 +448,10 @@ export function LylaWidget() {
       // Turnstile tokens are single-use: whatever happened, the next
       // start attempt needs a fresh challenge.
       turnstileTokenRef.current = null;
+      turnstileTokenAtRef.current = 0;
       turnstileResetRef.current?.();
     }
-  }, []);
+  }, [waitForFreshToken]);
 
   // Opening the panel starts the session (once) and seeds her greeting.
   // When a bot check is configured, the first attempt can race the
@@ -848,6 +869,7 @@ export function LylaWidget() {
           <LylaTurnstile
             onToken={(token) => {
               turnstileTokenRef.current = token;
+              turnstileTokenAtRef.current = token ? Date.now() : 0;
             }}
             resetRef={turnstileResetRef}
             visible={sessionPhase === 'starting'}
@@ -938,6 +960,7 @@ export function LylaWidget() {
         <LylaTurnstile
           onToken={(token) => {
             turnstileTokenRef.current = token;
+            turnstileTokenAtRef.current = token ? Date.now() : 0;
           }}
           resetRef={turnstileResetRef}
           visible={false}
