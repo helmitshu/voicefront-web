@@ -124,11 +124,15 @@ adminRouter.get(
         prisma.tenant.count({ where: NOT_PLATFORM_TENANT }),
         prisma.onboardingStatus.count({ where: { isActive: true } }),
         prisma.callLog.aggregate({
-          where: { startedAt: { gte: since30d } },
+          // Operator totals describe finished calls; live IN_PROGRESS rows
+          // join them once their end-of-call report lands.
+          where: { startedAt: { gte: since30d }, status: { not: 'IN_PROGRESS' } },
           _count: { id: true },
           _sum: { billedCostCents: true, providerCostCents: true, durationSeconds: true },
         }),
-        prisma.callLog.count({ where: { startedAt: { gte: startOfToday } } }),
+        prisma.callLog.count({
+          where: { startedAt: { gte: startOfToday }, status: { not: 'IN_PROGRESS' } },
+        }),
         prisma.appointment.count({ where: { createdAt: { gte: since30d }, source: 'VOICE_AGENT' } }),
         Promise.all(SETTING_KEYS.map(async (key) => ({ key, resolved: await getSetting(key) }))),
         prisma.callLog.findMany({
@@ -197,7 +201,7 @@ adminRouter.get(
       }),
       prisma.callLog.groupBy({
         by: ['tenantId'],
-        where: { startedAt: { gte: since30d } },
+        where: { startedAt: { gte: since30d }, status: { not: 'IN_PROGRESS' } },
         _count: { id: true },
         _sum: { billedCostCents: true, providerCostCents: true },
       }),

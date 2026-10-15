@@ -6,7 +6,7 @@ import { asyncHandler, HttpError } from '../lib/http';
 import { getSettingValue } from '../services/platform-config.service';
 import { normalizePhone } from '../lib/phone';
 import { buildTransientAssistant } from '../domain/assistant-builder';
-import { ingestEndOfCallReport } from '../services/calllog.service';
+import { ingestEndOfCallReport, ingestCallStarted } from '../services/calllog.service';
 import { isOverMonthlyLimit } from '../services/usage.service';
 import { isFeatureEnabled } from '../services/features.service';
 import { parseServiceAreaZips } from '../domain/prompt-templates';
@@ -33,6 +33,9 @@ import { sendBookingConfirmation, maybeSendMissedCallTextBack } from '../service
  *     settings, return it inline. No assistants are stored provider-side.
  *  2. `end-of-call-report` — persist the finished call (idempotently) with
  *     marked-up pricing so tenants only ever see platform pricing.
+ *  3. `status-update` (`in-progress`) — open the call's row at call start so
+ *     the tenant dashboard can show the live call; the report in (2) then
+ *     finalizes that same row.
  */
 export const inboundRouter = Router();
 
@@ -115,6 +118,32 @@ const EndOfCallSchema = z
     transcript: z.string().optional(),
   })
   .passthrough();
+
+/**
+ * Live-call status notifications. Only `in-progress` is acted on: it opens
+ * the tenant's call row so the dashboard can show the call while it happens.
+ * The same fields the end-of-call parser reads, all optional — a partial
+ * payload must degrade to "no row", never to a thrown error.
+ */
+const StatusUpdateSchema = z
+  .object({
+    type: z.literal('status-update'),
+    status: z.string().optional(),
+    call: z
+      .object({
+        id: z.string().optional(),
+        customer: z.object({ number: z.string().optional() }).passthrough().optional(),
+        assistant: z.object({ metadata: MetadataSchema.optional() }).passthrough().optional(),
+      })
+      .passthrough()
+      .optional(),
+    assistant: z.object({ metadata: MetadataSchema.optional() }).passthrough().optional(),
+    phoneNumber: z.object({ number: z.string().optional() }).passthrough().optional(),
+    customer: z.object({ number: z.string().optional() }).passthrough().optional(),
+    startedAt: z.string().optional(),
+  })
+  .passthrough();
+type StatusUpdateMessage = z.infer<typeof StatusUpdateSchema>;
 
 /**
  * Tool-call invocations from live calls. The provider has shipped both the
@@ -504,6 +533,39 @@ async function findTenantByNumber(rawNumber: string | undefined) {
 }
 
 /**
+ * Opens the live-call row for an `in-progress` status-update. Attribution
+ * matches the end-of-call path exactly: assistant metadata first, then the
+ * dialed number. Demo calls return early and never create a tenant CallLog
+ * (the demo gate: demo traffic is captured separately, at end-of-call).
+ * Unattributable updates are dropped with a warning, same as reports.
+ */
+async function recordCallStarted(message: StatusUpdateMessage): Promise<void> {
+  const metadata = message.assistant?.metadata ?? message.call?.assistant?.metadata;
+  if (metadata?.demoSessionId) return;
+
+  let tenantId = metadata?.tenantId ?? null;
+  if (!tenantId) {
+    const settings = await findTenantByNumber(message.phoneNumber?.number);
+    tenantId = settings?.tenantId ?? null;
+  }
+  const externalCallId = message.call?.id;
+  if (!tenantId || !externalCallId) {
+    console.warn(
+      `[webhook] Dropping unattributable status-update (tenant=${tenantId ?? 'none'}, call=${externalCallId ?? 'none'})`,
+    );
+    return;
+  }
+
+  await ingestCallStarted({
+    tenantId,
+    externalCallId,
+    channel: metadata?.channel === 'web' ? 'web' : 'phone',
+    callerNumber: message.call?.customer?.number ?? message.customer?.number ?? null,
+    startedAt: parseDate(message.startedAt),
+  });
+}
+
+/**
  * Demo-sandbox tenant lookup. The phone number inside an unauthenticated demo
  * payload is attacker-controlled, so demo requests must never resolve a tenant
  * by number — they always get the isolated demo tenant. Same shape as
@@ -781,7 +843,23 @@ inboundRouter.post(
       return;
     }
 
-    // status-update and anything else: acknowledge.
+    if (message.type === 'status-update') {
+      // Live-call marker only. Best-effort by design: any failure is logged
+      // and still acknowledged with 200, a webhook error here must never
+      // disturb the call in progress or trigger provider retries.
+      const parsed = StatusUpdateSchema.safeParse(message);
+      if (parsed.success && parsed.data.status === 'in-progress') {
+        try {
+          await recordCallStarted(parsed.data);
+        } catch (err) {
+          console.error('[webhook] Failed to record call start:', err);
+        }
+      }
+      res.status(200).json({});
+      return;
+    }
+
+    // Anything else: acknowledge.
     res.status(200).json({});
   }),
 );
