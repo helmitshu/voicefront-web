@@ -3,10 +3,16 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { usePathname } from 'next/navigation';
 import {
+  API_URL,
   ApiError,
   SupportApi,
+  UNAUTHORIZED_EVENT,
   api,
+  getToken,
   mediaUrl,
+  setToken,
+  type SupportChatMessage,
+  type SupportChatResponse,
   type SupportDrillScenario,
   type SupportPendingProposal,
   type SupportSimulationResult,
@@ -31,6 +37,144 @@ function msg(role: ChatMessage['role'], text: string): ChatMessage {
   const m = { id: nextId, role, text };
   nextId += 1;
   return m;
+}
+
+/* ------------------------- streamed chat turns ------------------------- */
+
+/** One parsed event from POST /api/support/chat/stream. */
+export type SupportStreamEvent =
+  | { type: 'status'; label: string }
+  | { type: 'delta'; text: string }
+  | { type: 'final'; result: SupportChatResponse }
+  | { type: 'error'; message: string; code?: string }
+  | { type: 'done' };
+
+/**
+ * Pure SSE parser: consumes the accumulated stream buffer and returns the
+ * events completed so far plus the unconsumed remainder. Kept small and
+ * side-effect free on purpose (the web app has no unit-test setup; this is
+ * the one piece of stream logic worth being able to reason about alone).
+ */
+export function parseSupportStreamEvents(buffer: string): {
+  events: SupportStreamEvent[];
+  rest: string;
+} {
+  const events: SupportStreamEvent[] = [];
+  const blocks = buffer.split(/\r?\n\r?\n/);
+  const rest = blocks.pop() ?? '';
+  for (const block of blocks) {
+    let type = '';
+    const dataLines: string[] = [];
+    for (const line of block.split(/\r?\n/)) {
+      if (line.startsWith('event:')) type = line.slice('event:'.length).trim();
+      else if (line.startsWith('data:')) dataLines.push(line.slice('data:'.length).trim());
+    }
+    if (!type || dataLines.length === 0) continue;
+    let data: Record<string, unknown>;
+    try {
+      data = JSON.parse(dataLines.join('\n')) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (type === 'status' && typeof data.label === 'string') {
+      events.push({ type: 'status', label: data.label });
+    } else if (type === 'delta' && typeof data.text === 'string') {
+      events.push({ type: 'delta', text: data.text });
+    } else if (type === 'final') {
+      events.push({ type: 'final', result: data as unknown as SupportChatResponse });
+    } else if (type === 'error' && typeof data.message === 'string') {
+      events.push({
+        type: 'error',
+        message: data.message,
+        code: typeof data.code === 'string' ? data.code : undefined,
+      });
+    } else if (type === 'done') {
+      events.push({ type: 'done' });
+    }
+  }
+  return { events, rest };
+}
+
+/**
+ * Runs one chat turn against the streaming endpoint and resolves with the
+ * final payload (identical to SupportApi.chat's). Throws an ApiError on
+ * any failure — a JSON error before the stream opens, a broken stream, or
+ * a mid-stream `error` event — so the caller can fall back to the plain
+ * JSON turn.
+ */
+async function streamSupportChat(
+  messages: SupportChatMessage[],
+  page: string | undefined,
+  handlers: { onStatus: (label: string) => void; onDelta: (text: string) => void },
+): Promise<SupportChatResponse> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const token = getToken();
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}/api/support/chat/stream`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify(page ? { messages, page } : { messages }),
+    });
+  } catch {
+    throw new ApiError(0, 'Could not reach the server. Check your connection and try again.', 'NETWORK');
+  }
+
+  if (!res.ok) {
+    // The server answered with the normal JSON error (the turn failed
+    // before streaming started): surface it like any other API error.
+    let message = `Request failed (${res.status})`;
+    let code: string | undefined;
+    try {
+      const payload = (await res.json()) as { error?: { message?: string; code?: string } };
+      if (payload.error?.message) message = payload.error.message;
+      code = payload.error?.code;
+    } catch {
+      /* keep the generic message */
+    }
+    if (res.status === 401) {
+      setToken(null);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent(UNAUTHORIZED_EVENT));
+      }
+    }
+    throw new ApiError(res.status, message, code);
+  }
+
+  const contentType = res.headers.get('content-type') ?? '';
+  if (!res.body || !contentType.includes('text/event-stream')) {
+    throw new ApiError(0, 'Streaming is unavailable for this chat.', 'STREAM_UNAVAILABLE');
+  }
+
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let finalResult: SupportChatResponse | null = null;
+  const handle = (event: SupportStreamEvent) => {
+    if (event.type === 'status') handlers.onStatus(event.label);
+    else if (event.type === 'delta') handlers.onDelta(event.text);
+    else if (event.type === 'final') finalResult = event.result;
+    else if (event.type === 'error') throw new ApiError(502, event.message, event.code);
+  };
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (value) buffer += decoder.decode(value, { stream: true });
+      const parsed = parseSupportStreamEvents(buffer);
+      buffer = parsed.rest;
+      for (const event of parsed.events) handle(event);
+      if (done) break;
+    }
+  } catch (err) {
+    if (err instanceof ApiError) throw err;
+    throw new ApiError(0, 'The reply stream broke. Please try again.', 'STREAM_BROKEN');
+  }
+  if (!finalResult) {
+    throw new ApiError(0, 'The reply stream ended early. Please try again.', 'STREAM_INCOMPLETE');
+  }
+  return finalResult;
 }
 
 /** The agent's photo, degrading to initials in a colored circle when the
@@ -96,15 +240,61 @@ export function SupportWidget() {
   const [reportDetails, setReportDetails] = useState('');
   const [reportError, setReportError] = useState('');
   const [reporting, setReporting] = useState(false);
+  const [streamStatus, setStreamStatus] = useState<string | null>(null);
+  const [streamText, setStreamText] = useState('');
+  /** Streamed reply text received so far, and how much of it the reveal
+   *  animation has shown. The committed message history only ever gets
+   *  the finished reply, exactly as before streaming. */
+  const streamTargetRef = useRef('');
+  const streamShownRef = useRef('');
+  const revealRafRef = useRef<number | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [messages, pending, open]);
+  }, [messages, pending, open, streamText, streamStatus]);
+
+  /** Reveals streamed text a few characters per animation frame (more
+   *  when a large backlog lands at once), so even a chunk delivered in
+   *  one piece reads like typing instead of a dump. */
+  function pumpReveal() {
+    if (revealRafRef.current !== null) return;
+    const step = () => {
+      const target = streamTargetRef.current;
+      const shown = streamShownRef.current;
+      if (shown.length >= target.length) {
+        revealRafRef.current = null;
+        return;
+      }
+      const remaining = target.length - shown.length;
+      const stepSize = Math.min(48, Math.max(2, Math.ceil(remaining / 8)));
+      const next = target.slice(0, shown.length + stepSize);
+      streamShownRef.current = next;
+      setStreamText(next);
+      revealRafRef.current = requestAnimationFrame(step);
+    };
+    revealRafRef.current = requestAnimationFrame(step);
+  }
+
+  /** Clears the in-progress stream bubble and its status line. */
+  function stopReveal() {
+    if (revealRafRef.current !== null) {
+      cancelAnimationFrame(revealRafRef.current);
+      revealRafRef.current = null;
+    }
+    streamTargetRef.current = '';
+    streamShownRef.current = '';
+    setStreamText('');
+    setStreamStatus(null);
+  }
 
   /** Sends one user message (typed, or from a card/picker button) and
-   *  folds the turn's attachments back into the panel state. */
+   *  folds the turn's attachments back into the panel state. The turn is
+   *  streamed (status labels while tools run, the reply revealed as it is
+   *  generated); if streaming fails or is unavailable, one plain JSON
+   *  turn runs instead, and only if that fails too does the existing
+   *  ticket-form offer appear. */
   async function sendText(text: string) {
     if (!text || sending) return;
     const userMsg = msg('user', text);
@@ -114,23 +304,47 @@ export function SupportWidget() {
     setChatFailed(false);
     setReportOpen(false);
     setReportError('');
-    try {
-      const res = await SupportApi.chat(
-        history.map(({ role, text: t }) => ({ role, text: t })),
-        pathname ?? undefined,
-      );
+    const outgoing = history.map(({ role, text: t }) => ({ role, text: t }));
+
+    const applyResult = (res: SupportChatResponse) => {
       setMessages((prev) => [...prev, msg('assistant', res.reply)]);
       if (res.pendingProposal) setPending(res.pendingProposal);
       if (res.simulationResult) setSimResult(res.simulationResult);
       setWeeklyReview(res.weeklyReview);
-    } catch (err) {
-      const note =
-        err instanceof ApiError
-          ? err.message
-          : 'Something went wrong on my side. Please try that again.';
-      setMessages((prev) => [...prev, msg('assistant', note)]);
-      setChatFailed(true);
+    };
+
+    try {
+      const res = await streamSupportChat(outgoing, pathname ?? undefined, {
+        onStatus: (label) => {
+          // A tool round is starting: any interim streamed text belonged
+          // to a round that turned into tool calls, so the bubble resets
+          // and the status line takes over.
+          stopReveal();
+          setStreamStatus(label);
+        },
+        onDelta: (delta) => {
+          setStreamStatus(null);
+          streamTargetRef.current += delta;
+          pumpReveal();
+        },
+      });
+      stopReveal();
+      applyResult(res);
+    } catch {
+      stopReveal();
+      try {
+        const res = await SupportApi.chat(outgoing, pathname ?? undefined);
+        applyResult(res);
+      } catch (err) {
+        const note =
+          err instanceof ApiError
+            ? err.message
+            : 'Something went wrong on my side. Please try that again.';
+        setMessages((prev) => [...prev, msg('assistant', note)]);
+        setChatFailed(true);
+      }
     } finally {
+      stopReveal();
       setSending(false);
     }
   }
@@ -309,8 +523,18 @@ export function SupportWidget() {
                 </div>
               ),
             )}
-            {sending && (
-              <p className="pl-8 text-xs italic text-ink-faint">{SUPPORT_PERSONA.name} is typing…</p>
+            {streamText !== '' && (
+              <div className="flex items-end gap-2">
+                <PersonaAvatar sizeClass="h-6 w-6 text-[10px]" />
+                <p className="max-w-[80%] whitespace-pre-wrap rounded-2xl rounded-bl-md bg-paper px-3 py-2 text-[13.5px] leading-relaxed text-ink">
+                  {streamText}
+                </p>
+              </div>
+            )}
+            {sending && streamText === '' && (
+              <p className="pl-8 text-xs italic text-ink-faint">
+                {streamStatus ?? `${SUPPORT_PERSONA.name} is typing…`}
+              </p>
             )}
 
             {/* Inline confirmation card for a proposed task. The confirm
