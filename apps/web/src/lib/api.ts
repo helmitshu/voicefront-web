@@ -329,6 +329,72 @@ export const OnboardingApi = {
   activate: () => api<{ onboarding: OnboardingView }>('/api/onboarding/activate', { method: 'POST' }),
 };
 
+/* --------------------------------- billing ------------------------------- */
+
+export type BillingTierChoice = 'STARTER' | 'CORE';
+
+/**
+ * The workspace's billing mirror, as served by GET /api/billing/status.
+ * `state` is 'NOT_STARTED' before any checkout, else the mirrored Stripe
+ * status ('INCOMPLETE' | 'TRIALING' | 'ACTIVE' | 'PAST_DUE' | 'CANCELED').
+ * Prices are always charged from `pricingRegion` server-side; the client
+ * only ever names a tier.
+ */
+export interface BillingStatus {
+  configured: boolean;
+  state: string;
+  tier: BillingTierChoice | null;
+  pricingRegion: 'USD' | 'CAD';
+  status: string | null;
+  trialEndsAt: string | null;
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+  monthlyMinuteLimit: number;
+  /** Pre-launch workspaces never pass through billing. */
+  billingExempt: boolean;
+}
+
+export const BillingApi = {
+  status: (signal?: AbortSignal) => api<{ billing: BillingStatus }>('/api/billing/status', { signal }),
+  checkout: (input: { tier: BillingTierChoice; whiteGlove?: boolean }) =>
+    api<{ url: string }>('/api/billing/checkout', { method: 'POST', body: input }),
+  complete: (sessionId: string) =>
+    api<{ billing: BillingStatus }>('/api/billing/checkout/complete', {
+      method: 'POST',
+      body: { sessionId },
+    }),
+  portal: () => api<{ url: string }>('/api/billing/portal', { method: 'POST' }),
+};
+
+/* ------------------------- plan choice carry-over ------------------------ */
+// The pricing page links to /register?plan=core|starter. The choice is a
+// preference only (the server re-derives the price from the tier and the
+// workspace's locked pricing region at checkout), carried in session
+// storage from register into the setup wizard.
+
+const PLAN_KEY = 'voicefront.plan';
+
+export type PlanChoice = 'core' | 'starter';
+
+export function getStoredPlan(): PlanChoice | null {
+  if (typeof window === 'undefined') return null;
+  try {
+    const value = window.sessionStorage.getItem(PLAN_KEY);
+    return value === 'core' || value === 'starter' ? value : null;
+  } catch {
+    return null;
+  }
+}
+
+export function setStoredPlan(plan: PlanChoice): void {
+  if (typeof window === 'undefined') return;
+  try {
+    window.sessionStorage.setItem(PLAN_KEY, plan);
+  } catch {
+    /* storage unavailable (private mode) — the wizard defaults to Core */
+  }
+}
+
 export const AgentApi = {
   get: () => api<{ settings: AgentSettingsDto }>('/api/agent/settings'),
   update: (patch: AgentSettingsPatch) =>
