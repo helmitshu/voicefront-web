@@ -150,6 +150,11 @@ model Tenant {
   /// answering until the month rolls over (or the operator raises the cap for
   /// a higher tier). Enforced per call in the assistant-request webhook.
   monthlyMinuteLimit      Int                @default(500) @map("monthly_minute_limit")
+  /// Workspaces that predate Stripe billing (founder and test clinics) are
+  /// exempt from the activation billing gate forever. Set once by the
+  /// billing migration for every tenant that existed at deploy time; every
+  /// tenant created after launch defaults to false and must subscribe.
+  billingExempt           Boolean            @default(false) @map("billing_exempt")
   /// Server-owned price book: 'USD' (the default for everyone) or 'CAD'.
   /// CAD is granted only by the Canadian-business verification
   /// (services/pricing-region.service: the business website, or facts a
@@ -195,6 +200,7 @@ model Tenant {
   dispatches          Dispatch[]
   fsmConnections      FsmConnection[]
   supportTickets      SupportTicket[]
+  subscription        Subscription?
 
   @@map("tenants")
 }
@@ -1243,4 +1249,43 @@ model TeamPageWatch {
   updatedAt     DateTime @updatedAt @map("updated_at")
 
   @@map("team_page_watches")
+}
+
+/// The Stripe mirror for a workspace's subscription: one row per tenant,
+/// written only by the billing service (checkout completion + webhooks).
+/// `Tenant.subscriptionStatus` stays the app-wide status everyone reads;
+/// this row holds the Stripe detail (ids, tier, dates) behind it. `status`
+/// is a plain string mirror of Stripe's status ('INCOMPLETE', 'TRIALING',
+/// 'ACTIVE', 'PAST_DUE', 'CANCELED'), `tier` is 'STARTER' or 'CORE', and
+/// `pricingRegion` snapshots the price book charged at checkout — a later
+/// region change never rewrites what an existing subscription charges.
+model Subscription {
+  id                   String    @id @default(cuid())
+  tenantId             String    @unique @map("tenant_id")
+  tenant               Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  stripeCustomerId     String    @unique @map("stripe_customer_id")
+  stripeSubscriptionId String?   @unique @map("stripe_subscription_id")
+  tier                 String
+  pricingRegion        String    @map("pricing_region")
+  status               String
+  trialStart           DateTime? @map("trial_start")
+  trialEnd             DateTime? @map("trial_end")
+  currentPeriodEnd     DateTime? @map("current_period_end")
+  cancelAtPeriodEnd    Boolean   @default(false) @map("cancel_at_period_end")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @updatedAt @map("updated_at")
+
+  @@map("subscriptions")
+}
+
+/// Webhook idempotency ledger: one row per Stripe event we have taken
+/// responsibility for. The primary key IS the Stripe event id, so a
+/// redelivered event collides on insert and the handler skips it —
+/// Stripe retries deliveries for days and every replay must be a no-op.
+model StripeEvent {
+  id          String   @id
+  type        String
+  processedAt DateTime @default(now()) @map("processed_at")
+
+  @@map("stripe_events")
 }
