@@ -136,6 +136,18 @@ model Tenant {
   /// answering until the month rolls over (or the operator raises the cap for
   /// a higher tier). Enforced per call in the assistant-request webhook.
   monthlyMinuteLimit Int                @default(500) @map("monthly_minute_limit")
+  /// Server-owned price book: 'USD' (the default for everyone) or 'CAD'.
+  /// CAD is granted only by the Canadian-business verification
+  /// (services/pricing-region.service: the business website, or facts a
+  /// demo lead already verified) or by a platform admin override. No
+  /// client-supplied field can set it. This column is the single source
+  /// the Stripe checkout will read once checkout exists.
+  pricingRegion String @default("USD") @map("pricing_region")
+  /// How pricingRegion was granted: 'website' | 'demo-lead' | 'admin'.
+  /// Null = never verified or overridden (still on the USD default).
+  pricingRegionSource String? @map("pricing_region_source")
+  /// When pricingRegion was last set by verification or an admin override.
+  pricingRegionVerifiedAt DateTime? @map("pricing_region_verified_at")
   /// Operator entitlement: when true the receptionist books across multiple
   /// Providers/Services; when false it's a single shared calendar (the simple
   /// case) regardless of any Providers defined. Set by the platform admin.
