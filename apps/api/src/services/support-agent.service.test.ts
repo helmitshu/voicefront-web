@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CONFIDENTIALITY_BLOCK,
+  SUPPORT_AGENT,
   buildSupportSystemText,
   expandBookingWindow,
   resolveSupportPage,
@@ -221,5 +222,90 @@ describe('knowledge block coverage and the no-denial rule', () => {
 
   it('still forbids inventing features, prices, or policies', () => {
     expect(prompt).toContain('never invent features, prices, or policies');
+  });
+});
+
+/* ---------------- Adam tools round: state, calls, identity -------------- */
+
+describe('workspace-state and call-insight prompt rules', () => {
+  const prompt = buildSupportSystemText({
+    companyName: 'Alpha Dental',
+    industry: 'CLINIC',
+    receptionistName: 'Maya',
+    timezone: 'America/Toronto',
+    currentHoursText: 'Monday to Friday 8 AM to 5 PM',
+    page: null,
+  });
+
+  it('requires a live workspace-state check before per-workspace feature claims', () => {
+    expect(prompt).toContain('call get_workspace_state first');
+    expect(prompt).toContain('resolved effective fields');
+    expect(prompt).toContain('calendar sync, SMS, on-call dispatch');
+  });
+
+  it('defines the call success score and the worst-call workflow', () => {
+    expect(prompt).toContain('1-to-10 success evaluation');
+    expect(prompt).toContain('Ten is the strongest handling and one is the weakest');
+    expect(prompt).toContain('call list_calls_in_range for the period');
+    expect(prompt).toContain('call get_call_details for the worst few');
+    expect(prompt).toContain('say the transcript is unavailable');
+  });
+
+  it('states the AI identity plainly in config and prompt', () => {
+    expect(SUPPORT_AGENT.identityLine).toBe("I'm an AI assistant from VoiceFront Customer Care.");
+    expect(SUPPORT_AGENT.greeting).toContain('an AI assistant from VoiceFront Customer Care');
+    expect(prompt).toContain('you are an AI assistant from VoiceFront Customer Care');
+    expect(prompt).toContain('Never claim to be human.');
+  });
+});
+
+/* ------------- Adam's inventions: proofs, drills, weekly upgrade ------- */
+
+describe('invention prompt rules (Fix and Prove, drills, Weekly Upgrade)', () => {
+  const prompt = buildSupportSystemText({
+    companyName: 'Alpha Dental',
+    industry: 'CLINIC',
+    receptionistName: 'Maya',
+    timezone: 'America/Toronto',
+    currentHoursText: 'Monday to Friday 8 AM to 5 PM',
+    page: null,
+  });
+
+  it('widens the write actions beyond the original two, all propose-then-confirm', () => {
+    expect(prompt).not.toContain('write actions are exactly two');
+    expect(prompt).toContain('add an approved knowledge addition, and run a simulated-patient call');
+    expect(prompt).toContain('Every one runs propose then confirm.');
+  });
+
+  it('teaches the Fix and Prove flow with the honesty rule for failed reruns', () => {
+    expect(prompt).toContain('Fix and Prove flow');
+    expect(prompt).toContain('call propose_proof with the call id, your diagnosis, and what was fixed');
+    expect(prompt).toContain('a two-line honest verdict');
+    expect(prompt).toContain('Never claim a proof passed when the rerun score or transcript shows otherwise');
+  });
+
+  it('teaches drill grading strictly from the transcript', () => {
+    expect(prompt).toContain('Patient drill flow');
+    expect(prompt).toContain('quote her line from the transcript');
+    expect(prompt).toContain('Grade only what the transcript shows, never invent moments.');
+  });
+
+  it('teaches the Weekly Upgrade sourcing rule', () => {
+    expect(prompt).toContain('Weekly Upgrade flow');
+    expect(prompt).toContain('draft a short knowledge addition using ONLY those source facts');
+    expect(prompt).toContain('ask the owner the question directly and draft nothing');
+    expect(prompt).toContain('Never put a price, a policy, or an insurance answer in a draft unless it appears in the source facts');
+  });
+
+  it('states the simulated-call cost and cap honesty rule', () => {
+    expect(prompt).toContain('Simulated calls use a few minutes of real call time');
+    expect(prompt).toContain('never run one without the user\'s confirmation');
+  });
+
+  it('describes the three inventions truthfully in the knowledge block', () => {
+    expect(prompt).toContain('Fix and Prove: when a call went badly');
+    expect(prompt).toContain('kept out of the call history and the usage numbers');
+    expect(prompt).toContain('Patient drills: an owner or manager can have a simulated patient call');
+    expect(prompt).toContain('A weekly review surfaces the newest unanswered questions');
   });
 });
