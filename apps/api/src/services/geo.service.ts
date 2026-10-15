@@ -1,3 +1,4 @@
+import { isIP } from 'node:net';
 import type { Request } from 'express';
 
 /**
@@ -95,12 +96,68 @@ function isPrivateIp(ip: string): boolean {
 }
 
 /**
+ * Validates an IP supplied in a header value. The web tier sends the visitor
+ * IP as `x-visitor-ip` on its server-to-server call to the geo endpoint,
+ * because the X-Forwarded-For chain does not survive that hop (the API edge
+ * only sees the web service's egress, not the browser's). Returns the
+ * normalized IP only when the value is a syntactically valid, publicly
+ * routable address; anything else returns null so the caller falls back to
+ * the connection IP. Accepts the raw header value, which Express may
+ * surface as a string array.
+ */
+export function parsePublicIp(value: string | string[] | undefined): string | null {
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw) return null;
+  // Strip an IPv4-mapped IPv6 prefix (::ffff:1.2.3.4), like clientIp does.
+  const candidate = raw.trim().replace(/^::ffff:/, '');
+  if (!candidate || isIP(candidate) === 0) return null;
+  return isPrivateIp(candidate) ? null : candidate;
+}
+
+/**
+ * Successful country lookups are cached in memory for a day, keyed by IP.
+ * One clinic's staff share an egress IP, so repeat pricing-page renders and
+ * demo-gate checks mostly hit the cache instead of ipapi.co's free tier.
+ * Failures (null) are never cached: a rate-limited lookup must be retried on
+ * the next request, not remembered. Bounded size, oldest evicted first.
+ */
+const COUNTRY_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+const COUNTRY_CACHE_MAX_ENTRIES = 500;
+const countryCache = new Map<string, { country: string; cachedAt: number }>();
+
+function readCountryCache(ip: string): string | null {
+  const entry = countryCache.get(ip);
+  if (!entry) return null;
+  if (Date.now() - entry.cachedAt > COUNTRY_CACHE_TTL_MS) {
+    countryCache.delete(ip);
+    return null;
+  }
+  // Refresh recency so active IPs are evicted last.
+  countryCache.delete(ip);
+  countryCache.set(ip, entry);
+  return entry.country;
+}
+
+function writeCountryCache(ip: string, country: string): void {
+  countryCache.delete(ip);
+  countryCache.set(ip, { country, cachedAt: Date.now() });
+  while (countryCache.size > COUNTRY_CACHE_MAX_ENTRIES) {
+    const oldest = countryCache.keys().next().value;
+    if (oldest === undefined) break;
+    countryCache.delete(oldest);
+  }
+}
+
+/**
  * Resolves a client IP to a 2-letter country code via ipapi.co. Best-effort:
  * returns null on private IPs, timeouts, rate limits, or any error — callers
- * must treat null as "unknown", never as "blocked".
+ * must treat null as "unknown", never as "blocked". Successful results are
+ * served from the in-memory cache above; failures always re-lookup.
  */
 export async function detectIpCountry(ip: string | null): Promise<string | null> {
   if (!ip || isPrivateIp(ip)) return null;
+  const cached = readCountryCache(ip);
+  if (cached) return cached;
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 2500);
@@ -111,7 +168,9 @@ export async function detectIpCountry(ip: string | null): Promise<string | null>
     clearTimeout(timer);
     if (!res.ok) return null;
     const country = (await res.text()).trim().toUpperCase();
-    return /^[A-Z]{2}$/.test(country) ? country : null;
+    if (!/^[A-Z]{2}$/.test(country)) return null;
+    writeCountryCache(ip, country);
+    return country;
   } catch {
     return null;
   }
