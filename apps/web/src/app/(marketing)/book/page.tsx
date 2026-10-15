@@ -2,9 +2,9 @@ import type { Metadata } from 'next';
 import { BookSection } from '@/components/marketing/sections';
 
 export const metadata: Metadata = {
-  title: 'Book a call — Talk to a human',
+  title: 'White glove setup, done for you',
   description:
-    'Prefer a real conversation? Pick a time on our calendar and we’ll walk you through exactly how VoiceFront would fit your business. No account needed.',
+    'Book a white glove setup call and a human will configure VoiceFront for your clinic. White glove setup is $500 one time plus your plan, and it covers your receptionist, your hours and your booking rules.',
 };
 
 export default function BookPage() {
