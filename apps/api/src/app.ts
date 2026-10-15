@@ -30,6 +30,7 @@ import { screeningRouter } from './routes/screening.routes';
 import { unsubscribeRouter } from './routes/unsubscribe.routes';
 import { geoRouter } from './routes/geo.routes';
 import { supportRouter } from './routes/support.routes';
+import { billingRouter } from './routes/billing.routes';
 
 export function createApp(): express.Express {
   const app = express();
@@ -48,6 +49,10 @@ export function createApp(): express.Express {
       methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
     }),
   );
+  // Stripe webhook: signature verification must run over the untouched
+  // request bytes, so this exact path gets a raw parser BEFORE the global
+  // JSON parser below. A parsed-and-reserialized body would fail closed.
+  app.use('/api/billing/webhook', express.raw({ type: 'application/json', limit: '1mb' }));
   app.use(express.json({ limit: '1mb' }));
   app.use(express.urlencoded({ extended: false })); // for Twilio webhook form-posts
   app.use(requestLogger); // correlation id + one structured line per request
@@ -80,6 +85,7 @@ export function createApp(): express.Express {
   app.use('/api/demo', demoRouter);
   app.use('/api/geo', geoRouter);
   app.use('/api/support', supportRouter);
+  app.use('/api/billing', billingRouter);
   app.use('/api/booking', bookingRouter);
   app.use('/api/unsubscribe', unsubscribeRouter);
 
