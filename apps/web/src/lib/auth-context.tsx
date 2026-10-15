@@ -38,6 +38,7 @@ interface AuthContextValue {
     email: string;
     password: string;
     accessCode?: string;
+    website?: string;
   }) => Promise<Me>;
   signOut: () => void;
   refreshMe: () => Promise<void>;
@@ -122,6 +123,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       fullName: string;
       email: string;
       password: string;
+      website?: string;
     }) => {
       const data = await AuthApi.register(input);
       generation.current += 1;

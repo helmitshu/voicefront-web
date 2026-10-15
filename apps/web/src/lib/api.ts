@@ -143,6 +143,8 @@ export interface Me {
     slug: string;
     industry: Industry;
     subscriptionStatus: string;
+    /** Server-owned price book, set by business verification, never by the client. */
+    pricingRegion: 'USD' | 'CAD';
   };
   onboarding: OnboardingView;
 }
@@ -297,6 +299,8 @@ export const AuthApi = {
     password: string;
     /** One-time invitation code from the founder (required for customers). */
     accessCode?: string;
+    /** Business website. The API reads it to verify the pricing region. */
+    website?: string;
   }) => api<AuthResponse>('/api/auth/register', { method: 'POST', body: input }),
   login: (input: { email: string; password: string }) =>
     api<AuthResponse>('/api/auth/login', { method: 'POST', body: input }),
@@ -468,6 +472,7 @@ export interface AdminTenantRow {
   slug: string;
   industry: Industry;
   subscriptionStatus: string;
+  pricingRegion: 'USD' | 'CAD';
   markupBps: number;
   blocked: boolean;
   receptionistActive: boolean;
@@ -489,6 +494,10 @@ export interface AdminTenantDetail {
   slug: string;
   industry: Industry;
   subscriptionStatus: string;
+  pricingRegion: 'USD' | 'CAD';
+  /** How the region was set: 'website' | 'demo-lead' | 'admin', or null when never verified. */
+  pricingRegionSource: string | null;
+  pricingRegionVerifiedAt: string | null;
   markupBps: number;
   monthlyMinuteLimit: number;
   usage: MonthlyUsage;
@@ -572,6 +581,7 @@ export const AdminApi = {
     id: string,
     patch: Partial<{
       subscriptionStatus: string;
+      pricingRegion: string;
       receptionistActive: boolean;
       markupBps: number;
       monthlyMinuteLimit: number;
