@@ -20,8 +20,8 @@ export function Avatar({ fullName, size = 'md' }: { fullName: string; size?: 'md
   return (
     <span
       aria-hidden
-      className={`flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-signal to-signal-deep font-semibold text-onsignal shadow-pop ring-1 ring-inset ring-white/15 ${
-        size === 'md' ? 'h-9 w-9 text-xs' : 'h-8 w-8 text-[11px]'
+      className={`bg-grad flex shrink-0 items-center justify-center rounded-full font-extrabold text-[#03211B] shadow-[0_0_0_2px_rgba(94,234,212,0.35)] ${
+        size === 'md' ? 'h-[38px] w-[38px] text-[15px]' : 'h-8 w-8 text-[11px]'
       }`}
     >
       {userInitials(fullName)}
@@ -155,7 +155,7 @@ export function UserMenu({ variant = 'sidebar' }: { variant?: 'sidebar' | 'compa
         {open && (
           <div
             role="menu"
-            className="absolute right-0 top-full z-50 mt-2 w-72 rounded-2xl bg-ink-deep p-1.5 shadow-lift ring-1 ring-white/15"
+            className="absolute right-0 top-full z-50 mt-2 w-72 rounded-2xl bg-shell p-1.5 shadow-card ring-1 ring-shell-edge/20"
           >
             <div className="px-3 pb-2 pt-2.5">
               <p className="truncate text-[13px] font-semibold text-white">{me.user.fullName}</p>
@@ -188,7 +188,7 @@ export function UserMenu({ variant = 'sidebar' }: { variant?: 'sidebar' | 'compa
       {open && (
         <div
           role="menu"
-          className="absolute inset-x-0 bottom-full z-50 mb-2 rounded-2xl bg-ink-deep p-1.5 shadow-lift ring-1 ring-white/15"
+          className="absolute inset-x-0 bottom-full z-50 mb-2 rounded-2xl bg-shell p-1.5 shadow-card ring-1 ring-shell-edge/20"
         >
           <MenuItems onNavigate={() => setOpen(false)} />
         </div>
@@ -198,7 +198,7 @@ export function UserMenu({ variant = 'sidebar' }: { variant?: 'sidebar' | 'compa
         onClick={() => setOpen((value) => !value)}
         aria-haspopup="menu"
         aria-expanded={open}
-        className="flex w-full items-center gap-3 rounded-2xl border border-white/10 bg-white/[0.04] p-3 text-left transition-colors hover:bg-white/[0.07]"
+        className="flex w-full items-center gap-3 rounded-[14px] border border-shell-edge/15 bg-white/[0.05] p-3 text-left transition-colors hover:bg-white/[0.08]"
       >
         <Avatar fullName={me.user.fullName} />
         <span className="min-w-0 flex-1">

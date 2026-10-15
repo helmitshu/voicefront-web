@@ -74,6 +74,41 @@ export function AppearanceCard() {
 }
 
 /**
+ * The demo's topbar preset switch: a segmented pill (surface-3 track, card
+ * thumb) for one-tap theme changes from the desktop topbar. Same provider,
+ * same storage as every other picker — this is a second surface for the one
+ * choice, not a separate setting.
+ */
+export function PresetSwitch() {
+  const { theme, setTheme } = useTheme();
+
+  return (
+    <div
+      role="group"
+      aria-label="Theme preset"
+      className="hidden items-center gap-0.5 rounded-full border border-line bg-surface3 p-[3px] lg:flex"
+    >
+      {THEMES.map((option) => {
+        const active = option.key === theme;
+        return (
+          <button
+            key={option.key}
+            type="button"
+            aria-pressed={active}
+            onClick={() => setTheme(option.key)}
+            className={`whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-bold transition-all duration-200 ${
+              active ? 'bg-card text-ink shadow-demo-sm' : 'text-ink-muted hover:text-ink'
+            }`}
+          >
+            {option.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/**
  * Compact switch for the user menu (sidebar popover, topbar menu, and the
  * drawer all share it): one row per theme with its swatches, active checked.
  */

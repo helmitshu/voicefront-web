@@ -48,7 +48,7 @@ export function MobileDrawer({ open, onClose, label, panelClassName, children }:
       <div
         aria-hidden
         onClick={onClose}
-        className={`absolute inset-0 bg-ink-deep/60 backdrop-blur-[2px] transition-opacity duration-300 ${
+        className={`absolute inset-0 bg-[rgba(3,12,9,0.5)] transition-opacity duration-300 ${
           open ? 'opacity-100' : 'opacity-0'
         }`}
       />
@@ -56,7 +56,7 @@ export function MobileDrawer({ open, onClose, label, panelClassName, children }:
         role="dialog"
         aria-modal="true"
         aria-label={label}
-        className={`absolute inset-y-0 left-0 flex w-72 max-w-[85vw] flex-col px-4 py-6 shadow-lift transition-transform duration-300 ease-out ${
+        className={`absolute inset-y-0 left-0 flex w-[288px] max-w-[85vw] flex-col px-5 pb-4 pt-[22px] shadow-[30px_0_60px_rgba(0,0,0,0.35)] transition-transform duration-[380ms] ease-[cubic-bezier(0.2,0.8,0.2,1)] ${
           open ? 'translate-x-0' : '-translate-x-full'
         } ${panelClassName}`}
       >

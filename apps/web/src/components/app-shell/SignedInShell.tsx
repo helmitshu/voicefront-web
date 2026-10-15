@@ -16,49 +16,31 @@ export interface ShellNavItem {
 
 type ShellTheme = 'app' | 'admin';
 
-const THEMES: Record<
-  ShellTheme,
-  {
-    sidebar: string;
-    topbar: string;
-    menuButton: string;
-    accentBar: string;
-    navActive: string;
-    navIdle: string;
-    iconActive: string;
-    iconIdle: string;
-  }
-> = {
-  app: {
-    sidebar: 'border-r border-white/10 bg-ink-deep',
-    topbar: 'border-white/10 bg-ink-deep/90',
-    menuButton: 'text-white/75 hover:bg-white/[0.06]',
-    accentBar: 'bg-gold-light',
-    navActive: 'bg-white/[0.07] text-white ring-1 ring-inset ring-white/10',
-    navIdle: 'text-white/55 hover:bg-white/[0.04] hover:text-white',
-    iconActive: 'text-white',
-    iconIdle: 'text-white/45 group-hover:text-white',
-  },
-  admin: {
-    sidebar: 'bg-ink',
-    topbar: 'border-line/70 bg-card/80',
-    menuButton: 'text-ink/70 hover:bg-ink/[0.05]',
-    accentBar: 'bg-signal',
-    navActive: 'bg-white/10 text-white ring-1 ring-inset ring-white/10',
-    navIdle: 'text-white/50 hover:bg-white/5 hover:text-white',
-    iconActive: 'text-clinic',
-    iconIdle: 'text-white/40 group-hover:text-white/70',
-  },
+/**
+ * The demo's shell treatment, shared by the tenant app and the platform
+ * admin: the sidebar rides the shell gradient (shell-2 settling into shell)
+ * with the demo's nav states, and the topbar is the theme's glass strip.
+ * The two areas differ only in content, not in chrome.
+ */
+const CHROME = {
+  sidebar: 'border-r border-shell-edge/15 bg-shell-grad text-shell-ink',
+  topbar: 'border-line bg-[var(--vf-topbar)]',
+  menuButton: 'text-ink-muted hover:bg-ink/[0.06] hover:text-ink',
+  navActive:
+    'border-shell-edge/[0.28] bg-[linear-gradient(92deg,rgba(20,184,166,0.28),rgba(14,165,198,0.14))] text-[#EFFFF9]',
+  navIdle: 'border-transparent text-shell-mut hover:bg-white/[0.05] hover:text-shell-ink',
+  iconActive: 'text-[#EFFFF9]',
+  iconIdle: 'text-shell-mut group-hover:text-shell-ink',
 };
 
 interface SignedInShellProps {
   nav: ShellNavItem[];
-  /** Accessible name for the nav landmarks ("Main" / "Admin"). */
+  /** Accessible + visible name for the nav group ("Workspace" / "Platform"). */
   navLabel: string;
   theme: ShellTheme;
   /** Where the sidebar logo points ('/dashboard' or '/admin'). */
   homeHref: string;
-  /** Block under the logo: workspace name (app) or role pill (admin). */
+  /** Block under the logo: role pill (admin). */
   sidebarTop?: ReactNode;
   /** Block between the nav and the user card (admin's "Back to app"). */
   sidebarAboveUser?: ReactNode;
@@ -70,23 +52,21 @@ interface SignedInShellProps {
   mobileTitle?: ReactNode;
   /** Drawer header: workspace name with industry / live status as quiet subtext. */
   drawerHeader?: ReactNode;
-  /** The dashboard's soft radial glow behind page content. */
-  mainDecor?: boolean;
   children: ReactNode;
 }
 
 /**
- * The one signed-in chrome shared by the tenant app and the platform admin:
- * dark sidebar (logo, nav, user card pinned to the bottom) and a sticky
- * topbar on desktop. On small screens the sidebar gives way to a slim topbar
- * (menu button, logo mark, workspace name, avatar) and a slide-in drawer
- * carrying the same nav plus the identity block — no scrolling nav strip,
- * and the topbar pills stay on desktop where there is room for them.
+ * The one signed-in chrome shared by the tenant app and the platform admin,
+ * ported from the approved design demo: dark gradient sidebar (logo, demo
+ * nav states, user card pinned to the bottom) and a sticky glass topbar on
+ * desktop. On small screens the sidebar gives way to a slim topbar (menu
+ * button, logo mark, workspace name, avatar) and a slide-in drawer carrying
+ * the same nav plus the identity block — no scrolling nav strip.
  */
 export function SignedInShell({
   nav,
   navLabel,
-  theme,
+  theme: _theme,
   homeHref,
   sidebarTop,
   sidebarAboveUser,
@@ -94,11 +74,10 @@ export function SignedInShell({
   headerRight,
   mobileTitle,
   drawerHeader,
-  mainDecor = false,
   children,
 }: SignedInShellProps) {
   const pathname = usePathname();
-  const t = THEMES[theme];
+  const t = CHROME;
   const [drawerOpen, setDrawerOpen] = useState(false);
   const isActive = (item: ShellNavItem) =>
     item.exact ? pathname === item.href : pathname.startsWith(item.href);
@@ -119,45 +98,54 @@ export function SignedInShell({
           href={item.href}
           onClick={onNavigate}
           aria-current={active ? 'page' : undefined}
-          className={`group relative flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-all duration-150 ${
+          className={`group relative flex items-center gap-[11px] rounded-[10px] border px-3 py-2.5 text-[14.5px] font-semibold transition-all duration-200 ${
             active ? t.navActive : t.navIdle
           }`}
         >
           <span
             aria-hidden
-            className={`absolute left-0 top-1/2 h-5 w-[3px] -translate-y-1/2 rounded-r-full transition-opacity duration-150 ${t.accentBar} ${
+            className={`bg-grad absolute -left-3 bottom-[22%] top-[22%] w-[3px] rounded-[3px] transition-opacity duration-200 ${
               active ? 'opacity-100' : 'opacity-0'
             }`}
           />
-          <span className={`transition-colors duration-150 ${active ? t.iconActive : t.iconIdle}`}>{item.icon}</span>
+          <span className={`transition-colors duration-200 ${active ? t.iconActive : t.iconIdle}`}>{item.icon}</span>
           {item.label}
         </Link>
       );
     });
 
   return (
-    <div className="flex min-h-screen bg-paper">
+    <div className="vf-grid-bg flex min-h-screen bg-paper">
       {/* Sidebar */}
-      <aside className={`sticky top-0 hidden h-screen w-64 flex-col px-4 py-6 md:flex ${t.sidebar}`}>
-        <Link href={homeHref} className="px-2">
-          <Logo tone="light" animated />
-        </Link>
+      <aside className={`sticky top-0 hidden h-screen w-[268px] flex-col md:flex ${t.sidebar}`}>
+        <div className="px-5 pb-[18px] pt-[22px]">
+          <Link href={homeHref}>
+            <Logo tone="light" animated />
+          </Link>
+        </div>
 
-        {sidebarTop}
+        {sidebarTop && <div className="px-5">{sidebarTop}</div>}
 
-        <nav className="mt-6 flex flex-1 flex-col gap-0.5" aria-label={navLabel}>
+        <nav className="mt-1 flex flex-1 flex-col gap-0.5 overflow-y-auto px-3" aria-label={navLabel}>
+          <p
+            aria-hidden
+            className="px-2.5 pb-1.5 pt-3.5 font-mono text-[10px] font-semibold uppercase tracking-[0.14em] text-shell-faint"
+          >
+            {navLabel}
+          </p>
           {renderNavItems()}
         </nav>
 
-        {sidebarAboveUser}
-
-        <UserMenu />
+        <div className="px-4 pb-4 pt-3">
+          {sidebarAboveUser}
+          <UserMenu />
+        </div>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        {/* Topbar */}
+        {/* Topbar: the demo's glass strip over the workspace. */}
         <header
-          className={`sticky top-0 z-30 flex items-center justify-between gap-4 border-b px-6 py-3.5 backdrop-blur-md ${t.topbar}`}
+          className={`sticky top-0 z-30 flex items-center justify-between gap-3.5 border-b px-3.5 py-[11px] backdrop-blur-[14px] sm:px-7 sm:py-[13px] ${t.topbar}`}
         >
           <div className="flex min-w-0 items-center gap-3">
             <button
@@ -185,31 +173,21 @@ export function SignedInShell({
             <div className="min-w-0 md:hidden">{mobileTitle}</div>
           </div>
           <div className="flex shrink-0 items-center gap-3">
-            <div className="hidden md:flex">{headerRight}</div>
+            <div className="hidden items-center gap-3 md:flex">{headerRight}</div>
             <span className="flex md:hidden">
               <UserMenu variant="compact" />
             </span>
           </div>
         </header>
 
-        <main className="relative mx-auto w-full max-w-6xl flex-1 px-6 py-10">
-          {mainDecor ? (
-            <>
-              <div
-                aria-hidden
-                className="pointer-events-none absolute inset-x-0 top-0 h-48 bg-[radial-gradient(60%_100%_at_50%_0%,rgba(14,107,99,0.05),transparent)]"
-              />
-              <div className="relative">{children}</div>
-            </>
-          ) : (
-            children
-          )}
+        <main className="relative mx-auto w-full max-w-[1240px] flex-1 px-3.5 pb-24 pt-[18px] sm:px-7 sm:pb-[70px] sm:pt-[30px]">
+          {children}
         </main>
       </div>
 
       {/* Small-screen drawer: same nav as the sidebar, identity pinned below. */}
       <MobileDrawer open={drawerOpen} onClose={closeDrawer} label={navLabel} panelClassName={t.sidebar}>
-        <div className="flex items-center justify-between px-2">
+        <div className="flex items-center justify-between">
           <Link href={homeHref} onClick={closeDrawer}>
             <Logo tone="light" animated />
           </Link>
@@ -217,7 +195,7 @@ export function SignedInShell({
             type="button"
             onClick={closeDrawer}
             aria-label="Close menu"
-            className="flex h-9 w-9 items-center justify-center rounded-lg text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-shell-mut transition-colors hover:bg-white/[0.08] hover:text-shell-ink"
           >
             <svg
               viewBox="0 0 20 20"
@@ -234,7 +212,7 @@ export function SignedInShell({
 
         {drawerHeader && <div className="mt-6">{drawerHeader}</div>}
 
-        <nav className="mt-6 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto" aria-label={navLabel}>
+        <nav className="mt-4 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto" aria-label={navLabel}>
           {renderNavItems(closeDrawer)}
         </nav>
 
