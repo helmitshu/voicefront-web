@@ -570,6 +570,22 @@ export interface AdminAuditEntry {
   createdAt: string;
 }
 
+/** A ticket a customer filed through the in-app support agent (Adam). */
+export interface AdminSupportTicket {
+  id: string;
+  reference: string;
+  category: 'ISSUE' | 'BAD_CALL' | 'OTHER';
+  categoryLabel: string;
+  subject: string;
+  details: string;
+  status: 'OPEN' | 'RESOLVED';
+  createdAt: string;
+  updatedAt: string;
+  tenant: { id: string; companyName: string };
+  createdBy: { id: string; email: string; fullName: string };
+  call: { id: string; startedAt: string; callerNumber: string | null } | null;
+}
+
 export const AdminApi = {
   overview: (signal?: AbortSignal) =>
     api<{ overview: AdminOverview }>('/api/admin/overview', { signal }),
@@ -697,6 +713,16 @@ export const AdminApi = {
     api<{ assigned: DemoNumbers }>('/api/admin/demo/numbers', { method: 'PATCH', body: patch }),
   audit: (signal?: AbortSignal) =>
     api<{ entries: AdminAuditEntry[] }>('/api/admin/audit', { signal }),
+  /** Tickets customers filed through the in-app support agent (Adam). */
+  tickets: (params?: { status?: 'OPEN' | 'RESOLVED'; tenantId?: string }, signal?: AbortSignal) => {
+    const query = new URLSearchParams();
+    if (params?.status) query.set('status', params.status);
+    if (params?.tenantId) query.set('tenantId', params.tenantId);
+    const qs = query.toString();
+    return api<{ tickets: AdminSupportTicket[] }>(`/api/admin/tickets${qs ? `?${qs}` : ''}`, {
+      signal,
+    });
+  },
   team: (signal?: AbortSignal) =>
     api<{ admins: AdminTeamMember[] }>('/api/admin/team', { signal }),
   addTeamMember: (email: string, role: AdminRole) =>
@@ -1523,13 +1549,17 @@ export interface SupportChatMessage {
 
 export interface SupportPendingProposal {
   proposalId: string;
+  /** Which task confirming will carry out: apply a booking-window change,
+   *  or file a ticket with the VoiceFront team. */
+  kind: 'booking_window' | 'ticket';
   summary: string;
 }
 
 export interface SupportChatResponse {
   reply: string;
-  /** A booking-window change the agent proposed this turn, awaiting the
-   *  user's confirmation in the chat UI. Null when nothing is proposed. */
+  /** A task the agent proposed this turn (a booking-window change or a
+   *  ticket), awaiting the user's confirmation in the chat UI. Null when
+   *  nothing is proposed. */
   pendingProposal: SupportPendingProposal | null;
 }
 
@@ -1540,9 +1570,192 @@ export interface SupportApplyResponse {
   assistantMessage: string;
 }
 
+export interface SupportFileTicketResponse {
+  filed: boolean;
+  /** The reference the user can quote back, e.g. "VF-8KQ2XD". */
+  reference: string;
+  summary: string;
+  /** The agent's own confirmation line, shown as its next chat message. */
+  assistantMessage: string;
+}
+
 export const SupportApi = {
-  chat: (messages: SupportChatMessage[]) =>
-    api<SupportChatResponse>('/api/support/chat', { method: 'POST', body: { messages } }),
+  /** `page` is the app route the user is on; the API resolves it against
+   *  its own page map so the agent can answer about that page. */
+  chat: (messages: SupportChatMessage[], page?: string) =>
+    api<SupportChatResponse>('/api/support/chat', {
+      method: 'POST',
+      body: page ? { messages, page } : { messages },
+    }),
   apply: (proposalId: string) =>
     api<SupportApplyResponse>('/api/support/apply', { method: 'POST', body: { proposalId } }),
+  fileTicket: (proposalId: string) =>
+    api<SupportFileTicketResponse>('/api/support/file-ticket', {
+      method: 'POST',
+      body: { proposalId },
+    }),
+};
+
+/* ------------------------------ AI team ------------------------------ */
+
+export interface TeamMember {
+  slug: string;
+  name: string;
+  role: string;
+  avatarPath: string;
+  modelConfig: unknown;
+  statusLine: string;
+}
+
+export type TeamThreadType = 'DM' | 'GROUP' | 'CEO' | 'DISCUSS';
+
+export interface TeamThread {
+  id: string;
+  type: TeamThreadType;
+  title: string | null;
+  memberSlug: string | null;
+  topic: string | null;
+  decision: string | null;
+  decisionAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export type TeamMessageAuthorType = 'OWNER' | 'MEMBER' | 'CEO' | 'SYSTEM';
+
+export interface TeamMessage {
+  id: string;
+  threadId: string;
+  authorType: TeamMessageAuthorType;
+  authorSlug: string | null;
+  label: string | null;
+  body: string;
+  createdAt: string;
+}
+
+export type WorkItemStatus = 'QUEUED' | 'IN_PROGRESS' | 'DONE';
+
+export interface WorkItem {
+  id: string;
+  title: string;
+  detail: string | null;
+  ownerSlug: string;
+  status: WorkItemStatus;
+  sourceThreadId: string | null;
+  createdAt: string;
+}
+
+export interface TeamDraft {
+  id: string;
+  memberSlug: string;
+  kind: string;
+  title: string;
+  body: string;
+  createdAt: string;
+}
+
+export interface TeamToolLogEntry {
+  id: string;
+  memberSlug: string;
+  tool: string;
+  inputSummary: string | null;
+  resultSummary: string | null;
+  ok: boolean;
+  createdAt: string;
+}
+
+export interface FailureCase {
+  id: string;
+  title: string;
+  description: string;
+  callLogId: string | null;
+  createdAt: string;
+}
+
+export interface TeamToolInfo {
+  name: string;
+  tier: string;
+  description: string;
+  available: boolean;
+  reason?: string;
+}
+
+export const TeamApi = {
+  members: (signal?: AbortSignal) =>
+    api<{ members: TeamMember[] }>('/api/admin/team/members', { signal }),
+  threads: (signal?: AbortSignal) =>
+    api<{ threads: TeamThread[] }>('/api/admin/team/threads', { signal }),
+  createThread: (input: { type: TeamThreadType; memberSlug?: string }) =>
+    api<{ thread: TeamThread }>('/api/admin/team/threads', { method: 'POST', body: input }),
+  messages: (threadId: string, signal?: AbortSignal) =>
+    api<{ messages: TeamMessage[] }>(`/api/admin/team/threads/${threadId}/messages`, { signal }),
+  sendMessage: (threadId: string, body: string) =>
+    api<{ message: TeamMessage; reply?: TeamMessage }>(
+      `/api/admin/team/threads/${threadId}/messages`,
+      { method: 'POST', body: { body } },
+    ),
+  discuss: (input: { topic: string; memberSlugs?: string[] }) =>
+    api<{ thread: TeamThread; messages: TeamMessage[] }>('/api/admin/team/discuss', {
+      method: 'POST',
+      body: input,
+    }),
+  setDecision: (threadId: string, decision: string) =>
+    api<{ thread: TeamThread }>(`/api/admin/team/threads/${threadId}/decision`, {
+      method: 'POST',
+      body: { decision },
+    }),
+  workItems: (signal?: AbortSignal) =>
+    api<{ workItems: WorkItem[] }>('/api/admin/team/work-items', { signal }),
+  createWorkItem: (input: { title: string; detail?: string; ownerSlug: string }) =>
+    api<{ workItem: WorkItem }>('/api/admin/team/work-items', { method: 'POST', body: input }),
+  updateWorkItem: (id: string, status: WorkItemStatus) =>
+    api<{ workItem: WorkItem }>(`/api/admin/team/work-items/${id}`, {
+      method: 'PATCH',
+      body: { status },
+    }),
+  tools: (signal?: AbortSignal) =>
+    api<{ tools: TeamToolInfo[]; memberTools: Record<string, string[]> }>('/api/admin/team/tools', {
+      signal,
+    }),
+  invokeTool: (input: { memberSlug: string; tool: string; args: unknown }) =>
+    api<{ ok: true; result: unknown }>('/api/admin/team/tools/invoke', {
+      method: 'POST',
+      body: input,
+    }),
+  toolLog: (signal?: AbortSignal) =>
+    api<{ entries: TeamToolLogEntry[] }>('/api/admin/team/tool-log', { signal }),
+  drafts: (signal?: AbortSignal) =>
+    api<{ drafts: TeamDraft[] }>('/api/admin/team/drafts', { signal }),
+  failureCases: (signal?: AbortSignal) =>
+    api<{ cases: FailureCase[] }>('/api/admin/team/failure-cases', { signal }),
+  abilityCallScoring: (limit?: number) =>
+    api<{ scored: number; passed: number; failed: number; draftsCreated: number }>(
+      '/api/admin/team/abilities/call-scoring',
+      { method: 'POST', body: limit ? { limit } : {} },
+    ),
+  abilityLeakRadar: () =>
+    api<{ leaks: Array<{ kind: string; title: string; detail: string }>; workItemsCreated: number }>(
+      '/api/admin/team/abilities/leak-radar',
+      { method: 'POST', body: {} },
+    ),
+  abilityUptime: () =>
+    api<{
+      checks: Array<{ name: string; url: string; ok: boolean; status: number | null; evidence: string }>;
+      workItemCreated: boolean;
+    }>('/api/admin/team/abilities/uptime', { method: 'POST', body: {} }),
+  abilityRedTeam: (plan: string) =>
+    api<{ draft: TeamDraft }>('/api/admin/team/abilities/red-team', {
+      method: 'POST',
+      body: { plan },
+    }),
+  abilityDossier: (input: { leadId?: string; websiteUrl?: string; businessName?: string }) =>
+    api<{ draft: TeamDraft }>('/api/admin/team/abilities/dossier', {
+      method: 'POST',
+      body: input,
+    }),
+  abilityBoardPack: () =>
+    api<{ draft: TeamDraft }>('/api/admin/team/abilities/board-pack', {
+      method: 'POST',
+      body: {},
+    }),
 };
