@@ -6,6 +6,7 @@ import { SignedInShell, type ShellNavItem } from '@/components/app-shell/SignedI
 import { PresetSwitch } from '@/components/app-shell/ThemePicker';
 import { ThemeProvider } from '@/lib/theme';
 import { INDUSTRY_LABELS } from '@/domain/prompt-templates';
+import { SupportWidget } from '@/components/support/SupportWidget';
 
 interface NavItem extends ShellNavItem {
   /** When true, only show this item for trades (CONSTRUCTION) workspaces. */
@@ -176,6 +177,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
       <ThemeProvider>
         <div className="theme-root">
           <DashboardChrome>{children}</DashboardChrome>
+          {/* The support agent floats above every workspace page (fixed
+              positioning, offset clear of the phone bottom tab bar). */}
+          <SupportWidget />
         </div>
       </ThemeProvider>
     </RequireAuth>
