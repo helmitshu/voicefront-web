@@ -119,6 +119,35 @@ const EnvSchema = z.object({
    * gates the whole demo surface.
    */
   PERSONALIZED_DEMO_ENABLED: z.string().optional(),
+
+  // ── Stripe billing (Build 2) ─────────────────────────────────────────────
+  /**
+   * Stripe secret key (sk_live_ or sk_test_). Server-side only; the web app
+   * never sees it because checkout and the customer portal are hosted
+   * redirects. Optional — when unset, the billing surface refuses cleanly
+   * with BILLING_NOT_CONFIGURED and the rest of the API is unaffected.
+   */
+  STRIPE_SECRET_KEY: z.string().optional(),
+  /**
+   * Signing secret (whsec_) for the /api/billing/webhook endpoint. The
+   * webhook verifies every delivery against the raw request body with this
+   * secret and processes nothing without it.
+   */
+  STRIPE_WEBHOOK_SECRET: z.string().optional(),
+  /**
+   * Price ids (price_...) created in the Stripe dashboard, one per tier and
+   * price book. The charged price is resolved ONLY from the tenant's
+   * server-owned pricingRegion through these ids — no client input can
+   * select one. A missing id for the requested tier and region makes
+   * checkout refuse with BILLING_NOT_CONFIGURED.
+   */
+  STRIPE_PRICE_STARTER_USD: z.string().optional(),
+  STRIPE_PRICE_STARTER_CAD: z.string().optional(),
+  STRIPE_PRICE_CORE_USD: z.string().optional(),
+  STRIPE_PRICE_CORE_CAD: z.string().optional(),
+  /** One-time white glove setup fee, charged on the conversion invoice. */
+  STRIPE_PRICE_WHITE_GLOVE_USD: z.string().optional(),
+  STRIPE_PRICE_WHITE_GLOVE_CAD: z.string().optional(),
 });
 
 export type Env = z.infer<typeof EnvSchema>;
