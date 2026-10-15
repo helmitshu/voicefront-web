@@ -139,6 +139,8 @@ export type ThreadPending = {
   memberSlugs: string[];
   /** When the next hidden reply lands, or null when nothing is pending. */
   nextVisibleAt: Date | null;
+  /** A discussion debate is still running for this thread. */
+  active: boolean;
 };
 
 /**
@@ -163,7 +165,7 @@ export async function getThreadView(
     waiting.length > 0
       ? new Date(Math.min(...waiting.map((m) => (m.visibleAt as Date).getTime())))
       : null;
-  return { messages, pending: { memberSlugs, nextVisibleAt } };
+  return { messages, pending: { memberSlugs, nextVisibleAt, active: discussionActive(threadId) } };
 }
 
 type MessageRow = {
@@ -180,19 +182,18 @@ type MessageRow = {
 /* ---------------------------- human pacing ------------------------------ */
 
 /**
- * Member replies land at a human pace, not machine pace. A reply is
- * stored right away (so history and summaries see the real conversation)
- * but carries a visibleAt moment and stays out of thread reads until it
- * passes. The delay is a thinking beat plus typing time at roughly 18
- * characters per second, clamped so short replies still feel considered
- * and long ones never stall the room. Pacing never alters content.
+ * Member replies carry a visibleAt moment and stay out of thread reads
+ * until it passes, so the room can show who is "typing". The delay is
+ * only a breath: a small beat plus a fast typing shimmer, capped at
+ * about two seconds. (An earlier build paced replies at reading speed,
+ * 3 to 25 seconds each with a 4 second stagger; the owner experienced
+ * that as a slow, broken room, and he was right. Teams replies land
+ * when they are ready.) Pacing never alters content.
  */
-const PACING_BASE_MS = 1_500;
-const PACING_CHARS_PER_SECOND = 18;
-const PACING_MIN_MS = 3_000;
-const PACING_MAX_MS = 25_000;
-/** Minimum gap between one member reply becoming visible and the next. */
-const PACING_STAGGER_MS = 4_000;
+const PACING_BASE_MS = 350;
+const PACING_CHARS_PER_SECOND = 90;
+const PACING_MIN_MS = 500;
+const PACING_MAX_MS = 2_000;
 
 export function pacedVisibleAt(body: string, notBefore?: Date | null): Date {
   const typingMs = (body.length / PACING_CHARS_PER_SECOND) * 1_000;
@@ -403,6 +404,31 @@ export async function postMessage(
 
 /* ------------------------------- discuss -------------------------------- */
 
+/**
+ * Discussions in flight, by thread id. Starting a discussion returns
+ * as soon as the thread and the owner's topic are stored; the debate
+ * runs in the background and its replies land in the thread as they
+ * are generated, where the room's polling picks them up. (The first
+ * build ran the whole debate inside the start request: eight or more
+ * sequential model conversations before any response, which on a
+ * phone read as "the discussion doesn't start".) This registry is
+ * what lets the thread view report a live discussion, and what tests
+ * await. It is deliberately in-process: the API runs as a single
+ * instance, and a restart mid-discussion simply ends the run, with
+ * the thread keeping whatever replies already landed.
+ */
+const runningDiscussions = new Map<string, Promise<void>>();
+
+export function discussionActive(threadId: string): boolean {
+  return runningDiscussions.has(threadId);
+}
+
+/** Settles when the background debate for a thread ends. Test seam. */
+export async function awaitDiscussion(threadId: string): Promise<void> {
+  const run = runningDiscussions.get(threadId);
+  if (run) await run.catch(() => undefined);
+}
+
 export async function startDiscussion(params: {
   topic: string;
   memberSlugs?: string[];
@@ -418,31 +444,46 @@ export async function startDiscussion(params: {
   const thread = await prisma.teamThread.create({
     data: { type: 'DISCUSS', title: topic.slice(0, 120), topic },
   });
-  const messages: MessageRow[] = [];
-  messages.push(
-    await storeMessage({ threadId: thread.id, authorType: 'OWNER', body: topic }),
-  );
+  const topicMessage = await storeMessage({ threadId: thread.id, authorType: 'OWNER', body: topic });
 
+  const run = runDiscussion({ threadId: thread.id, seated, all, topic }).catch((err) => {
+    console.warn(
+      `[team] Discussion run failed (thread ${thread.id}): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  });
+  runningDiscussions.set(thread.id, run);
+  void run.finally(() => {
+    if (runningDiscussions.get(thread.id) === run) runningDiscussions.delete(thread.id);
+  });
+  return { thread, messages: [topicMessage] };
+}
+
+async function runDiscussion(params: {
+  threadId: string;
+  seated: MemberRow[];
+  all: MemberRow[];
+  topic: string;
+}): Promise<void> {
+  const { threadId, seated, all, topic } = params;
+  const messages: MessageRow[] = [];
   const names = new Map(all.map((m) => [m.slug, m.name]));
-  // Replies surface one person at a time: each member's visibleAt is
-  // chained at least PACING_STAGGER_MS after the previous reply's, so
-  // the thread reads like people taking turns, not a wall landing at
-  // once.
-  let nextNotBefore: Date | null = null;
   // Failure isolation: one member's model failing (after the retry
   // layer has had its chances) must not kill the whole discussion.
   // The failed member simply has no message that round; the names are
   // collected so the auto summary can say so plainly.
   const failedToAnswer = new Map<string, string>();
-  // Who actually spoke, in the order they first answered. The auto
-  // summary borrows the first answerer's key, so it does not have to
-  // run on the shared pool (which the members' own traffic may have
-  // drained by the time the discussion ends).
+  // Who actually spoke. The auto summary borrows the first seated
+  // answerer's key, so it does not have to run on the shared pool
+  // (which the members' own traffic may have drained by the time the
+  // discussion ends).
   const answered = new Set<string>();
-  const ask = async (member: MemberRow, extra: string): Promise<MessageRow | null> => {
+  const ask = async (
+    member: MemberRow,
+    extra: string,
+    snapshot: MessageRow[],
+  ): Promise<MessageRow | null> => {
     try {
-      const history = (await listMessages(thread.id)) as MessageRow[];
-      const contents = toContents(history.slice(-HISTORY_WINDOW), member.slug, names);
+      const contents = toContents(snapshot.slice(-HISTORY_WINDOW), member.slug, names);
       contents.push({ role: 'user', parts: [{ text: extra }] });
       const text = await runMemberConversation({
         model: member.modelConfig,
@@ -451,46 +492,57 @@ export async function startDiscussion(params: {
         contents,
         functionDeclarations: geminiDeclarationsForMember(member.slug),
         executeTool: (name, args) =>
-          invokeTeamTool({ memberSlug: member.slug, threadId: thread.id }, name, args),
+          invokeTeamTool({ memberSlug: member.slug, threadId }, name, args),
       });
       const stored = await storeMessage({
-        threadId: thread.id,
+        threadId,
         authorType: 'MEMBER',
         authorSlug: member.slug,
         body: text,
-        visibleAt: pacedVisibleAt(text, nextNotBefore),
+        visibleAt: pacedVisibleAt(text),
       });
-      if (stored.visibleAt) {
-        nextNotBefore = new Date(stored.visibleAt.getTime() + PACING_STAGGER_MS);
-      }
       answered.add(member.slug);
       messages.push(stored);
       return stored;
     } catch (err) {
       console.warn(
-        `[team] Discussion turn failed for ${member.slug} (thread ${thread.id}): ${err instanceof Error ? err.message : String(err)}`,
+        `[team] Discussion turn failed for ${member.slug} (thread ${threadId}): ${err instanceof Error ? err.message : String(err)}`,
       );
       failedToAnswer.set(member.slug, member.name);
       return null;
     }
   };
 
-  // Round 1: positions.
-  let round1Answers = 0;
-  for (const member of seated) {
-    if (await ask(member, `Discussion topic: ${topic}\n\nGive your position on this topic, in your seat, in a few short lines.`)) {
-      round1Answers += 1;
-    }
-  }
-  // A discussion where nobody could speak is a failure, honestly
-  // reported; anything short of that continues with who is left.
+  // Round 1: positions. The seated members answer in parallel from
+  // the same snapshot (the topic alone), so the round takes as long
+  // as the slowest member, not the sum of all of them.
+  const afterTopic = (await listMessages(threadId)) as MessageRow[];
+  const round1 = await Promise.all(
+    seated.map((member) =>
+      ask(
+        member,
+        `Discussion topic: ${topic}\n\nGive your position on this topic, in your seat, in a few short lines.`,
+        afterTopic,
+      ),
+    ),
+  );
+  const round1Answers = round1.filter((m) => m !== null).length;
+  // A discussion where nobody could speak is a failure, said plainly
+  // in the thread itself, where the owner is already looking; anything
+  // short of that continues with who is left.
   if (round1Answers === 0) {
-    throw new HttpError(502, 'No team member could answer just now. Please try again.', 'MODEL_ERROR');
+    await storeMessage({
+      threadId,
+      authorType: 'SYSTEM',
+      body: 'No team member could answer just now. Please try again.',
+    });
+    return;
   }
-  // Round 2: each member must agree with one point and challenge another.
-  for (const member of seated) {
-    await ask(member, DISCUSS_ROUND2_INSTRUCTION);
-  }
+  // Round 2: each member must agree with one point and challenge
+  // another. Same treatment: one shared snapshot (the topic plus every
+  // round 1 position), also answered in parallel.
+  const afterRound1 = (await listMessages(threadId)) as MessageRow[];
+  await Promise.all(seated.map((member) => ask(member, DISCUSS_ROUND2_INSTRUCTION, afterRound1)));
 
   // Auto summary: authored SYSTEM, labeled, never a member's voice, and
   // it never touches the Decision slot. The summary step is told which
@@ -503,7 +555,7 @@ export async function startDiscussion(params: {
   // answerer to borrow from it keeps the shared chain (defensive only:
   // the round 1 gate above has already thrown when nobody answered).
   const failedNames = [...failedToAnswer.values()];
-  const history = (await listMessages(thread.id)) as MessageRow[];
+  const history = (await listMessages(threadId)) as MessageRow[];
   const transcript = history
     .map((m) => `${m.authorType === 'MEMBER' ? (names.get(m.authorSlug ?? '') ?? m.authorSlug) : m.authorType}: ${m.body}`)
     .join('\n');
@@ -525,7 +577,7 @@ export async function startDiscussion(params: {
     summaryText = partsToText(parts);
   } catch (err) {
     console.warn(
-      `[team] Discussion summary failed (thread ${thread.id}): ${err instanceof Error ? err.message : String(err)}`,
+      `[team] Discussion summary failed (thread ${threadId}): ${err instanceof Error ? err.message : String(err)}`,
     );
   }
   if (!summaryText) {
@@ -535,15 +587,12 @@ export async function startDiscussion(params: {
   }
   messages.push(
     await storeMessage({
-      threadId: thread.id,
+      threadId,
       authorType: 'SYSTEM',
       label: 'AUTO_SUMMARY',
       body: summaryText,
     }),
   );
-
-  const finalThread = await getThread(thread.id);
-  return { thread: finalThread, messages };
 }
 
 /**
