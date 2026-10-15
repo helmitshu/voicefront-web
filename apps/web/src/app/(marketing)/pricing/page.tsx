@@ -2,9 +2,9 @@ import type { Metadata } from 'next';
 import { PricingSection, RoiSection, FaqSection, FinalCtaSection } from '@/components/marketing/sections';
 
 export const metadata: Metadata = {
-  title: 'Pricing — Priced around your calls',
+  title: 'Pricing: Two plans, priced in the open',
   description:
-    'VoiceFront is priced around your call volume, not a one-size plan. See what missed calls are costing you with the ROI calculator, then get a custom quote within a day.',
+    'Starter After-Hours and Core 24/7, in CAD and USD. $0 setup, a 7-day free trial on both plans, and cancel anytime. See what missed calls are costing your clinic with the calculator.',
 };
 
 export default function PricingPage() {
