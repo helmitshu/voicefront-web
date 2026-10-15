@@ -11,7 +11,7 @@ import {
 export const metadata: Metadata = {
   title: 'Product — How VoiceFront handles every call',
   description:
-    'See exactly how VoiceFront handles a call end to end: books real appointments, never double-books, transfers when it matters, and answers from your own docs — all on your calendar.',
+    'See exactly how VoiceFront handles a call end to end: books real appointments, never double-books, transfers when it matters, and answers from your own clinic details, all on your VoiceFront calendar.',
 };
 
 export default function ProductPage() {
