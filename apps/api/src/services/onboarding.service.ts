@@ -3,6 +3,7 @@ import { prisma } from '../lib/prisma';
 import { HttpError } from '../lib/http';
 import { claimNumberForTenant } from './phone-pool.service';
 import { createAssistantForTenant } from './vapi.service';
+import { assertBillingAllowsActivation } from './billing.service';
 
 export const ONBOARDING_STEPS = ['PROFILE', 'PROMPT', 'VOICE_TEST'] as const;
 export type OnboardingStep = (typeof ONBOARDING_STEPS)[number];
@@ -102,6 +103,12 @@ export async function activate(tenantId: string): Promise<OnboardingStatus> {
     throw new HttpError(409, 'Complete all setup steps before going live.', 'STEP_OUT_OF_ORDER');
   }
   if (status.isActive) return status;
+
+  // Billing gate (Build 2): a started trial (or a pre-launch exempt
+  // workspace) is required before anything is provisioned. Already-active
+  // tenants returned above, so a PAST_DUE clinic mid-retry is never
+  // bounced by re-clicking activate.
+  await assertBillingAllowsActivation(tenantId);
 
   // Self-serve number provisioning: claim a pooled number on the way live.
   // Best-effort — if the pool is empty the customer still activates, and the
