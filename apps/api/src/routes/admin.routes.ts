@@ -263,7 +263,7 @@ adminRouter.get(
     });
     if (!tenant) throw new HttpError(404, 'Workspace not found.', 'NOT_FOUND');
 
-    const [recentCalls, upcomingAppointments, usage] = await Promise.all([
+    const [recentCalls, upcomingAppointments, usage, subscription] = await Promise.all([
       prisma.callLog.findMany({
         where: { tenantId: tenant.id },
         orderBy: { startedAt: 'desc' },
@@ -294,6 +294,7 @@ adminRouter.get(
         },
       }),
       getMonthlyUsage(tenant.id, tenant.monthlyMinuteLimit),
+      prisma.subscription.findUnique({ where: { tenantId: tenant.id } }),
     ]);
 
     res.json({
@@ -312,6 +313,22 @@ adminRouter.get(
           : null,
         monthlyMinuteLimit: tenant.monthlyMinuteLimit,
         usage,
+        /** Stripe mirror (Build 2), so support never needs the dashboard. */
+        billingExempt: tenant.billingExempt,
+        subscription: subscription
+          ? {
+              tier: subscription.tier,
+              status: subscription.status,
+              pricingRegion: subscription.pricingRegion,
+              stripeCustomerId: subscription.stripeCustomerId,
+              stripeSubscriptionId: subscription.stripeSubscriptionId,
+              trialEnd: subscription.trialEnd ? subscription.trialEnd.toISOString() : null,
+              currentPeriodEnd: subscription.currentPeriodEnd
+                ? subscription.currentPeriodEnd.toISOString()
+                : null,
+              cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
+            }
+          : null,
         blocked: tenant.isBlocked,
         deletedAt: tenant.deletedAt ? tenant.deletedAt.toISOString() : null,
         multiProviderEnabled: tenant.multiProviderEnabled,
