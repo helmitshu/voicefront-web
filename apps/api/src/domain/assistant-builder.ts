@@ -132,7 +132,15 @@ export interface TransientAssistant {
   endCallFunctionEnabled?: boolean;
   /** Spoken-phrase fallbacks that also trigger a hang-up. */
   endCallPhrases?: string[];
-  metadata: { tenantId: string; channel: CallChannel; demoSessionId?: string };
+  metadata: {
+    tenantId: string;
+    channel: CallChannel;
+    demoSessionId?: string;
+    /** Simulated-patient call runs (Adam's proofs and drills): the webhook
+     * captures both legs by this run id instead of writing tenant calls. */
+    simulationRunId?: string;
+    simulationLeg?: 'patient' | 'receptionist';
+  };
 }
 
 /**
