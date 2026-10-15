@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { expandBookingWindow } from './support-agent.service';
+import {
+  CONFIDENTIALITY_BLOCK,
+  buildSupportSystemText,
+  expandBookingWindow,
+  resolveSupportPage,
+} from './support-agent.service';
 import { defaultBusinessHours, type BusinessHours } from '../domain/agent-config';
 
 /**
@@ -83,5 +88,81 @@ describe('expandBookingWindow', () => {
       allowLockout: true,
     });
     expect(Object.values(hours).every((d) => !d.enabled)).toBe(true);
+  });
+});
+
+/* ------------------------- v2: page context ------------------------------ */
+
+describe('resolveSupportPage', () => {
+  it('resolves a known route', () => {
+    expect(resolveSupportPage('/dashboard/calls')?.name).toBe('Calls');
+    expect(resolveSupportPage('/dashboard/settings')?.name).toBe('Settings');
+    expect(resolveSupportPage('/dashboard')?.name).toBe('Dashboard');
+  });
+
+  it('resolves a call detail route to the Calls page', () => {
+    expect(resolveSupportPage('/dashboard/calls/abc123')?.name).toBe('Calls');
+  });
+
+  it('normalises a trailing slash', () => {
+    expect(resolveSupportPage('/dashboard/calendar/')?.name).toBe('Calendar');
+  });
+
+  it('returns null for unknown routes and junk input', () => {
+    expect(resolveSupportPage('/pricing')).toBeNull();
+    expect(resolveSupportPage('/dashboard/nope')).toBeNull();
+    expect(resolveSupportPage('')).toBeNull();
+    expect(resolveSupportPage(undefined)).toBeNull();
+    expect(resolveSupportPage(null)).toBeNull();
+  });
+
+  it('is lenient about a missing leading slash', () => {
+    expect(resolveSupportPage('dashboard/calls')?.name).toBe('Calls');
+  });
+});
+
+/* ------------------- v2: prompt assembly (sealed lips) ------------------- */
+
+describe('buildSupportSystemText', () => {
+  const base = {
+    companyName: 'Alpha Dental',
+    industry: 'CLINIC',
+    receptionistName: 'Maya',
+    timezone: 'America/Toronto',
+    currentHoursText: 'Monday to Friday 8 AM to 5 PM',
+    page: null,
+  };
+
+  it('always carries the confidentiality block', () => {
+    const prompt = buildSupportSystemText(base);
+    expect(prompt).toContain(CONFIDENTIALITY_BLOCK);
+    expect(CONFIDENTIALITY_BLOCK).toContain('CONFIDENTIALITY (never break)');
+    expect(CONFIDENTIALITY_BLOCK).toContain('internal pricing, margins, strategy, or roadmaps');
+    expect(CONFIDENTIALITY_BLOCK).toContain('vendors, technology, models, or infrastructure');
+    expect(CONFIDENTIALITY_BLOCK).toContain('built, trained, or prompted');
+    expect(CONFIDENTIALITY_BLOCK).toContain('any other customer, account, or their data');
+  });
+
+  it('names the page the user is on when one is resolved', () => {
+    const prompt = buildSupportSystemText({
+      ...base,
+      page: resolveSupportPage('/dashboard/calls'),
+    });
+    expect(prompt).toContain('CURRENT PAGE:');
+    expect(prompt).toContain('the Calls page');
+    expect(prompt).toContain('anchor answers to that page first');
+  });
+
+  it('adds no page line when no page is resolved', () => {
+    const prompt = buildSupportSystemText(base);
+    expect(prompt).not.toContain('CURRENT PAGE:');
+  });
+
+  it('teaches the ticket flow and task reports', () => {
+    const prompt = buildSupportSystemText(base);
+    expect(prompt).toContain('propose_ticket');
+    expect(prompt).toContain('list_recent_calls');
+    expect(prompt).toContain('Task reports:');
+    expect(prompt).toContain('Never add promises about response times');
   });
 });
