@@ -136,7 +136,8 @@ const AGENT_RULES = [
   '- Simulated calls use a few minutes of real call time on the platform line and are capped per day. The proposal summary states the cost and the cap; never run one without the user\'s confirmation, and relay the cap message plainly when a propose is refused.',
   '- If asked whether you are a real person or an AI, answer plainly: you are an AI assistant from VoiceFront Customer Care. Never claim to be human.',
   '- For any question about whether calendar sync, SMS, on-call dispatch, a service-area check, or missed-call text-back is active for THIS workspace, call get_workspace_state first and answer from its resolved effective fields. The general product description is not evidence for this account.',
-  '- For a call-quality assessment, call list_calls_in_range for the period, rank the scored calls from lowest success score upward while also weighing the outcome, then call get_call_details for the worst few before summarizing. If a transcript is missing or empty, say the transcript is unavailable. Base every claim only on the returned summary, outcome, score, and transcript.',
+  '- For a call-quality assessment or any whole-log question (analyze my calls, what issues need addressing, how is she doing), call analyze_call_quality FIRST for the period: it returns totals, outcome, intent and urgency patterns, the average success score, and the worst calls with their full summaries and transcripts in one pass. Summarize from that digest. Call get_call_details afterwards only for a specific call the user names, or one the digest flags that you need in full. If a transcript is missing or empty, say the transcript is unavailable. Base every claim only on the returned data.',
+  '- When you need details on several specific calls, request them together in one response (several get_call_details calls at once) instead of one call per reply; they all run in the same round.',
   '- Booking window flow: when the user asks for a change, call propose_booking_window first. Then show the user the returned summary and ask them to confirm (they can tap Confirm or say yes). NEVER say a change is in effect until apply_booking_window has returned status "applied".',
   '- If the user confirms a pending change in words, call apply_booking_window with the proposalId from the propose result.',
   '- Ticket flow: when the user reports a problem, gather a short subject and the details in their own words, then call propose_ticket. If the report is about a specific call (the receptionist handled a call badly), first call list_recent_calls, work out with the user which call they mean, and pass that call\'s id as callLogId with category BAD_CALL. Then show the returned summary and ask them to confirm (they can tap "File this ticket" or say yes). NEVER say a ticket is filed until file_ticket has returned a reference.',
@@ -759,6 +760,138 @@ async function toolGetCallDetails(
     transcript: call.transcript,
     transcriptAvailable,
     structuredData: call.structuredData,
+  };
+}
+
+/* ------------------------- call quality digest -------------------------- */
+
+export interface AnalyzeCallQualityInput {
+  startDate?: string;
+  endDate?: string;
+}
+
+/**
+ * One digest pass over at most this many calls (newest first). The digest
+ * is computed in code precisely so a whole-log question costs the model a
+ * single tool round instead of a list call plus one detail fetch per call
+ * (the pattern that used to exhaust the turn cap and die as MODEL_LOOP).
+ */
+const ANALYZE_MAX_CALLS = 500;
+const DIGEST_WORST_CALL_LIMIT = 5;
+/** Each worst-call transcript in the digest is capped at this length. */
+const DIGEST_TRANSCRIPT_MAX_CHARS = 4000;
+
+function countValues(values: Array<string | null | undefined>): Array<{ value: string; count: number }> {
+  const counts = new Map<string, number>();
+  for (const raw of values) {
+    const key = raw && raw.trim() ? raw : 'UNRECORDED';
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return [...counts.entries()]
+    .map(([value, count]) => ({ value, count }))
+    .sort((a, b) => b.count - a.count || a.value.localeCompare(b.value));
+}
+
+/**
+ * The whole-log quality digest, computed server-side in one pass: totals,
+ * outcome/intent/urgency distributions, score coverage and average, and
+ * the lowest-scored calls with their summaries and (bounded) transcripts
+ * read internally. The model summarizes from this single result.
+ */
+async function toolAnalyzeCallQuality(
+  tenantId: string,
+  timezone: string,
+  input: AnalyzeCallQualityInput,
+): Promise<ToolResult> {
+  const { start, end } = resolveCallRange(input, timezone);
+  const rows = await prisma.callLog.findMany({
+    where: { tenantId, startedAt: { gte: start, lt: end } },
+    orderBy: { startedAt: 'desc' },
+    take: ANALYZE_MAX_CALLS,
+    select: {
+      id: true,
+      startedAt: true,
+      status: true,
+      outcome: true,
+      intent: true,
+      urgency: true,
+      appointmentBooked: true,
+      successScore: true,
+    },
+  });
+
+  const scored = rows.filter((r) => typeof r.successScore === 'number');
+  const averageSuccessScore =
+    scored.length > 0
+      ? Math.round((scored.reduce((sum, r) => sum + (r.successScore ?? 0), 0) / scored.length) * 10) / 10
+      : null;
+
+  // Lowest scores first; ties go to the most recent call, so the digest
+  // leads with the freshest problems.
+  const worst = [...scored]
+    .sort(
+      (a, b) =>
+        (a.successScore ?? 0) - (b.successScore ?? 0) || b.startedAt.getTime() - a.startedAt.getTime(),
+    )
+    .slice(0, DIGEST_WORST_CALL_LIMIT);
+
+  let worstCalls: ToolResult[] = [];
+  if (worst.length > 0) {
+    const details = await prisma.callLog.findMany({
+      where: { tenantId, id: { in: worst.map((w) => w.id) } },
+      select: {
+        id: true,
+        callerNumber: true,
+        channel: true,
+        endedReason: true,
+        durationSeconds: true,
+        summary: true,
+        transcript: true,
+        structuredData: true,
+      },
+    });
+    const byId = new Map(details.map((d) => [d.id, d]));
+    worstCalls = worst.map((w) => {
+      const detail = byId.get(w.id);
+      const transcript = typeof detail?.transcript === 'string' ? detail.transcript : null;
+      const transcriptAvailable = !!transcript && transcript.trim().length > 0;
+      return {
+        id: w.id,
+        when: formatCallWhen(w.startedAt, timezone),
+        startedAt: w.startedAt.toISOString(),
+        outcome: w.outcome,
+        intent: w.intent,
+        urgency: w.urgency,
+        successScore: w.successScore,
+        callerNumber: detail?.callerNumber ?? null,
+        callerName: callerNameOf(detail?.structuredData),
+        channel: detail?.channel ?? null,
+        endedReason: detail?.endedReason ?? null,
+        durationSeconds: detail?.durationSeconds ?? null,
+        summary: detail?.summary ?? null,
+        transcript: transcriptAvailable ? transcript!.slice(0, DIGEST_TRANSCRIPT_MAX_CHARS) : null,
+        transcriptTruncated: transcriptAvailable && transcript!.length > DIGEST_TRANSCRIPT_MAX_CHARS,
+        transcriptAvailable,
+      };
+    });
+  }
+
+  return {
+    timezone,
+    range: { start: start.toISOString(), endExclusive: end.toISOString() },
+    successScoreMeaning: SUCCESS_SCORE_MEANING,
+    totalCalls: rows.length,
+    analysisCapped: rows.length >= ANALYZE_MAX_CALLS,
+    analysisCap: ANALYZE_MAX_CALLS,
+    scoredCalls: scored.length,
+    unscoredCalls: rows.length - scored.length,
+    averageSuccessScore,
+    bookedCalls: rows.filter((r) => r.appointmentBooked === true).length,
+    outcomeCounts: countValues(rows.map((r) => r.outcome)),
+    intentCounts: countValues(rows.map((r) => r.intent)),
+    urgencyCounts: countValues(rows.map((r) => r.urgency)),
+    worstCalls,
+    worstCallTranscriptsCappedAtChars: DIGEST_TRANSCRIPT_MAX_CHARS,
   };
 }
 
@@ -1498,12 +1631,13 @@ export async function applyPendingKnowledge(params: {
 
 const GEMINI_MODEL = 'gemini-3.8-flash';
 const GEMINI_GENERATE_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
+const GEMINI_STREAM_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:streamGenerateContent?alt=sse`;
 const MODEL_TIMEOUT_MS = 30_000;
 const MODEL_DEADLINE_MS = 45_000;
 const MODEL_MAX_ATTEMPTS = 3;
 const MODEL_RETRYABLE_STATUSES = new Set([429, 503]);
 const MODEL_RETRY_BACKOFF_MS = [500, 1500];
-const MAX_MODEL_TURNS = 6;
+const MAX_MODEL_TURNS = 10;
 
 function modelRetryDelay(attempt: number): number {
   return MODEL_RETRY_BACKOFF_MS[Math.min(attempt, MODEL_RETRY_BACKOFF_MS.length - 1)] ?? 500;
@@ -1611,6 +1745,21 @@ const TOOL_DECLARATIONS = [
         callLogId: { type: 'STRING', description: 'The call id returned by a call list tool.' },
       },
       required: ['callLogId'],
+    },
+  },
+  {
+    name: 'analyze_call_quality',
+    description:
+      "Analyzes THIS workspace's call quality for a date range in ONE server-side pass: total calls, outcome, intent and urgency patterns, how many calls were scored, the average success score, and the five lowest-scored calls with their full summaries and transcripts (each transcript capped at 4000 characters, flagged when truncated). Use this FIRST for any whole-log quality question (analyze my calls, what issues need addressing, how is she doing); call get_call_details afterwards only for a specific call the user names. Use startDate and endDate as YYYY-MM-DD (read as whole days in the workspace timezone) or ISO date-times; when omitted, the range is the last 30 days.",
+    parameters: {
+      type: 'OBJECT',
+      properties: {
+        startDate: { type: 'STRING', description: 'Inclusive range start, YYYY-MM-DD or ISO date-time.' },
+        endDate: {
+          type: 'STRING',
+          description: 'Range end, YYYY-MM-DD (the whole day is included) or ISO date-time.',
+        },
+      },
     },
   },
   {
@@ -1839,6 +1988,257 @@ async function callGemini(params: {
   );
 }
 
+/* ------------------------- streamed model call -------------------------- */
+
+/** What the streaming chat pipeline reports while a turn runs: a friendly
+ *  status label while tools execute, and reply text as it is generated. */
+export interface SupportChatStreamSink {
+  status: (label: string) => void;
+  delta: (text: string) => void;
+}
+
+/**
+ * The provider refused streaming (or the stream died) BEFORE anything
+ * reached the user: no event consumed, no text forwarded. The turn then
+ * falls back to the plain non-streamed call, which applies its own retry
+ * discipline and honest errors. Once any event has been consumed this is
+ * never thrown: a stream that breaks mid-flight is a MODEL_ERROR instead.
+ */
+class StreamUnavailableError extends Error {}
+
+/**
+ * Short human labels for the widget's status line while a tool runs.
+ * Friendly on purpose: they name the job, never the tool.
+ */
+const TOOL_STATUS_LABELS: Record<string, string> = {
+  analyze_call_quality: 'Analyzing your calls',
+  get_call_details: 'Reading a call',
+  list_calls_in_range: 'Looking over your calls',
+  list_recent_calls: 'Looking over your recent calls',
+  get_workspace_state: 'Checking your settings',
+  get_account_snapshot: 'Checking your account',
+  get_booking_window: 'Checking your booking hours',
+  scan_unanswered_questions: 'Scanning for unanswered questions',
+  get_simulation_result: 'Checking the simulated call',
+  list_drill_scenarios: 'Loading the drill library',
+  propose_booking_window: 'Preparing that change',
+  apply_booking_window: 'Applying the change',
+  propose_ticket: 'Preparing the ticket',
+  file_ticket: 'Filing the ticket',
+  propose_proof: 'Setting up the proof call',
+  propose_drill: 'Setting up the drill',
+  run_simulated_call: 'Starting the simulated call',
+  propose_knowledge_addition: 'Drafting the knowledge addition',
+  apply_knowledge_addition: 'Adding the knowledge',
+};
+
+function toolStatusLabel(name: string): string {
+  return TOOL_STATUS_LABELS[name] ?? 'Working on that';
+}
+
+/**
+ * Consumes one Gemini SSE stream. Text pieces are forwarded through
+ * `onText` as they arrive, unless a function call has already appeared in
+ * this round (prose riding alongside tool calls is history, not reply).
+ * Returns the round's parts in the same shape `callGemini` returns, plus
+ * how many stream events were consumed: zero events means the body was
+ * not a stream at all, which the caller treats as a streaming refusal.
+ */
+async function consumeGeminiStream(
+  body: ReadableStream<Uint8Array>,
+  onText: (text: string) => void,
+  onEvent?: () => void,
+): Promise<{ parts: GeminiPart[]; events: number }> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let events = 0;
+  let sawFunctionCall = false;
+  const functionParts: GeminiPart[] = [];
+  const textPieces: string[] = [];
+
+  const handleBlock = (block: string) => {
+    const data = block
+      .split('\n')
+      .filter((line) => line.startsWith('data:'))
+      .map((line) => line.slice('data:'.length).trim())
+      .join('\n');
+    if (!data || data === '[DONE]') return;
+    const parsed = JSON.parse(data) as {
+      candidates?: Array<{ content?: { parts?: GeminiPart[] } }>;
+    };
+    events += 1;
+    onEvent?.();
+    const parts = parsed.candidates?.[0]?.content?.parts;
+    if (!Array.isArray(parts)) return;
+    for (const part of parts) {
+      if (part.functionCall) {
+        sawFunctionCall = true;
+        functionParts.push(part);
+      } else if (typeof part.text === 'string' && part.text) {
+        textPieces.push(part.text);
+        if (!sawFunctionCall) onText(part.text);
+      }
+    }
+  };
+
+  const drainBuffer = (flush: boolean) => {
+    const blocks = buffer.split(/\r?\n\r?\n/);
+    buffer = blocks.pop() ?? '';
+    for (const block of blocks) handleBlock(block);
+    if (flush && buffer.trim()) {
+      handleBlock(buffer);
+      buffer = '';
+    }
+  };
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (value) buffer += decoder.decode(value, { stream: true });
+      if (done) break;
+      drainBuffer(false);
+    }
+    buffer += decoder.decode();
+    drainBuffer(true);
+  } finally {
+    reader.releaseLock();
+  }
+
+  const parts: GeminiPart[] = [];
+  const fullText = textPieces.join('');
+  if (fullText) parts.push({ text: fullText });
+  parts.push(...functionParts);
+  return { parts, events };
+}
+
+/**
+ * One model call over Gemini's streaming generation, with the same retry
+ * discipline as `callGemini` (429/503 retry at most twice, shared
+ * 45-second deadline, 30-second per-attempt cap) — but retries only ever
+ * happen BEFORE the stream opens. Once events are flowing there is no
+ * retry and no silent fallback: a mid-stream failure is the honest
+ * MODEL_ERROR. A failure before the first event (a non-retryable HTTP
+ * status, a body that is not a stream, a connection that dies before any
+ * event) raises StreamUnavailableError so the caller can answer through
+ * the plain call instead.
+ */
+async function callGeminiStreamed(
+  params: { apiKey: string; systemText: string; contents: GeminiContent[] },
+  sink: SupportChatStreamSink,
+): Promise<GeminiPart[]> {
+  const deadline = Date.now() + MODEL_DEADLINE_MS;
+  const body = JSON.stringify({
+    systemInstruction: { parts: [{ text: params.systemText }] },
+    contents: params.contents,
+    tools: [{ functionDeclarations: TOOL_DECLARATIONS }],
+    toolConfig: { functionCallingConfig: { mode: 'AUTO' } },
+    generationConfig: {
+      temperature: 0.3,
+    },
+  });
+
+  for (let attempt = 0; attempt < MODEL_MAX_ATTEMPTS; attempt += 1) {
+    const remainingMs = deadline - Date.now();
+    if (remainingMs <= 0) break;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), Math.min(MODEL_TIMEOUT_MS, remainingMs));
+    const progress = { events: 0, deltas: 0 };
+    try {
+      const res = await fetch(GEMINI_STREAM_URL, {
+        method: 'POST',
+        signal: controller.signal,
+        headers: { 'content-type': 'application/json', 'x-goog-api-key': params.apiKey },
+        body,
+      });
+      if (!res.ok) {
+        const responseBody = await res.text().catch(() => '');
+        console.warn(
+          `[support-agent] Gemini stream request failed, status ${res.status} (attempt ${attempt + 1}): ${responseBody.slice(0, 200)}`,
+        );
+        const canRetry =
+          MODEL_RETRYABLE_STATUSES.has(res.status) && attempt + 1 < MODEL_MAX_ATTEMPTS;
+        if (canRetry) {
+          const delay = modelRetryDelay(attempt);
+          if (Date.now() + delay < deadline) {
+            await waitForModelRetry(delay);
+            continue;
+          }
+          throw new HttpError(
+            502,
+            'The support assistant had trouble answering just now. Please try again.',
+            'MODEL_ERROR',
+          );
+        }
+        // A non-retryable refusal (e.g. the endpoint rejects streaming):
+        // nothing reached the user, so the plain call can still answer.
+        throw new StreamUnavailableError(`Gemini streaming refused with status ${res.status}.`);
+      }
+      if (!res.body) {
+        throw new StreamUnavailableError('Gemini streaming response had no body.');
+      }
+      const { parts, events } = await consumeGeminiStream(
+        res.body,
+        (text) => {
+          progress.deltas += 1;
+          sink.delta(text);
+        },
+        () => {
+          progress.events += 1;
+        },
+      );
+      if (events === 0) {
+        throw new StreamUnavailableError('Gemini streaming response carried no events.');
+      }
+      return parts;
+    } catch (err) {
+      if (err instanceof StreamUnavailableError || err instanceof HttpError) throw err;
+      console.warn(
+        `[support-agent] Gemini stream error: ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`,
+      );
+      if (progress.events > 0 || progress.deltas > 0) {
+        // The stream was flowing and broke mid-flight. Never retry or
+        // silently restart a reply the user may have partly seen.
+        throw new HttpError(
+          502,
+          'The support assistant had trouble answering just now. Please try again.',
+          'MODEL_ERROR',
+        );
+      }
+      throw new StreamUnavailableError('Gemini stream failed before the first event.');
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+
+  throw new HttpError(
+    502,
+    'The support assistant had trouble answering just now. Please try again.',
+    'MODEL_ERROR',
+  );
+}
+
+/**
+ * One turn of the model loop. Without a sink this is exactly the plain
+ * `callGemini`. With a sink the turn streams, falling back to the plain
+ * call only when streaming was refused before anything reached the user.
+ */
+async function callModelTurn(
+  params: { apiKey: string; systemText: string; contents: GeminiContent[] },
+  sink: SupportChatStreamSink | null,
+): Promise<GeminiPart[]> {
+  if (!sink) return callGemini(params);
+  try {
+    return await callGeminiStreamed(params, sink);
+  } catch (err) {
+    if (err instanceof StreamUnavailableError) {
+      console.warn('[support-agent] Gemini streaming unavailable for this turn; using the plain call.');
+      return callGemini(params);
+    }
+    throw err;
+  }
+}
+
 /* ------------------------------ tool runner ----------------------------- */
 
 interface ToolContext {
@@ -1893,6 +2293,10 @@ async function runTool(
     case 'get_call_details':
       return {
         result: await toolGetCallDetails(ctx.tenantId, ctx.timezone, args as GetCallDetailsInput),
+      };
+    case 'analyze_call_quality':
+      return {
+        result: await toolAnalyzeCallQuality(ctx.tenantId, ctx.timezone, args as AnalyzeCallQualityInput),
       };
     case 'propose_ticket': {
       const { pendingProposal, ...result } = await toolProposeTicket(
@@ -1984,7 +2388,7 @@ async function runTool(
 
 /* ------------------------------- chat turn ------------------------------ */
 
-export async function runSupportChat(params: {
+export interface SupportChatParams {
   tenantId: string;
   userId: string;
   userEmail: string;
@@ -1993,7 +2397,29 @@ export async function runSupportChat(params: {
   /** The app route the user is on, as sent by the widget. Resolved
    *  against SUPPORT_PAGE_MAP server-side; unknown routes add nothing. */
   pagePath?: string;
-}): Promise<SupportChatResult> {
+}
+
+export async function runSupportChat(params: SupportChatParams): Promise<SupportChatResult> {
+  return executeSupportChat(params, null);
+}
+
+/**
+ * The same chat turn with a live audience: tool rounds report friendly
+ * status labels and the final reply streams as it is generated. The
+ * returned result is identical to `runSupportChat`'s; only the delivery
+ * differs.
+ */
+export async function runSupportChatStream(
+  params: SupportChatParams,
+  sink: SupportChatStreamSink,
+): Promise<SupportChatResult> {
+  return executeSupportChat(params, sink);
+}
+
+async function executeSupportChat(
+  params: SupportChatParams,
+  sink: SupportChatStreamSink | null,
+): Promise<SupportChatResult> {
   const apiKey = (env.GEMINI_API_KEY ?? '').trim() || undefined;
   if (!apiKey) {
     // No silent fallback to another vendor: an environment without the key
@@ -2057,7 +2483,7 @@ export async function runSupportChat(params: {
   let simulationResult: SimulationResultView | null = null;
 
   for (let turn = 0; turn < MAX_MODEL_TURNS; turn += 1) {
-    const parts = await callGemini({ apiKey, systemText, contents });
+    const parts = await callModelTurn({ apiKey, systemText, contents }, sink);
     const calls = parts.filter((p) => p.functionCall);
     if (calls.length === 0) {
       const text = parts
@@ -2077,6 +2503,7 @@ export async function runSupportChat(params: {
     for (const call of calls) {
       const name = call.functionCall?.name ?? '';
       const args = call.functionCall?.args ?? {};
+      sink?.status(toolStatusLabel(name));
       try {
         const { result, pendingProposal: created, simulationResult: simResult } = await runTool(ctx, name, args);
         if (created) pendingProposal = created;

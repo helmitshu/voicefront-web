@@ -246,9 +246,20 @@ describe('workspace-state and call-insight prompt rules', () => {
   it('defines the call success score and the worst-call workflow', () => {
     expect(prompt).toContain('1-to-10 success evaluation');
     expect(prompt).toContain('Ten is the strongest handling and one is the weakest');
-    expect(prompt).toContain('call list_calls_in_range for the period');
-    expect(prompt).toContain('call get_call_details for the worst few');
+    expect(prompt).toContain('the worst calls with their full summaries and transcripts');
     expect(prompt).toContain('say the transcript is unavailable');
+  });
+
+  it('routes whole-log quality questions to the analysis digest tool first', () => {
+    expect(prompt).toContain('call analyze_call_quality FIRST');
+    expect(prompt).toContain('analyze my calls, what issues need addressing, how is she doing');
+    expect(prompt).toContain('in one pass');
+    expect(prompt).toContain('Call get_call_details afterwards only for a specific call the user names');
+  });
+
+  it('teaches batching several call-detail fetches into one response', () => {
+    expect(prompt).toContain('request them together in one response');
+    expect(prompt).toContain('they all run in the same round');
   });
 
   it('states the AI identity plainly in config and prompt', () => {
