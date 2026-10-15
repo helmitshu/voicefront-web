@@ -25,6 +25,15 @@ export interface ClinicFacts {
   address?: string;
   hours?: string[];
   services?: string[];
+  /** The business country exactly as the site's JSON-LD states it
+   *  (addressCountry: "CA", "Canada", or a Country object's name),
+   *  cleaned but not normalized. Only ever set from structured data,
+   *  never guessed from prose. Read by the pricing-region classifier. */
+  country?: string;
+  /** JSON-LD addressRegion (a province or state, as the site states it). */
+  region?: string;
+  /** JSON-LD postalCode (a Canadian postal code or a US ZIP, as stated). */
+  postalCode?: string;
 }
 
 const MAX_REDIRECTS = 3;
@@ -175,6 +184,12 @@ interface JsonLdBusiness {
   phone?: string;
   address?: string;
   hours?: string[];
+  /** The PostalAddress parts, kept structured (not just rendered into
+   *  the address line) so the pricing-region classifier can read the
+   *  country signal the site itself declared. */
+  country?: string;
+  region?: string;
+  postalCode?: string;
 }
 
 const DAY_NAMES = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'] as const;
@@ -303,6 +318,37 @@ function renderJsonLdAddress(value: unknown): string | undefined {
   return undefined;
 }
 
+interface JsonLdAddressParts {
+  country?: string;
+  region?: string;
+  postalCode?: string;
+}
+
+/**
+ * The structured parts of a JSON-LD PostalAddress, for the pricing-region
+ * classifier. addressCountry arrives as a string ("CA", "Canada") or as a
+ * Country object ({ "@type": "Country", "name": "Canada" }); both shapes
+ * are read. Values are cleaned and capped, never normalized: deciding
+ * what a stated country means is the classifier's job, not the extractor's.
+ */
+function jsonLdAddressParts(value: unknown): JsonLdAddressParts {
+  if (!value || typeof value !== 'object') return {};
+  const addr = value as Record<string, unknown>;
+  const out: JsonLdAddressParts = {};
+  const region = jsonLdString(addr.addressRegion);
+  if (region) out.region = cleanText(decodeEntities(region), 60);
+  const postalCode = jsonLdString(addr.postalCode);
+  if (postalCode) out.postalCode = cleanText(decodeEntities(postalCode), 20);
+  const rawCountry = addr.addressCountry;
+  const countryText =
+    jsonLdString(rawCountry) ??
+    (rawCountry && typeof rawCountry === 'object'
+      ? jsonLdString((rawCountry as Record<string, unknown>).name)
+      : undefined);
+  if (countryText) out.country = cleanText(decodeEntities(countryText), 60);
+  return out;
+}
+
 /**
  * Extracts the first local-business JSON-LD block on the page. A block
  * qualifies when it carries a name AND at least one of telephone, address,
@@ -346,6 +392,10 @@ function extractJsonLdBusiness(html: string): JsonLdBusiness | null {
         if (m) out.phone = cleanText(m[0], 32);
       }
       out.address = renderJsonLdAddress(biz.address);
+      const parts = jsonLdAddressParts(biz.address);
+      if (parts.country) out.country = parts.country;
+      if (parts.region) out.region = parts.region;
+      if (parts.postalCode) out.postalCode = parts.postalCode;
       out.hours = renderJsonLdHours(biz);
       if (!out.name && !out.phone && !out.address && !out.hours) continue;
       return out;
@@ -471,6 +521,9 @@ function extractDetailedFacts(html: string): DetailedFacts {
     }
   }
   if (!facts.address && jsonLd?.address) facts.address = jsonLd.address;
+  if (jsonLd?.country) facts.country = jsonLd.country;
+  if (jsonLd?.region) facts.region = jsonLd.region;
+  if (jsonLd?.postalCode) facts.postalCode = jsonLd.postalCode;
 
   const hours: string[] = [];
   for (const line of lines) {
@@ -520,6 +573,9 @@ function mergePageFacts(main: DetailedFacts, home: DetailedFacts): DetailedFacts
   }
   if (!facts.phone && home.facts.phone) facts.phone = home.facts.phone;
   if (!facts.address && home.facts.address) facts.address = home.facts.address;
+  if (!facts.country && home.facts.country) facts.country = home.facts.country;
+  if (!facts.region && home.facts.region) facts.region = home.facts.region;
+  if (!facts.postalCode && home.facts.postalCode) facts.postalCode = home.facts.postalCode;
   if (!facts.hours && home.facts.hours) facts.hours = home.facts.hours;
   if (!facts.services && home.facts.services) facts.services = home.facts.services;
   return { facts, nameSource, structuredText: main.structuredText ?? home.structuredText };

@@ -224,6 +224,40 @@ describe('extractClinicFacts with JSON-LD structured data', () => {
     ]);
   });
 
+  it('surfaces the region and postal code from the JSON-LD address', () => {
+    const ldFacts = extractClinicFacts(JSONLD_HTML, 'https://smilecraft.example/new-patients');
+    expect(ldFacts.region).toBe('BC');
+    expect(ldFacts.postalCode).toBe('V2Y 1X6');
+    expect(ldFacts.country).toBeUndefined();
+  });
+
+  it('surfaces the country the site states in its JSON-LD address', () => {
+    const html = JSONLD_HTML.replace(
+      '"postalCode": "V2Y 1X6"',
+      '"postalCode": "V2Y 1X6", "addressCountry": "CA"',
+    );
+    const caFacts = extractClinicFacts(html, 'https://smilecraft.example/new-patients');
+    expect(caFacts.country).toBe('CA');
+  });
+
+  it('reads a country stated as a schema.org Country object', () => {
+    const html = JSONLD_HTML.replace(
+      '"postalCode": "V2Y 1X6"',
+      '"postalCode": "V2Y 1X6", "addressCountry": { "@type": "Country", "name": "Canada" }',
+    );
+    const caFacts = extractClinicFacts(html, 'https://smilecraft.example/new-patients');
+    expect(caFacts.country).toBe('Canada');
+  });
+
+  it('surfaces a US address the same way', () => {
+    const html = JSONLD_HTML.replace('"addressRegion": "BC"', '"addressRegion": "WA"')
+      .replace('"postalCode": "V2Y 1X6"', '"postalCode": "98101", "addressCountry": "US"');
+    const usFacts = extractClinicFacts(html, 'https://smilecraft.example/new-patients');
+    expect(usFacts.country).toBe('US');
+    expect(usFacts.region).toBe('WA');
+    expect(usFacts.postalCode).toBe('98101');
+  });
+
   it('renders the string form of openingHours ("Mo-Fr 09:30-18:00")', () => {
     const html = `<!doctype html>
 <html>
