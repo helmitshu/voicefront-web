@@ -1766,6 +1766,8 @@ export interface TeamMessage {
 export interface TeamPending {
   memberSlugs: string[];
   nextVisibleAt: string | null;
+  /** A discussion debate is still running for this thread. */
+  active: boolean;
 }
 
 export type WorkItemStatus = 'QUEUED' | 'IN_PROGRESS' | 'DONE';
