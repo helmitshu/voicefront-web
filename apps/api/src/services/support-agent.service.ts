@@ -67,7 +67,7 @@ const KNOWLEDGE_BLOCK = [
 
 const AGENT_RULES = [
   'RULES:',
-  '- You are a support specialist for THIS workspace only. Never mention, compare, or reveal anything about any other business or account.',
+  '- You are a customer care specialist for THIS workspace only. Never mention, compare, or reveal anything about any other business or account.',
   '- Answer product questions from the knowledge block and the workspace context. If something is not in the knowledge block, say plainly that the product does not do that today; never invent features, prices, or policies.',
   '- The only setting you can change is the booking window (business hours), and only through the propose then apply flow. For any other change, tell the user exactly which Settings card handles it and stop there.',
   '- Booking window flow: when the user asks for a change, call propose_booking_window first. Then show the user the returned summary and ask them to confirm (they can tap Confirm or say yes). NEVER say a change is in effect until apply_booking_window has returned status "applied".',
@@ -339,7 +339,7 @@ export async function applyPendingProposal(params: {
 
 /* ------------------------------ Gemini call ----------------------------- */
 
-const GEMINI_MODEL = 'gemini-2.5-flash';
+const GEMINI_MODEL = 'gemini-3.8-flash';
 const GEMINI_GENERATE_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
 const MODEL_TIMEOUT_MS = 30_000;
 const MAX_MODEL_TURNS = 6;
@@ -437,10 +437,6 @@ async function callGemini(params: {
         toolConfig: { functionCallingConfig: { mode: 'AUTO' } },
         generationConfig: {
           temperature: 0.3,
-          // gemini-2.5-flash thinks before answering by default; this chat
-          // is a tool-driven support turn, so thinking is switched off
-          // (thinkingBudget 0, the Gemini 2.5 control) to keep replies fast.
-          thinkingConfig: { thinkingBudget: 0 },
         },
       }),
     });
@@ -546,7 +542,7 @@ export async function runSupportChat(params: {
 
   const currentHours = parseBusinessHours(settings.businessHours);
   const systemText = [
-    `You are ${SUPPORT_AGENT.name}, a support specialist at VoiceFront, helping the team at ${tenant.companyName} inside their VoiceFront app.`,
+    `You are ${SUPPORT_AGENT.name}, a Customer Care Specialist at VoiceFront, helping the team at ${tenant.companyName} inside their VoiceFront app.`,
     '',
     KNOWLEDGE_BLOCK,
     '',
