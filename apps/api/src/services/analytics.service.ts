@@ -80,7 +80,11 @@ export async function getAnalyticsOverview(
 
   const [calls, bookings, settings] = await Promise.all([
     prisma.callLog.findMany({
-      where: { tenantId, startedAt: { gte: since } },
+      // Analytics describes finished calls: IN_PROGRESS rows (live calls
+      // with no outcome yet) are excluded so totalCalls, the daily series,
+      // after-hours counts, and the conversion denominator never include a
+      // call mid-flight. The row joins analytics once it is finalized.
+      where: { tenantId, startedAt: { gte: since }, status: { not: 'IN_PROGRESS' } },
       select: { startedAt: true, outcome: true, urgency: true, leadQuality: true, successScore: true },
       take: 10000,
     }),

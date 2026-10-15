@@ -178,6 +178,50 @@ export async function ingestEndOfCallReport(input: IngestReportInput): Promise<C
   });
 }
 
+export interface IngestCallStartedInput {
+  tenantId: string;
+  externalCallId: string;
+  channel: 'phone' | 'web';
+  callerNumber: string | null;
+  /** Provider-reported call start; null when the payload omits it. */
+  startedAt: Date | null;
+}
+
+/**
+ * Opens a live-call row when a call starts (the provider's `status-update`
+ * webhook), so the tenant dashboard can show the call while it is happening.
+ * The matching end-of-call report later finalizes this same row through the
+ * upsert in ingestEndOfCallReport.
+ *
+ * Create-only semantics: the upsert's update branch is deliberately empty,
+ * so repeated status-updates never duplicate or reset the row, and a late
+ * status-update arriving after the end-of-call report can never resurrect
+ * or clobber the finalized call. Returns null for an unknown tenant instead
+ * of throwing, a live marker is best-effort and must never fail a call.
+ */
+export async function ingestCallStarted(input: IngestCallStartedInput): Promise<CallLog | null> {
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: input.tenantId },
+    select: { id: true },
+  });
+  if (!tenant) return null;
+
+  return prisma.callLog.upsert({
+    where: { externalCallId: input.externalCallId },
+    create: {
+      externalCallId: input.externalCallId,
+      tenantId: tenant.id,
+      channel: input.channel,
+      callerNumber: input.callerNumber,
+      startedAt: input.startedAt ?? new Date(),
+      endedAt: null,
+      durationSeconds: 0,
+      status: 'IN_PROGRESS',
+    },
+    update: {},
+  });
+}
+
 export interface ListCallsParams {
   tenantId: string;
   page: number;
@@ -201,6 +245,9 @@ export interface ListCallsResult {
 }
 
 export async function listCalls(params: ListCallsParams): Promise<ListCallsResult> {
+  // Deliberate: IN_PROGRESS rows are included. The calls page and the
+  // dashboard home show the live call (its DTO carries endedAt: null) until
+  // the end-of-call report finalizes it.
   const where: Prisma.CallLogWhereInput = { tenantId: params.tenantId };
   if (params.sinceDays && params.sinceDays > 0) {
     where.startedAt = { gte: new Date(Date.now() - params.sinceDays * 24 * 60 * 60 * 1000) };
@@ -260,7 +307,11 @@ export async function getCallStats(tenantId: string): Promise<CallStats> {
   const since7 = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
   // One bounded fetch, reduced in memory: per-tenant 30-day volume is small.
   const rows = await prisma.callLog.findMany({
-    where: { tenantId, startedAt: { gte: since30 } },
+    // IN_PROGRESS rows are excluded from every KPI aggregate below (call
+    // counts, minutes, cost, forwarded count). A live call has no duration
+    // or outcome yet; it joins the stats once its end-of-call report
+    // finalizes the row, and a stale never-finalized row never inflates them.
+    where: { tenantId, startedAt: { gte: since30 }, status: { not: 'IN_PROGRESS' } },
     select: { startedAt: true, durationSeconds: true, billedCostCents: true, status: true },
     orderBy: { startedAt: 'desc' },
     take: 5000,
