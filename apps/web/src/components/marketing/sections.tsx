@@ -12,7 +12,7 @@ import { DemoApi } from '@/lib/api';
 import { BookCallSection } from '@/components/BookCallSection';
 import { ROICalculator } from '@/components/ROICalculator';
 import { WorkflowConsole } from '@/components/WorkflowConsole';
-import { Reveal, CallCard, IndustryTabs, BeyondAnswering, FAQS } from './landing';
+import { Reveal, IndustryTabs, BeyondAnswering, FAQS } from './landing';
 
 // The interactive voice demo pulls in the Vapi web SDK and is only rendered on
 // the home page. Load it in its own chunk so pricing/product/book routes don't
@@ -56,7 +56,11 @@ function useDemoEnabled() {
 /* ------------------------------- site header ------------------------------ */
 
 export function SiteHeader() {
-  const { authed, primaryHref, primaryLabel } = usePrimaryCta();
+  const { authed } = usePrimaryCta();
+  // One primary CTA everywhere on the marketing site: hear the demo. Signed-in
+  // visitors get their dashboard instead.
+  const ctaHref = authed ? '/dashboard' : '/demo';
+  const ctaLabel = authed ? 'Open dashboard' : 'Hear your demo';
   const pathname = usePathname();
   const demoEnabled = useDemoEnabled();
   const [menuOpen, setMenuOpen] = useState(false);
@@ -77,7 +81,7 @@ export function SiteHeader() {
         <Link href="/demo" className="group block bg-ink text-white">
           <div className="mx-auto flex h-9 max-w-6xl items-center justify-center gap-2 px-6 text-[12.5px] font-medium">
             <span className="flex h-1.5 w-1.5 shrink-0 rounded-full bg-clinic" aria-hidden />
-            <span className="text-white/85">New — talk to a live AI receptionist right in your browser</span>
+            <span className="text-white/85">Talk to a live AI receptionist right in your browser</span>
             <span className="hidden items-center gap-1 font-semibold text-clinic transition-transform group-hover:translate-x-0.5 sm:inline-flex">
               Try the demo
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3 w-3">
@@ -125,10 +129,10 @@ export function SiteHeader() {
               </Link>
             )}
             <Link
-              href={primaryHref}
+              href={ctaHref}
               className="rounded-full bg-gradient-to-b from-signal to-signal-deep px-4 py-2 text-sm font-semibold text-white shadow-pop transition-all duration-300 ease-smooth hover:-translate-y-px hover:shadow-lift active:translate-y-0"
             >
-              {primaryLabel}
+              {ctaLabel}
             </Link>
             <button
               type="button"
@@ -180,6 +184,28 @@ export function SiteHeader() {
 
 /* ----------------------------------- hero --------------------------------- */
 
+/**
+ * A real sample call, playable in the hero. The recording itself lives at
+ * /samples/maya-call.wav in public assets; the player is wired to that path.
+ */
+function SampleCallPlayer() {
+  return (
+    <div id="sample-call" className="max-w-[500px] rounded-3xl border border-white/12 bg-white/[0.05] p-5 backdrop-blur">
+      <div className="flex items-center gap-3">
+        <Waveform bars={12} tone="light" className="h-5 w-auto shrink-0 opacity-80" />
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-white/60">Sample call</p>
+      </div>
+      <p className="mt-3 text-[15px] font-medium leading-snug text-white/90">
+        Hear Maya answer a new patient who calls to book a cleaning.
+      </p>
+      <audio controls preload="none" src="/samples/maya-call.wav" className="mt-4 w-full" aria-label="Sample call: Maya books a cleaning for a new patient" />
+      <p className="mt-3 text-xs leading-relaxed text-white/45">
+        A real VoiceFront call. When you are ready, the demo on this page calls you as your own clinic.
+      </p>
+    </div>
+  );
+}
+
 export function HeroSection() {
   const { authed, primaryHref } = usePrimaryCta();
   return (
@@ -211,30 +237,31 @@ export function HeroSection() {
         aria-hidden
         className="pointer-events-none absolute inset-0 [background-image:linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] [background-size:60px_60px] [mask-image:radial-gradient(75%_70%_at_50%_22%,black,transparent)]"
       />
-      <div className="relative mx-auto grid max-w-6xl items-center gap-16 lg:grid-cols-[1.05fr_0.95fr]">
-        <div>
+      <div className="relative mx-auto grid max-w-6xl items-start gap-16 lg:grid-cols-[1.05fr_0.95fr]">
+        <div className="lg:pt-8">
           <Reveal>
             <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-3.5 py-1.5 text-[13px] font-medium text-white/85 backdrop-blur">
               <span className="relative flex h-1.5 w-1.5">
                 <span className="absolute h-full w-full animate-pulse-ring rounded-full bg-clinic" />
                 <span className="relative h-1.5 w-1.5 rounded-full bg-clinic" />
               </span>
-              AI receptionist · answers in under a second
+              AI receptionist for dental clinics · answers in about a second
             </span>
           </Reveal>
           <Reveal delay={80}>
             <h1 className="mt-6 font-display text-[46px] font-semibold leading-[1.02] tracking-[-0.035em] text-white md:text-[70px]">
-              Your phone is answered.
+              Your front desk never misses a call.
               <br />
               <span className="bg-gradient-to-r from-clinic via-[#43d2b6] to-gold-light bg-clip-text text-transparent">
-                Your calendar fills itself.
+                Your chairs stay full.
               </span>
             </h1>
           </Reveal>
           <Reveal delay={160}>
             <p className="mt-6 max-w-[500px] text-[19px] leading-relaxed text-white/65">
-              VoiceFront answers every call with a voice your customers can’t tell from a person —
-              then books the appointment straight into your calendar. 24/7. No hold music. No missed revenue.
+              VoiceFront answers every call to your clinic in a voice patients cannot tell from a
+              person, then books cleanings, checkups and new patients straight into your VoiceFront
+              calendar. Nights, weekends and the lunch rush included.
             </p>
           </Reveal>
           <Reveal delay={240}>
@@ -243,37 +270,35 @@ export function HeroSection() {
                 href={primaryHref}
                 className="rounded-full bg-white px-7 py-3.5 text-[15px] font-semibold text-ink shadow-lift transition-all duration-300 ease-smooth hover:-translate-y-0.5 active:translate-y-0"
               >
-                {authed ? 'Open your dashboard' : 'Get started — it’s live in minutes'}
+                {authed ? 'Open your dashboard' : 'Start your 7-day free trial'}
               </Link>
               <Link
-                href="/demo"
+                href="#sample-call"
                 className="group flex items-center gap-2 rounded-full border border-white/20 bg-white/[0.06] px-6 py-3.5 text-[15px] font-semibold text-white backdrop-blur transition-all duration-300 ease-smooth hover:-translate-y-0.5 hover:bg-white/[0.12]"
               >
-                Watch it book a call
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4 transition-transform duration-300 ease-smooth group-hover:translate-y-0.5">
-                  <path d="M8 3v10M3.5 8.5 8 13l4.5-4.5" strokeLinecap="round" strokeLinejoin="round" />
+                <svg viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
+                  <path d="M4.5 2.8v10.4c0 .9 1 1.5 1.8 1L13 9a1.15 1.15 0 0 0 0-2L6.3 1.9c-.8-.5-1.8 0-1.8.9Z" />
                 </svg>
+                Hear a sample call
               </Link>
             </div>
           </Reveal>
           <Reveal delay={320}>
-            <div className="mt-9 flex items-center gap-4">
-              <Waveform bars={14} tone="light" className="h-6 w-auto shrink-0 opacity-70" />
-              <p className="max-w-sm text-[13px] font-medium leading-snug text-white/55">
-                <span className="font-semibold text-white/90">Built on Vapi · OpenAI · Deepgram</span> — the same
-                stack behind millions of AI calls
-              </p>
+            <div className="mt-9">
+              <SampleCallPlayer />
             </div>
           </Reveal>
         </div>
-        <Reveal delay={200} className="relative isolate flex justify-center lg:justify-end">
-          {/* Premium halo: the white call card glows against the dark hero,
-              commanding attention instead of receding into a pale page. */}
+        <Reveal delay={200} className="relative isolate">
+          {/* The live personalized demo is the hero's main event: the prospect
+              hears Maya answer as their own clinic, not a scripted mock. */}
           <div
             aria-hidden
             className="pointer-events-none absolute -inset-10 -z-10 bg-[radial-gradient(50%_50%_at_55%_45%,rgba(16,169,142,0.32),transparent_70%),radial-gradient(42%_42%_at_82%_86%,rgba(199,148,63,0.18),transparent_70%)] blur-2xl"
           />
-          <CallCard />
+          <div id="demo" className="scroll-mt-32">
+            <InteractiveDemo />
+          </div>
         </Reveal>
       </div>
     </section>
@@ -288,17 +313,17 @@ export function SocialProofSection() {
       <div className="mx-auto max-w-5xl">
         <Reveal className="text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-ink-muted/70">
-            Built for the front desks that can’t miss a call
+            Built for dental front desks, and the calls they take all day
           </p>
         </Reveal>
         <Reveal delay={80}>
           <div className="mt-7 flex flex-wrap items-center justify-center gap-x-10 gap-y-5">
             {[
-              { name: 'Dental & medical', d: 'M5 9h14M5 9a7 7 0 0 0 14 0M9 9V5h6v4M10 19h4M12 16v3' },
-              { name: 'Home services', d: 'M3 11.5 12 4l9 7.5M6 10v9h12v-9M10 19v-5h4v5' },
-              { name: 'Salons & spas', d: 'M7 4a3 3 0 1 0 0 6 3 3 0 0 0 0-6Zm0 6 10 9M17 4a3 3 0 1 1 0 6 3 3 0 0 1 0-6Zm0 6L7 19' },
-              { name: 'Legal & pro', d: 'M12 3v18M5 8h14M7 8l-3 6a3 3 0 0 0 6 0L7 8Zm10 0-3 6a3 3 0 0 0 6 0l-3-6Z' },
-              { name: 'Real estate', d: 'M4 11.5 12 5l8 6.5M6 10v9h5v-5h2v5h5v-9' },
+              { name: 'New patient bookings', d: 'M5 5h14v14H5zM5 9h14M9 3v4M15 3v4M9 15l2 2 4-4' },
+              { name: 'Cleanings and checkups', d: 'M12 3l1.8 4.6L18 9l-4.2 1.4L12 15l-1.8-4.6L6 9l4.2-1.4L12 3z' },
+              { name: 'Insurance questions', d: 'M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3zM9 12l2 2 4-4' },
+              { name: 'Schedule changes', d: 'M12 21a9 9 0 1 1 9-9M12 7v5l3.5 2M21 3v6h-6' },
+              { name: 'After-hours calls', d: 'M20 13.5A8 8 0 1 1 10.5 4a6.5 6.5 0 0 0 9.5 9.5Z' },
             ].map((seg) => (
               <span key={seg.name} className="inline-flex items-center gap-2.5 text-ink-muted">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-5 w-5 text-signal/70" strokeLinecap="round" strokeLinejoin="round">
@@ -323,12 +348,12 @@ export function HowItWorksSection() {
         <Reveal className="mx-auto max-w-2xl text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-deep">How every call works</p>
           <h2 className="mt-4 font-display text-4xl font-semibold tracking-[-0.02em] md:text-[44px]">
-            See exactly what happens — before they hang up.
+            See exactly what happens, before they hang up.
           </h2>
           <p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-ink-muted">
             Watch the receptionist handle a real call end to end: it reads the caller, books or
-            schedules a callback, answers questions, and writes the summary — all on your calendar,
-            never double-booked.
+            schedules a callback, answers questions, and writes the summary, all on your VoiceFront
+            calendar, never double-booked.
           </p>
         </Reveal>
 
@@ -344,7 +369,7 @@ export function HowItWorksSection() {
                 <path d="M12 3l7 3v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z M9 12l2 2 4-4" strokeLinejoin="round" strokeLinecap="round" />
               ),
               title: 'No double-booking, ever',
-              body: 'Sync your Google or Outlook calendar, or just block busy times in your control panel. Every call checks real availability — two callers can never grab the same slot.',
+              body: 'She checks your VoiceFront calendar before she offers any time, and you block off lunch, holidays and personal time in the dashboard. Two callers can never grab the same slot.',
             },
             {
               icon: (
@@ -354,7 +379,7 @@ export function HowItWorksSection() {
                 </>
               ),
               title: 'New & returning callers',
-              body: 'It welcomes new customers, recognizes returning ones, books appointments, schedules callbacks, and answers questions — then logs the exact outcome of every call.',
+              body: 'It welcomes new customers, recognizes returning ones, books appointments, schedules callbacks, and answers questions, then logs the exact outcome of every call.',
             },
             {
               icon: (
@@ -413,9 +438,9 @@ export function StatBandSection() {
         </Reveal>
         <div className="mt-12 grid gap-12 text-center sm:grid-cols-3">
           {[
-            { n: '62%', d: 'of callers hang up on voicemail and call a competitor instead' },
-            { n: '24/7', d: 'every call answered — nights, weekends and lunch rushes included' },
-            { n: '< 1s', d: 'pickup time, before the second ring, every single time' },
+            { n: '62%', d: 'of callers who reach voicemail hang up and call another clinic instead' },
+            { n: '24/7', d: 'every call answered, nights, weekends and the lunch rush included' },
+            { n: '1 sec', d: 'to pick up, every call, before the second ring' },
           ].map((stat, i) => (
             <Reveal key={stat.n} delay={i * 100}>
               <p className="bg-gradient-to-br from-white via-white to-gold-light bg-clip-text font-display text-[58px] font-bold leading-none tracking-tight text-transparent md:text-6xl">
@@ -448,8 +473,8 @@ export function LiveDemoSection() {
             Watch it book. In real time.
           </h2>
           <p className="mt-5 text-lg leading-relaxed text-white/60">
-            A customer calls. The receptionist checks your real availability, holds the conversation,
-            and the appointment lands on your calendar before they hang up.
+            A patient calls. The receptionist checks your VoiceFront calendar, holds the conversation,
+            and the appointment is booked before they hang up.
           </p>
         </Reveal>
         <Reveal delay={150} className="mt-14">
@@ -460,7 +485,7 @@ export function LiveDemoSection() {
             href={primaryHref}
             className="inline-block rounded-full bg-white px-7 py-3.5 text-[15px] font-semibold text-ink shadow-lift transition-all duration-150 hover:-translate-y-0.5"
           >
-            Try it with your own voice — free in-browser test call
+            Try it with your own voice, free in-browser test call
           </Link>
           <p className="mt-4 text-sm text-white/40">Create a workspace, press “Test call”, and talk to your receptionist.</p>
         </Reveal>
@@ -495,12 +520,12 @@ export function GettingSetUpSection() {
             {
               step: '02',
               title: 'Pick a voice & your number',
-              body: 'Choose from twelve human-grade voices or bring your own ElevenLabs voice. Keep your existing phone number — just forward it.',
+              body: 'Choose from twelve built-in voices in settings. Keep your existing phone number, just forward it to your VoiceFront number and she answers it.',
             },
             {
               step: '03',
               title: 'Watch the calendar fill',
-              body: 'Every call answered, every booking on your calendar, every message transcribed. Change a setting and the very next call uses it.',
+              body: 'Every call answered, every booking on your VoiceFront calendar, every message transcribed. Change a setting and the very next call uses it.',
             },
           ].map((item, i) => (
             <Reveal key={item.step} delay={i * 120}>
@@ -536,8 +561,8 @@ export function FeaturesSection() {
                 <div className="max-w-md">
                   <h3 className="font-display text-xl font-semibold tracking-tight">Books real appointments</h3>
                   <p className="mt-3 text-[15px] leading-relaxed text-ink-muted">
-                    It checks your live availability mid-call, only offers slots that are actually open,
-                    and writes the booking to your calendar instantly. Two callers can never take the same slot.
+                    It checks your VoiceFront calendar mid-call, only offers slots that are actually open,
+                    and writes the booking to that calendar instantly. Two callers can never take the same slot.
                   </p>
                 </div>
                 <span className="hidden shrink-0 rounded-2xl bg-signal-soft/70 p-4 text-signal-deep sm:block">
@@ -559,27 +584,27 @@ export function FeaturesSection() {
           {[
             {
               title: 'Sounds human',
-              body: 'Twelve premium voices, optional office ambience, natural pacing. Or plug in your own ElevenLabs voice.',
+              body: 'Twelve built-in voices with natural pacing and a real front desk manner. Callers hear a person, not a robot.',
               icon: <path d="M12 4v16M8 8v8M16 8v8M4 11v2M20 11v2" strokeLinecap="round" />,
             },
             {
               title: 'Transfers when it matters',
-              body: 'Emergencies and VIPs route straight to your real lines — your rules decide who gets through.',
+              body: 'Emergencies and VIPs route straight to your real lines, and your rules decide who gets through.',
               icon: <path d="M5 4h4l2 5-2.5 2a12 12 0 0 0 4.5 4.5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2Z" strokeLinejoin="round" />,
             },
             {
               title: 'Every call on record',
-              body: 'Transcripts, summaries and recordings for every conversation — searchable in your dashboard.',
+              body: 'Transcripts, summaries and recordings for every conversation, searchable in your dashboard.',
               icon: <path d="M5 4h14v16H5zM9 9h6M9 13h6M9 17h3" strokeLinecap="round" strokeLinejoin="round" />,
             },
             {
               title: 'Knows your hours',
-              body: 'Open, closed, lunch, holidays — it greets accordingly, takes messages after hours, never books when you’re shut.',
+              body: 'Open, closed, lunch, holidays. It greets accordingly, takes messages after hours, and never books when you’re shut.',
               icon: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3.5 2" strokeLinecap="round" /></>,
             },
             {
               title: 'You stay in control',
-              body: 'Change the greeting, voice, hours or transfer rules anytime — the very next call uses your new setup.',
+              body: 'Change the greeting, voice, hours or transfer rules anytime. The very next call uses your new setup.',
               icon: <path d="M4 8h10M18 8h2M4 16h2M10 16h10M16 5.5v5M8 13.5v5" strokeLinecap="round" />,
             },
           ].map((feature, i) => (
@@ -610,11 +635,12 @@ export function BeyondAnsweringSection() {
         <Reveal className="mx-auto max-w-2xl text-center">
           <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-deep">Beyond answering</p>
           <h2 className="mt-4 font-display text-4xl font-semibold tracking-tight md:text-[44px]">
-            It doesn’t just answer. It wins you the work.
+            It doesn’t just answer. It fills your chairs.
           </h2>
           <p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-ink-muted">
             Answering and booking are table stakes. Where VoiceFront earns its keep is the harder work a
-            great receptionist does — the handoffs, the revenue, and the answers only your business knows.
+            great front desk does, the warm handoffs, the careful bookings, and the answers only your
+            clinic can give.
           </p>
         </Reveal>
         <Reveal delay={150} className="mt-12">
@@ -638,13 +664,13 @@ export function IntegrationsSection() {
               Works with what you already use.
             </h2>
             <p className="mt-5 max-w-md text-lg leading-relaxed text-ink-muted">
-              Keep your number, your voice and your calendar. VoiceFront slots in behind the line you
-              already give out — nothing to rip out, nothing for your team to relearn.
+              Keep your number, your team and your way of working. VoiceFront slots in behind the line
+              you already give out. Nothing to rip out, nothing for your team to relearn.
             </p>
             <ul className="mt-7 flex flex-col gap-3">
               {[
-                'Forward your existing number — always, after hours, or on no-answer',
-                'Premium neural voices, or bring your own ElevenLabs voice',
+                'Forward your existing number, always, after hours, or on no-answer',
+                'Twelve built-in voices to choose from in settings',
                 'Bookings land in your VoiceFront calendar the moment the call ends',
               ].map((line) => (
                 <li key={line} className="flex items-start gap-3 text-[15px] text-ink">
@@ -662,11 +688,11 @@ export function IntegrationsSection() {
             <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3">
               {[
                 { name: 'Your phone number', tag: 'Forwarding', icon: <path d="M5 4h4l2 5-2.5 2a12 12 0 0 0 4.5 4.5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2Z" strokeLinejoin="round" /> },
-                { name: 'ElevenLabs', tag: 'Voices', icon: <path d="M12 4v16M8 8v8M16 8v8M4 11v2M20 11v2" strokeLinecap="round" /> },
+                { name: 'Built-in voices', tag: 'Twelve to choose from', icon: <path d="M12 4v16M8 8v8M16 8v8M4 11v2M20 11v2" strokeLinecap="round" /> },
                 { name: 'VoiceFront calendar', tag: 'Bookings', icon: <><rect x="3" y="5" width="18" height="16" rx="3" /><path d="M3 10h18M8 3v4M16 3v4" strokeLinecap="round" /></> },
-                { name: 'Google Calendar', tag: 'Two-way sync', icon: <><rect x="3" y="5" width="18" height="16" rx="3" /><path d="M3 10h18M8 3v4M16 3v4M9 15l2 2 4-4" strokeLinecap="round" strokeLinejoin="round" /></> },
-                { name: 'Microsoft 365', tag: 'Two-way sync', icon: <><rect x="4" y="4" width="7" height="7" rx="1" /><rect x="13" y="4" width="7" height="7" rx="1" /><rect x="4" y="13" width="7" height="7" rx="1" /><rect x="13" y="13" width="7" height="7" rx="1" /></> },
-                { name: 'Webhooks & CRM', tag: 'API · soon', soon: true, icon: <path d="M9 7a3 3 0 1 1 4.2 2.7L12 14M12 17v.01M6 12a6 6 0 1 1 12 0" strokeLinecap="round" strokeLinejoin="round" /> },
+                { name: 'Call recordings', tag: 'On every call', icon: <><circle cx="12" cy="12" r="3" /><path d="M12 2.5v3M12 18.5v3M2.5 12h3M18.5 12h3" strokeLinecap="round" /></> },
+                { name: 'Live dashboard', tag: 'Calls, minutes, spend', icon: <path d="M4 20V10M10 20V4M16 20v-8M21 20H3" strokeLinecap="round" strokeLinejoin="round" /> },
+                { name: 'Transfer lines', tag: 'Your rules decide', icon: <path d="M4 7h11M11 3.5 14.5 7 11 10.5M20 17H9M13 13.5 9.5 17l3.5 3.5" strokeLinecap="round" strokeLinejoin="round" /> },
               ].map((it) => (
                 <div
                   key={it.name}
@@ -679,7 +705,7 @@ export function IntegrationsSection() {
                   </span>
                   <div>
                     <p className="text-[13px] font-semibold leading-tight tracking-tight text-ink">{it.name}</p>
-                    <p className={`mt-0.5 text-[11px] font-medium ${it.soon ? 'text-construction' : 'text-ink-muted'}`}>{it.tag}</p>
+                    <p className="mt-0.5 text-[11px] font-medium text-ink-muted">{it.tag}</p>
                   </div>
                 </div>
               ))}
@@ -703,7 +729,7 @@ export function IndustriesSection() {
             Trained for your front desk.
           </h2>
           <p className="mt-5 text-lg leading-relaxed text-ink-muted">
-            Not a generic chatbot with a phone number — a receptionist that already speaks your industry’s language.
+            Not a generic chatbot with a phone number. A receptionist that already speaks your industry’s language.
           </p>
         </Reveal>
         <Reveal delay={150} className="mt-12">
@@ -731,8 +757,8 @@ export function RoiSection() {
             What are missed calls costing you?
           </h2>
           <p className="mt-5 text-lg leading-relaxed text-white/60">
-            Every unanswered call is a booking that went to whoever picked up. Tell us about your
-            business — the numbers are real Vancouver-area averages, and you can change any of them.
+            Every unanswered call is a patient who booked somewhere else. Tell us about your clinic.
+            The numbers start from typical Vancouver-area dental figures, and you can change any of them.
           </p>
         </Reveal>
         <Reveal delay={150} className="mt-12">
@@ -745,76 +771,220 @@ export function RoiSection() {
 
 /* --------------------------------- pricing -------------------------------- */
 
-export function PricingSection() {
+type Currency = 'CAD' | 'USD';
+
+interface PricingTier {
+  name: string;
+  hero?: boolean;
+  blurb: string;
+  price: Record<Currency, number>;
+  minutes: number;
+  overage: Record<Currency, string>;
+  features: string[];
+}
+
+/** The two public plans. Prices and caps are the founder's decided numbers. */
+const PRICING_TIERS: PricingTier[] = [
+  {
+    name: 'Starter After-Hours',
+    blurb: 'For clinics that mainly miss calls once the front desk closes.',
+    price: { CAD: 399, USD: 299 },
+    minutes: 300,
+    overage: { CAD: '$0.75', USD: '$0.50' },
+    features: [
+      'Answers evenings, nights and weekends',
+      'Books patients into your VoiceFront calendar',
+      'Takes messages and transfers urgent calls by your rules',
+    ],
+  },
+  {
+    name: 'Core 24/7',
+    hero: true,
+    blurb: 'For clinics that never want a call to ring out.',
+    price: { CAD: 599, USD: 499 },
+    minutes: 950,
+    overage: { CAD: '$0.75', USD: '$0.50' },
+    features: [
+      'Answers every call, day and night, in about a second',
+      'Books patients into your VoiceFront calendar',
+      'Warm transfers to your team, briefed before they pick up',
+      'Takes messages when a call is not for her',
+    ],
+  },
+];
+
+const PLAN_INCLUDES = [
+  'Your existing number, forwarded in minutes',
+  'Double-book protection on every booking',
+  'Answers from your clinic details: hours, services, prices, and the insurance you list',
+  'Twelve built-in voices to choose from',
+  'Dashboard with calls, minutes and spend',
+  'Recordings, transcripts and summaries for every call',
+];
+
+function CurrencyToggle({ value, onChange }: { value: Currency; onChange: (c: Currency) => void }) {
+  return (
+    <div className="inline-flex rounded-full border border-line bg-white p-1 shadow-input" role="group" aria-label="Currency">
+      {(['CAD', 'USD'] as Currency[]).map((c) => (
+        <button
+          key={c}
+          type="button"
+          onClick={() => onChange(c)}
+          aria-pressed={value === c}
+          className={`rounded-full px-4 py-1.5 text-[13px] font-semibold transition-all duration-200 ${
+            value === c ? 'bg-ink text-white shadow-pop' : 'text-ink-muted hover:text-ink'
+          }`}
+        >
+          {c}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function TierCard({ tier, currency, compact = false }: { tier: PricingTier; currency: Currency; compact?: boolean }) {
   const { primaryHref } = usePrimaryCta();
+  return (
+    <div
+      className={`relative flex h-full flex-col rounded-3xl p-8 ${
+        tier.hero
+          ? 'border border-signal/30 bg-ink-deep text-white shadow-lift'
+          : 'border border-line/70 bg-white shadow-card'
+      }`}
+    >
+      {tier.hero && (
+        <span className="absolute -top-3 left-8 rounded-full bg-gradient-to-b from-signal to-signal-deep px-3 py-1 text-[11px] font-bold uppercase tracking-[0.1em] text-white shadow-pop">
+          Most clinics pick Core
+        </span>
+      )}
+      <p className={`font-display text-lg font-semibold tracking-tight ${tier.hero ? 'text-white' : 'text-ink'}`}>
+        {tier.name}
+      </p>
+      <p className={`mt-2 text-[14px] leading-relaxed ${tier.hero ? 'text-white/60' : 'text-ink-muted'}`}>{tier.blurb}</p>
+      <p className="mt-6 flex items-baseline gap-2">
+        <span className={`font-display text-[44px] font-bold leading-none tracking-tight ${tier.hero ? 'text-white' : 'text-ink'}`}>
+          ${tier.price[currency]}
+        </span>
+        <span className={`text-sm font-medium ${tier.hero ? 'text-white/55' : 'text-ink-muted'}`}>{currency} / month</span>
+      </p>
+      <p className={`mt-2 text-[13px] ${tier.hero ? 'text-white/55' : 'text-ink-muted'}`}>
+        {tier.minutes} included minutes. Extra minutes {tier.overage[currency]} each.
+      </p>
+      {!compact && (
+        <ul className="mt-6 flex flex-1 flex-col gap-2.5">
+          {tier.features.map((f) => (
+            <li key={f} className={`flex items-start gap-2.5 text-[14px] leading-relaxed ${tier.hero ? 'text-white/85' : 'text-ink'}`}>
+              <span
+                className={`mt-0.5 flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full ${
+                  tier.hero ? 'bg-clinic text-white' : 'bg-signal-soft text-signal-deep'
+                }`}
+              >
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2.2" className="h-2.5 w-2.5">
+                  <path d="M3 8.5 6.5 12 13 4.5" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+              </span>
+              {f}
+            </li>
+          ))}
+        </ul>
+      )}
+      <Link
+        href={primaryHref}
+        className={`mt-8 rounded-full px-6 py-3 text-center text-[14.5px] font-semibold transition-all duration-150 hover:-translate-y-0.5 ${
+          tier.hero
+            ? 'bg-white text-ink shadow-lift'
+            : 'bg-gradient-to-b from-signal to-signal-deep text-white shadow-pop hover:shadow-lift'
+        }`}
+      >
+        Start your 7-day free trial
+      </Link>
+      <p className={`mt-3 text-center text-xs ${tier.hero ? 'text-white/45' : 'text-ink-muted/80'}`}>
+        $0 setup. Cancel anytime.
+      </p>
+    </div>
+  );
+}
+
+export function PricingSection() {
+  const [currency, setCurrency] = useState<Currency>('CAD');
   return (
     <section className="px-6 py-24 md:py-32">
       <div className="mx-auto max-w-6xl">
-        <div className="relative overflow-hidden rounded-[32px] border border-line/70 bg-white px-8 py-16 shadow-lift md:px-16 md:py-20">
-          <div
-            aria-hidden
-            className="pointer-events-none absolute inset-0 bg-[radial-gradient(45%_55%_at_85%_0%,rgba(14,107,99,0.07),transparent),radial-gradient(40%_50%_at_5%_100%,rgba(16,169,142,0.06),transparent)]"
-          />
-          <div className="relative grid items-center gap-12 lg:grid-cols-[1.1fr_0.9fr]">
-            <div>
-              <Reveal>
-                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-deep">Pricing</p>
-                <h2 className="mt-4 font-display text-4xl font-semibold tracking-tight text-ink md:text-[44px]">
-                  Priced around your calls,
-                  <br />
-                  not a one-size plan.
-                </h2>
-                <p className="mt-5 max-w-lg text-lg leading-relaxed text-ink-muted">
-                  A solo contractor and a three-location clinic shouldn’t pay the same.
-                  Tell us your call volume and we’ll quote a plan that pays for itself —
-                  most customers cover it with the first few bookings it saves.
-                </p>
-              </Reveal>
-              <Reveal delay={120}>
-                <div className="mt-9 flex flex-wrap items-center gap-4">
-                  <Link
-                    href="/book"
-                    className="rounded-full bg-gradient-to-b from-signal to-signal-deep px-7 py-3.5 text-[15px] font-semibold text-white shadow-pop transition-all duration-150 hover:-translate-y-0.5 hover:shadow-lift"
-                  >
-                    Book a call
-                  </Link>
-                  <Link
-                    href={primaryHref}
-                    className="rounded-2xl border border-line bg-white px-7 py-3.5 text-[15px] font-semibold text-ink shadow-input transition-colors duration-150 hover:border-ink-muted/40"
-                  >
-                    Try the product first
-                  </Link>
-                </div>
-                <p className="mt-5 text-sm text-ink-muted/80">Custom quote within a day · no contracts · no setup fees · cancel anytime</p>
-              </Reveal>
-            </div>
-            <Reveal delay={200}>
-              <div className="rounded-3xl border border-signal/15 bg-signal-soft/40 p-8">
-                <p className="text-sm font-semibold uppercase tracking-[0.12em] text-signal-deep">Every plan includes</p>
-                <ul className="mt-5 grid gap-3">
-                  {[
-                    '24/7 AI receptionist on your number',
-                    'Real-time appointment booking & calendar',
-                    'Premium voices + ElevenLabs support',
-                    'Smart transfers to your team',
-                    'Transcripts, recordings & summaries',
-                    'Unlimited staff seats on the dashboard',
-                    'White-glove setup & onboarding',
-                  ].map((item) => (
-                    <li key={item} className="flex items-start gap-3 text-[15px] text-ink">
-                      <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-signal text-white shadow-sm">
-                        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3">
-                          <path d="M3 8.5 6.5 12 13 4.5" strokeLinecap="round" strokeLinejoin="round" />
-                        </svg>
-                      </span>
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </Reveal>
+        <Reveal className="mx-auto max-w-2xl text-center">
+          <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-deep">Pricing</p>
+          <h2 className="mt-4 font-display text-4xl font-semibold tracking-tight text-ink md:text-[44px]">
+            Two plans. Prices in the open.
+          </h2>
+          <p className="mx-auto mt-5 max-w-xl text-lg leading-relaxed text-ink-muted">
+            No quotes, no calls with a salesperson. Pick the plan that matches when your clinic misses
+            calls, start the free trial, and forward your number.
+          </p>
+          <div className="mt-7 flex justify-center">
+            <CurrencyToggle value={currency} onChange={setCurrency} />
           </div>
+        </Reveal>
+        <div className="mx-auto mt-12 grid max-w-4xl gap-6 md:grid-cols-2">
+          {PRICING_TIERS.map((tier, i) => (
+            <Reveal key={tier.name} delay={i * 120}>
+              <TierCard tier={tier} currency={currency} />
+            </Reveal>
+          ))}
         </div>
+        <Reveal delay={150}>
+          <div className="mx-auto mt-10 max-w-4xl rounded-3xl border border-signal/15 bg-signal-soft/40 p-8">
+            <p className="text-sm font-semibold uppercase tracking-[0.12em] text-signal-deep">Every plan includes</p>
+            <ul className="mt-5 grid gap-3 sm:grid-cols-2">
+              {PLAN_INCLUDES.map((item) => (
+                <li key={item} className="flex items-start gap-3 text-[14.5px] leading-relaxed text-ink">
+                  <span className="mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-signal text-white shadow-sm">
+                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="h-3 w-3">
+                      <path d="M3 8.5 6.5 12 13 4.5" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </span>
+                  {item}
+                </li>
+              ))}
+            </ul>
+          </div>
+        </Reveal>
+      </div>
+    </section>
+  );
+}
+
+/** Compact pricing strip for the home page: the same two plans, one glance. */
+export function PricingStripSection() {
+  const [currency, setCurrency] = useState<Currency>('CAD');
+  return (
+    <section className="border-t border-line/60 px-6 py-24 md:py-28">
+      <div className="mx-auto max-w-6xl">
+        <Reveal className="flex flex-wrap items-end justify-between gap-6">
+          <div className="max-w-xl">
+            <p className="text-xs font-semibold uppercase tracking-[0.16em] text-signal-deep">Pricing</p>
+            <h2 className="mt-4 font-display text-4xl font-semibold tracking-tight md:text-[44px]">
+              Priced in the open.
+            </h2>
+            <p className="mt-4 text-lg leading-relaxed text-ink-muted">
+              Two plans, $0 setup, and a 7-day free trial on both. Most clinics pick Core.
+            </p>
+          </div>
+          <CurrencyToggle value={currency} onChange={setCurrency} />
+        </Reveal>
+        <div className="mt-10 grid gap-6 md:grid-cols-2">
+          {PRICING_TIERS.map((tier, i) => (
+            <Reveal key={tier.name} delay={i * 120}>
+              <TierCard tier={tier} currency={currency} compact />
+            </Reveal>
+          ))}
+        </div>
+        <Reveal delay={120} className="mt-8 text-center">
+          <Link href="/pricing" className="group inline-flex items-center gap-1.5 text-[15px] font-semibold text-signal-deep transition-colors hover:text-signal">
+            See what is included in each plan
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-4 w-4 transition-transform duration-300 ease-smooth group-hover:translate-x-0.5">
+              <path d="M3.5 8h9M9 4.5 12.5 8 9 11.5" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </Link>
+        </Reveal>
       </div>
     </section>
   );
@@ -832,7 +1002,7 @@ export function BookSection() {
             Rather just book a call?
           </h2>
           <p className="mt-5 text-lg leading-relaxed text-ink-muted">
-            Prefer a real conversation? Grab a time that suits you — pick a slot on our real calendar,
+            Prefer a real conversation? Grab a time that suits you, pick a slot on our real calendar,
             tell us a little about your business, and we&apos;ll walk you through exactly how VoiceFront
             would fit. No account needed.
           </p>
@@ -969,9 +1139,15 @@ export function SiteFooter() {
               <Logo size="sm" />
             </Link>
             <p className="mt-4 text-sm leading-relaxed text-ink-muted">
-              The AI receptionist that answers every call in a human voice and books the appointment —
-              24/7, on your calendar.
+              The AI receptionist for dental clinics. She answers every call in a human voice and books
+              the patient into your VoiceFront calendar, 24/7.
             </p>
+            <Link
+              href="/demo"
+              className="mt-5 inline-block rounded-full bg-gradient-to-b from-signal to-signal-deep px-5 py-2.5 text-sm font-semibold text-white shadow-pop transition-all duration-300 ease-smooth hover:-translate-y-px hover:shadow-lift active:translate-y-0"
+            >
+              Hear your demo
+            </Link>
             <Waveform bars={18} tone="muted" className="mt-5 h-6 w-auto justify-start" />
           </div>
           {columns.map((col) => (
@@ -991,7 +1167,7 @@ export function SiteFooter() {
         </div>
         <div className="mt-12 flex flex-col items-center justify-between gap-3 border-t border-line/60 pt-6 sm:flex-row">
           <p className="text-xs text-ink-muted/70">© 2026 VoiceFront. All rights reserved.</p>
-          <p className="text-xs text-ink-muted/60">Built on Vapi · OpenAI · Deepgram</p>
+          <p className="text-xs text-ink-muted/60">Also answering for home services and other appointment-based businesses.</p>
         </div>
       </div>
     </footer>

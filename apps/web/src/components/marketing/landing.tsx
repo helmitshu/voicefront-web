@@ -58,31 +58,6 @@ export function Reveal({
   );
 }
 
-/* ----------------------------- call simulation ---------------------------- */
-
-interface ScriptLine {
-  role: 'agent' | 'caller';
-  text: string;
-}
-
-/**
- * Looping timeline: step 0 = ringing, steps 1..n reveal transcript lines,
- * step n+1 = booked confirmation, then the loop restarts.
- */
-function useCallLoop(lineCount: number) {
-  const [step, setStep] = useState(0);
-  useEffect(() => {
-    const duration = step === 0 ? 1800 : step <= lineCount ? 1800 : 4200;
-    const t = setTimeout(() => setStep((s) => (s > lineCount ? 0 : s + 1)), duration);
-    return () => clearTimeout(t);
-  }, [step, lineCount]);
-  return {
-    ringing: step === 0,
-    visibleLines: Math.min(step, lineCount),
-    booked: step > lineCount,
-  };
-}
-
 const WAVE_HEIGHTS = [0.55, 0.95, 0.7, 1, 0.6];
 
 function Waveform({ bars = 5, light = false }: { bars?: number; light?: boolean }) {
@@ -102,106 +77,6 @@ function Waveform({ bars = 5, light = false }: { bars?: number; light?: boolean 
   );
 }
 
-const HERO_SCRIPT: ScriptLine[] = [
-  { role: 'agent', text: 'Good morning, Northside Family Clinic — how can I help?' },
-  { role: 'caller', text: 'Hi, I need a checkup for tomorrow if possible.' },
-  { role: 'agent', text: 'Sure. Tomorrow I have 9:30, 11:00 or 2:00 — what works best?' },
-  { role: 'caller', text: '11 works great. It’s Sarah Mitchell.' },
-  { role: 'agent', text: 'Done, Sarah — you’re booked for 11:00 AM tomorrow.' },
-];
-
-export function CallCard() {
-  const { ringing, visibleLines, booked } = useCallLoop(HERO_SCRIPT.length);
-  return (
-    <div className="relative w-full max-w-[420px] animate-float">
-      {/* glow */}
-      <div
-        aria-hidden
-        className="absolute -inset-8 rounded-[40px] bg-[radial-gradient(50%_50%_at_50%_50%,rgba(14,107,99,0.14),transparent_70%)]"
-      />
-      <div className="relative overflow-hidden rounded-3xl border border-line/70 bg-white shadow-lift ring-1 ring-ink/5">
-        {/* header */}
-        <div className="flex items-center justify-between border-b border-line/60 bg-paper/70 px-5 py-4">
-          <div className="flex items-center gap-3">
-            <span className="relative flex h-10 w-10 items-center justify-center rounded-full bg-gradient-to-br from-signal to-signal-deep text-sm font-semibold text-white shadow-pop">
-              {ringing && (
-                <span className="absolute inset-0 animate-pulse-ring rounded-full bg-signal/60" aria-hidden />
-              )}
-              <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.7" className="h-[18px] w-[18px]">
-                <path
-                  d="M4 3.5h3l1.5 4-2 1.5a11 11 0 0 0 4.5 4.5l1.5-2 4 1.5v3a1.5 1.5 0 0 1-1.6 1.5C8.3 16.9 3.1 11.7 2.5 5.1A1.5 1.5 0 0 1 4 3.5Z"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </span>
-            <div>
-              <p className="text-[13px] font-semibold text-ink">+1 (555) 012-8841</p>
-              <p className="text-xs text-ink-muted">{ringing ? 'Incoming call…' : 'Connected · 00:12'}</p>
-            </div>
-          </div>
-          {ringing ? (
-            <span className="rounded-full bg-construction-soft px-2.5 py-1 text-[11px] font-semibold text-[#9a6a1d]">
-              Ringing
-            </span>
-          ) : (
-            <span className="flex items-center gap-2 rounded-full bg-clinic-soft/80 px-2.5 py-1 text-[11px] font-semibold text-[#0b8a74]">
-              <Waveform bars={4} />
-              Live
-            </span>
-          )}
-        </div>
-
-        {/* transcript */}
-        <div className="flex min-h-[270px] flex-col gap-2.5 px-5 py-5">
-          {HERO_SCRIPT.slice(0, visibleLines).map((line, i) => (
-            <div
-              key={i}
-              className={`max-w-[85%] animate-pop-in rounded-2xl px-3.5 py-2 text-[13px] leading-snug ${
-                line.role === 'agent'
-                  ? 'self-start rounded-bl-md bg-signal-soft/70 text-ink ring-1 ring-inset ring-signal/10'
-                  : 'self-end rounded-br-md bg-paper text-ink ring-1 ring-inset ring-ink/5'
-              }`}
-            >
-              {line.role === 'agent' && (
-                <span className="mb-0.5 block text-[10px] font-semibold uppercase tracking-[0.1em] text-signal-deep/70">
-                  Receptionist
-                </span>
-              )}
-              {line.text}
-            </div>
-          ))}
-          {ringing && (
-            <div className="flex flex-1 items-center justify-center">
-              <p className="text-sm text-ink-muted">Answering before the second ring…</p>
-            </div>
-          )}
-        </div>
-
-        {/* booked toast */}
-        <div className="px-5 pb-5">
-          {booked ? (
-            <div className="flex animate-pop-in items-center gap-3 rounded-2xl border border-clinic/20 bg-clinic-soft/70 px-4 py-3">
-              <span className="flex h-8 w-8 items-center justify-center rounded-full bg-clinic text-white shadow-sm">
-                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="h-4 w-4">
-                  <path d="M3 8.5 6.5 12 13 4.5" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </span>
-              <div>
-                <p className="text-[13px] font-semibold text-ink">Appointment booked</p>
-                <p className="text-xs text-ink-muted">Sarah Mitchell · Tomorrow, 11:00 AM · synced to dashboard</p>
-              </div>
-            </div>
-          ) : (
-            <div className="flex items-center justify-between rounded-2xl border border-line/60 bg-paper/60 px-4 py-3">
-              <p className="text-xs text-ink-muted">Voice: Emma · ambience: office</p>
-              <Waveform bars={5} />
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 /* ------------------------- live demo (dark section) ------------------------ */
 
@@ -211,6 +86,16 @@ const DEMO_SCENARIOS = [
   { tag: 'Just talk', text: 'Tell Ava about your business — she leads from there.' },
   { tag: 'Book it live', text: 'Ask her to book an appointment — watch the calendar fill in real time.' },
   { tag: 'Try to double-book', text: 'Block an open slot below, then ask for that exact time — watch her refuse.' },
+  { tag: 'Get the recap', text: 'Hang up and see the clean summary she leaves behind.' },
+];
+
+/** The same four beats for Maya's in-browser demo (Canadian receptionist
+ *  visitors). Hers are the receptionist versions: answer, book, one hold
+ *  only, recap. */
+const MAYA_SCENARIOS = [
+  { tag: 'Just talk', text: 'Say hi and ask about hours or services. She answers from your clinic facts.' },
+  { tag: 'Book it live', text: 'Ask her for a cleaning. Watch the booking land on the calendar.' },
+  { tag: 'One booking only', text: 'Try to get a second appointment held too. The system allows exactly one.' },
   { tag: 'Get the recap', text: 'Hang up and see the clean summary she leaves behind.' },
 ];
 
@@ -305,7 +190,7 @@ function DemoLeadField({
 /** The industries the demo can dress its sample calendar for. */
 const DEMO_INDUSTRIES: Array<{ key: DemoIndustry; label: string; hint: string }> = [
   { key: 'clinic', label: 'Clinic / practice', hint: 'Dental, medical, vet' },
-  { key: 'contractor', label: 'Contractor / trades', hint: 'Builders, HVAC, plumbing' },
+  { key: 'contractor', label: 'Contractor / trades', hint: 'Builders and trades' },
   { key: 'other', label: 'Something else', hint: 'Salon, law, services' },
 ];
 
@@ -444,11 +329,11 @@ function DemoLeadForm({
       >
         <div className="text-center">
           <h3 className="font-display text-[22px] font-semibold tracking-tight text-white">
-            Talk to our AI — live, right now
+            Talk to our AI, live, right now
           </h3>
           <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-white/55">
             Drop your details and she’ll walk you through exactly how VoiceFront answers, books, and
-            never double-books — tuned to your line of work.
+            never double-books, tuned to your line of work.
           </p>
         </div>
 
@@ -713,6 +598,7 @@ function DemoModeChoice({
   demoKind,
   clinicName,
   onWeb,
+  onMayaWeb,
   onCall,
   onBack,
 }: {
@@ -720,10 +606,16 @@ function DemoModeChoice({
   demoKind: DemoKind;
   clinicName: string;
   onWeb: () => void;
+  /** Canadian receptionist demo: Maya runs right here in the browser. */
+  onMayaWeb: () => void;
   onCall: () => void;
   onBack: () => void;
 }) {
   const firstName = lead.name.trim().split(/\s+/)[0];
+  // Canadian visitors get Maya's demo in the browser instead of a phone
+  // call (the server makes the same call when the demo starts, this card
+  // just names it honestly). The phone card stays as their fallback.
+  const mayaWeb = demoKind === 'receptionist' && lead.ipCountry === 'CA';
   return (
     <div className="mx-auto max-w-2xl">
       <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-7 backdrop-blur sm:p-9">
@@ -737,20 +629,39 @@ function DemoModeChoice({
         </div>
 
         <div className="mt-6 grid gap-3.5 sm:grid-cols-2">
-          {/* Test on web — always available */}
-          <button
-            type="button"
-            onClick={onWeb}
-            className="group flex flex-col items-start gap-2 rounded-2xl border border-white/15 bg-white/[0.06] p-5 text-left transition-all hover:-translate-y-0.5 hover:border-signal-soft/60 hover:bg-white/[0.1]"
-          >
-            <span className="rounded-full bg-signal/25 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-signal-soft ring-1 ring-inset ring-signal/30">
-              Instant
-            </span>
-            <span className="text-[16px] font-semibold text-white">Test on the web</span>
-            <span className="text-[13px] leading-snug text-white/55">
-              Talk to the agent right here in your browser. Just needs mic access.
-            </span>
-          </button>
+          {/* Test on web — always available. For a Canadian receptionist
+              demo this card IS Maya, in the browser; anywhere else it is
+              the pitch demo with Ava, as before. */}
+          {mayaWeb ? (
+            <button
+              type="button"
+              onClick={onMayaWeb}
+              className="group flex flex-col items-start gap-2 rounded-2xl border border-white/15 bg-white/[0.06] p-5 text-left transition-all hover:-translate-y-0.5 hover:border-signal-soft/60 hover:bg-white/[0.1]"
+            >
+              <span className="rounded-full bg-signal/25 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-signal-soft ring-1 ring-inset ring-signal/30">
+                In your browser
+              </span>
+              <span className="text-[16px] font-semibold text-white">Talk to Maya now</span>
+              <span className="text-[13px] leading-snug text-white/55">
+                Maya answers right here, as the front desk at {clinicName || 'your clinic'}. No phone
+                call needed, just your microphone.
+              </span>
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={onWeb}
+              className="group flex flex-col items-start gap-2 rounded-2xl border border-white/15 bg-white/[0.06] p-5 text-left transition-all hover:-translate-y-0.5 hover:border-signal-soft/60 hover:bg-white/[0.1]"
+            >
+              <span className="rounded-full bg-signal/25 px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wide text-signal-soft ring-1 ring-inset ring-signal/30">
+                Instant
+              </span>
+              <span className="text-[16px] font-semibold text-white">Test on the web</span>
+              <span className="text-[13px] leading-snug text-white/55">
+                Talk to the agent right here in your browser. Just needs mic access.
+              </span>
+            </button>
+          )}
 
           {/* Get a call — gated to US/CA */}
           {lead.callAllowed ? (
@@ -783,11 +694,17 @@ function DemoModeChoice({
           )}
         </div>
 
-        {demoKind === 'receptionist' && (
-          <p className="mt-4 text-center text-[12px] leading-relaxed text-white/40">
-            The receptionist demo runs by phone only. The in-browser test above is the pitch demo with Ava.
-          </p>
-        )}
+        {demoKind === 'receptionist' &&
+          (mayaWeb ? (
+            <p className="mt-4 text-center text-[12px] leading-relaxed text-white/40">
+              You are visiting from Canada, so Maya runs right here in your browser. Rather get a call?
+              The phone option above still works the usual way.
+            </p>
+          ) : (
+            <p className="mt-4 text-center text-[12px] leading-relaxed text-white/40">
+              The receptionist demo runs by phone only. The in-browser test above is the pitch demo with Ava.
+            </p>
+          ))}
 
         <div className="mt-5 text-center">
           <button
@@ -840,8 +757,17 @@ function DemoCallView({
         leadId: lead.leadId,
         name: lead.name,
         phone: lead.phone,
-        ...(receptionist ? { demoKind, ...(facts ? { facts } : {}) } : {}),
+        // This view IS the phone choice (for a Canadian it is the
+        // fallback they picked on purpose), so opt in explicitly: the
+        // server otherwise starts Canadian receptionist demos in the
+        // browser.
+        ...(receptionist ? { demoKind, delivery: 'phone' as const, ...(facts ? { facts } : {}) } : {}),
       });
+      if (res.mode === 'web') {
+        // Unreachable with delivery 'phone' — kept so the union narrows.
+        setState({ status: 'error', message: 'That demo runs in the browser instead. Head back and pick the in-browser option.' });
+        return;
+      }
       setState({ status: 'ringing', fromNumber: res.fromNumber });
     } catch (err) {
       if (err instanceof ApiError && err.code === 'NO_DEMO_NUMBER') {
@@ -961,15 +887,24 @@ function DemoCallView({
 
 /* ----------------------- demo: agent-driven screens ----------------------- */
 
-function DemoIntroStage() {
-  const items = [
-    { t: 'Books appointments', d: 'Ask her to book — watch it land on the calendar.' },
-    { t: 'Never double-books', d: 'Block a slot and try to trip her up.' },
-    { t: 'Sends a summary', d: 'A clean recap the second you hang up.' },
-  ];
+function DemoIntroStage({ variant = 'sales' }: { variant?: 'sales' | 'receptionist' }) {
+  const items =
+    variant === 'receptionist'
+      ? [
+          { t: 'Answers as your front desk', d: 'She greets callers with your clinic name and your hours.' },
+          { t: 'Books the appointment', d: 'Ask her for a cleaning and watch it land on the calendar.' },
+          { t: 'Never double-books', d: 'One booking per call, held by the system, not by memory.' },
+        ]
+      : [
+          { t: 'Books appointments', d: 'Ask her to book — watch it land on the calendar.' },
+          { t: 'Never double-books', d: 'Block a slot and try to trip her up.' },
+          { t: 'Sends a summary', d: 'A clean recap the second you hang up.' },
+        ];
   return (
     <div className="flex flex-col gap-3 px-5 py-6">
-      <p className="text-[13px] text-ink-muted">Ava’s about to walk you through three things, live:</p>
+      <p className="text-[13px] text-ink-muted">
+        {variant === 'receptionist' ? 'Maya’s about to show you three things, live:' : 'Ava’s about to walk you through three things, live:'}
+      </p>
       {items.map((it, i) => (
         <div key={it.t} className="flex items-start gap-3 rounded-2xl bg-paper px-4 py-3 ring-1 ring-inset ring-ink/5">
           <span className="mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-signal/15 text-[12px] font-bold text-signal-deep">
@@ -1061,7 +996,13 @@ function DemoSummaryStage({
   );
 }
 
-function DemoCloseStage() {
+function DemoCloseStage({
+  variant = 'sales',
+  sampleCompany,
+}: {
+  variant?: 'sales' | 'receptionist';
+  sampleCompany?: string;
+}) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 px-6 py-12 text-center">
       <div className="flex h-12 w-12 items-center justify-center rounded-full bg-signal/15">
@@ -1072,7 +1013,9 @@ function DemoCloseStage() {
       </div>
       <p className="font-display text-[16px] font-semibold text-ink">Like what you see?</p>
       <p className="max-w-xs text-[13px] leading-snug text-ink-muted">
-        Ava can book you a quick setup call right now — just tell her a day that works, and watch it land.
+        {variant === 'receptionist'
+          ? `That is exactly how Maya would answer at ${sampleCompany ?? 'your clinic'}. When you are ready, she can be live on your real phones.`
+          : 'Ava can book you a quick setup call right now — just tell her a day that works, and watch it land.'}
       </p>
     </div>
   );
@@ -1090,6 +1033,7 @@ function DemoStagePanel({
   sessionId,
   lead,
   callSummary,
+  variant = 'sales',
 }: {
   stage: DemoStage;
   showCalendar: boolean;
@@ -1102,7 +1046,10 @@ function DemoStagePanel({
   sessionId: string | null;
   lead: DemoLeadResponse | null;
   callSummary: DemoCallSummary | null;
+  /** Which agent is driving: Ava's pitch (default) or Maya's web demo. */
+  variant?: 'sales' | 'receptionist';
 }) {
+  const agentName = variant === 'receptionist' ? 'Maya' : 'Ava';
   const byTime = new Map(appointments.map((a) => [a.time, a]));
   const aiBooked = appointments.filter((a) => a.kind === 'voice').length;
   const voiceAppt = appointments.find((a) => a.kind === 'voice') ?? null;
@@ -1146,7 +1093,7 @@ function DemoStagePanel({
 
   const sampleCompany = day?.sampleCompany ?? 'Sample business';
   const header = {
-    intro: { eyebrow: 'Live demo', title: 'What Ava will show you' },
+    intro: { eyebrow: 'Live demo', title: `What ${agentName} will show you` },
     booking: { eyebrow: `Sample · ${sampleCompany}`, title: day?.dayLabel ?? 'Loading…' },
     doublebook: { eyebrow: 'Try to catch her out', title: 'She won’t double-book' },
     summary: { eyebrow: 'After the call', title: 'The summary you’d get' },
@@ -1207,7 +1154,9 @@ function DemoStagePanel({
                   </span>
                   <p className="text-[12px] font-medium leading-snug text-signal-deep">
                     {guideBlock
-                      ? 'Click any open slot below to block it — then ask Ava to book that exact time and watch her refuse.'
+                      ? variant === 'receptionist'
+                        ? 'Try to get her to hold a second appointment as well. She will refuse, one hold per call, and she will ask before changing anything.'
+                        : 'Click any open slot below to block it — then ask Ava to book that exact time and watch her refuse.'
                       : `Say it out loud: “Book me ${apptNoun === 'site estimate' ? 'a site estimate' : 'an appointment'} at 2 PM” — watch it land here.`}
                   </p>
                 </div>
@@ -1288,9 +1237,9 @@ function DemoStagePanel({
         ) : stage === 'summary' ? (
           <DemoSummaryStage day={day} voiceAppt={voiceAppt} lead={lead} summary={callSummary} />
         ) : stage === 'close' ? (
-          <DemoCloseStage />
+          <DemoCloseStage variant={variant} sampleCompany={sampleCompany} />
         ) : (
-          <DemoIntroStage />
+          <DemoIntroStage variant={variant} />
         )}
       </div>
     </div>
@@ -1328,6 +1277,15 @@ export function InteractiveDemo() {
   const turnstileResetRef = useRef<(() => void) | null>(null);
 
   const [phase, setPhase] = useState<DemoPhase>('idle');
+  /** Which agent the web console is running: Ava's pitch, or Maya's
+   *  receptionist demo (Canadian visitors). */
+  const [webAgent, setWebAgent] = useState<'ava' | 'maya'>('ava');
+  /** Set when a Maya web start fell back to a phone call server-side (the
+   *  browser demo could not be offered): the from-number Maya is ringing
+   *  from, shown instead of the console. */
+  const [mayaRingingFrom, setMayaRingingFrom] = useState<string | null>(null);
+  /** Whether the last web-mode response said the phone fallback exists. */
+  const [phoneFallbackAvailable, setPhoneFallbackAvailable] = useState(false);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [day, setDay] = useState<DemoDay | null>(null);
   const [appointments, setAppointments] = useState<DemoAppointment[]>([]);
@@ -1395,6 +1353,7 @@ export function InteractiveDemo() {
   }, [transcript]);
 
   const live = phase === 'connecting' || phase === 'listening' || phase === 'assistant-speaking';
+  const maya = webAgent === 'maya';
 
   async function submitLead(e: React.FormEvent) {
     e.preventDefault();
@@ -1494,17 +1453,54 @@ export function InteractiveDemo() {
   }
 
   function chooseWeb() {
+    setWebAgent('ava');
     setView('web');
     void startCall();
   }
 
-  async function startCall() {
-    if (live || phase === 'requesting') return;
+  function chooseMayaWeb() {
+    setWebAgent('maya');
+    setView('web');
+    void startMayaWebCall();
+  }
+
+  /** The console's voice-session handlers, shared by Ava's start and
+   *  Maya's: whichever agent is on the line drives the same panel. */
+  function voiceHandlers() {
+    return {
+      onPhase: (next: SimulatorPhase) => {
+        if (aliveRef.current) setPhase(next);
+      },
+      onVolume: () => {},
+      onTranscript: (entry: TranscriptEntry) => {
+        if (aliveRef.current) setTranscript((cur) => [...cur, entry]);
+      },
+      onError: (message: string) => {
+        if (aliveRef.current) setError(message);
+      },
+      onScreen: (screen: string) => {
+        if (aliveRef.current) applyScreen(screen);
+      },
+      onSummary: (summary: DemoCallSummary) => {
+        if (!aliveRef.current) return;
+        setCallSummary(summary);
+        applyScreen('summary'); // the recap tool also switches them to the summary
+      },
+    };
+  }
+
+  /** Reset the console to a fresh call: no transcript, no stale screen. */
+  function resetConsole() {
     setError(null);
     setTranscript([]);
     setStage('intro');
     setCallSummary(null);
     screenSetAtRef.current = 0;
+  }
+
+  async function startCall() {
+    if (live || phase === 'requesting') return;
+    resetConsole();
     setPhase('requesting');
     let data;
     try {
@@ -1528,18 +1524,52 @@ export function InteractiveDemo() {
 
     const session = new VoiceSession();
     sessionRef.current = session;
-    await session.start(data.publicKey, data.assistant, {
-      onPhase: (next) => aliveRef.current && setPhase(next),
-      onVolume: () => {},
-      onTranscript: (entry) => aliveRef.current && setTranscript((cur) => [...cur, entry]),
-      onError: (message) => aliveRef.current && setError(message),
-      onScreen: (screen) => aliveRef.current && applyScreen(screen),
-      onSummary: (summary) => {
-        if (!aliveRef.current) return;
-        setCallSummary(summary);
-        applyScreen('summary'); // the recap tool also switches them to the summary
-      },
-    });
+    await session.start(data.publicKey, data.assistant, voiceHandlers());
+  }
+
+  /**
+   * Maya's in-browser demo (Canadian receptionist visitors): the demo
+   * start is the same /call the phone flow uses, answered with a web
+   * call instead of a dial. If the server could not offer the browser
+   * demo it rings the phone as it always has, and the console gives way
+   * to the ringing state rather than pretending a web call started.
+   */
+  async function startMayaWebCall() {
+    if (!lead || live || phase === 'requesting') return;
+    resetConsole();
+    setMayaRingingFrom(null);
+    setPhoneFallbackAvailable(false);
+    setPhase('requesting');
+    let res;
+    try {
+      res = await DemoApi.call({
+        sessionId: lead.sessionId,
+        leadId: lead.leadId,
+        name: lead.name,
+        phone: lead.phone,
+        demoKind: 'receptionist',
+        delivery: 'web',
+        ...(confirmedFacts ? { facts: confirmedFacts } : {}),
+      });
+    } catch (err) {
+      if (!aliveRef.current) return;
+      setPhase('error');
+      setError(err instanceof ApiError ? err.message : 'Could not start the demo.');
+      return;
+    }
+    if (!aliveRef.current) return;
+    if (res.mode === 'phone') {
+      setMayaRingingFrom(res.fromNumber);
+      setPhase('idle');
+      return;
+    }
+    setPhoneFallbackAvailable(res.phoneFallbackAvailable);
+    setSessionId(res.sessionId);
+    setShowCalendar(true);
+
+    const session = new VoiceSession();
+    sessionRef.current = session;
+    await session.start(res.publicKey, res.assistant, voiceHandlers());
   }
 
   function endCall() {
@@ -1620,6 +1650,7 @@ export function InteractiveDemo() {
           demoKind={demoKind}
           clinicName={confirmedFacts?.businessName ?? ''}
           onWeb={chooseWeb}
+          onMayaWeb={chooseMayaWeb}
           onCall={() => setView('call')}
           onBack={() => setView('form')}
         />
@@ -1639,6 +1670,47 @@ export function InteractiveDemo() {
           onBack={() => setView('choose')}
           onWeb={chooseWeb}
         />
+      </div>
+    );
+  }
+
+  // Maya's web start fell back to a phone call server-side: the console
+  // gives way to the same ringing state the phone view shows.
+  if (maya && mayaRingingFrom && lead) {
+    return (
+      <div key="maya-ringing" className="animate-fade-up">
+        <div className="mx-auto max-w-xl">
+          <div className="rounded-3xl border border-white/10 bg-white/[0.04] p-9 text-center backdrop-blur">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-emerald-400/20 ring-1 ring-inset ring-emerald-300/40">
+              <Waveform bars={4} light />
+            </div>
+            <h3 className="mt-5 font-display text-[20px] font-semibold tracking-tight text-white">
+              Your phone’s about to ring
+            </h3>
+            <p className="mx-auto mt-2 max-w-sm text-sm leading-relaxed text-white/60">
+              The in-browser demo could not start here, so we are calling{' '}
+              <span className="font-semibold text-white">{lead.phone}</span> from{' '}
+              <span className="font-mono text-white/80">{mayaRingingFrom}</span> instead. Pick up and talk
+              to Maya like a patient would. Ask for a cleaning, or try a tricky question.
+            </p>
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+              <button
+                type="button"
+                onClick={() => void startMayaWebCall()}
+                className="rounded-full bg-white px-6 py-3 text-[15px] font-semibold text-ink shadow-lift transition-transform hover:-translate-y-0.5"
+              >
+                Try the browser demo again
+              </button>
+              <button
+                type="button"
+                onClick={() => setView('choose')}
+                className="rounded-2xl border border-white/15 bg-white/[0.06] px-6 py-3 text-[15px] font-semibold text-white transition-transform hover:-translate-y-0.5"
+              >
+                ‹ Back to options
+              </button>
+            </div>
+          </div>
+        </div>
       </div>
     );
   }
@@ -1665,7 +1737,9 @@ export function InteractiveDemo() {
           {transcript.length === 0 && !live && phase !== 'requesting' ? (
             <div className="flex flex-1 flex-col items-center justify-center gap-4 text-center">
               <p className="max-w-xs text-sm text-ink-muted">
-                Press the button and say hi to Ava. She’ll walk you through what VoiceFront does — live. Ask her to book, then try to trip her up.
+                {maya
+                  ? `Press the button and talk to Maya like a patient calling ${confirmedFacts?.businessName ?? 'your clinic'}. Ask her to book a cleaning, then try to trip her up.`
+                  : 'Press the button and say hi to Ava. She’ll walk you through what VoiceFront does — live. Ask her to book, then try to trip her up.'}
               </p>
             </div>
           ) : (
@@ -1684,7 +1758,7 @@ export function InteractiveDemo() {
           )}
           {phase === 'requesting' && (
             <div className="flex flex-1 items-center justify-center">
-              <p className="text-sm text-ink-muted/70">Getting Ava on the line…</p>
+              <p className="text-sm text-ink-muted/70">{maya ? 'Getting Maya on the line…' : 'Getting Ava on the line…'}</p>
             </div>
           )}
         </div>
@@ -1715,7 +1789,7 @@ export function InteractiveDemo() {
                   )}
                   <button
                     type="button"
-                    onClick={startCall}
+                    onClick={maya ? startMayaWebCall : startCall}
                     disabled={phase === 'requesting'}
                     className="relative rounded-full bg-gradient-to-b from-signal to-signal-deep px-7 py-3 text-[15px] font-semibold text-white shadow-pop transition-all duration-200 ease-smooth hover:-translate-y-0.5 hover:shadow-lift disabled:opacity-60"
                   >
@@ -1725,6 +1799,21 @@ export function InteractiveDemo() {
               )}
               <p className="text-[11px] text-ink-muted/70">Free · runs in your browser · needs mic access</p>
               {error && <p className="text-center text-xs text-danger">{error}</p>}
+              {/* Maya's microphone fallback: the phone call, exactly as it
+                  has always worked, offered whenever a web call ends or
+                  fails and a caller-ID exists to dial from. */}
+              {maya && phoneFallbackAvailable && (phase === 'error' || phase === 'ended') && (
+                <p className="text-center text-[12px] text-ink-muted">
+                  Rather hear it on your phone?{' '}
+                  <button
+                    type="button"
+                    onClick={() => setView('call')}
+                    className="font-semibold text-signal-deep underline decoration-signal/40 underline-offset-2 transition-colors hover:text-ink"
+                  >
+                    Get a call instead
+                  </button>
+                </p>
+              )}
             </div>
           )}
         </div>
@@ -1743,12 +1832,13 @@ export function InteractiveDemo() {
         sessionId={sessionId}
         lead={lead}
         callSummary={callSummary}
+        variant={maya ? 'receptionist' : 'sales'}
       />
 
       {/* ----------------------------- guided scenarios ---------------------------- */}
       <div className="lg:col-span-2">
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          {DEMO_SCENARIOS.map((s, i) => {
+          {(maya ? MAYA_SCENARIOS : DEMO_SCENARIOS).map((s, i) => {
             // Scenarios map 1:1 to the first four stages; the last card ("recap")
             // stays lit through both summary and close.
             const stageIdx = STAGE_ORDER.indexOf(stage);
@@ -1793,7 +1883,7 @@ const INDUSTRIES = {
     accent: 'text-[#9a6a1d]',
     chip: 'bg-construction-soft text-[#9a6a1d]',
     headline: 'Win the job while you’re still on the roof.',
-    body: 'Most homeowners call the next contractor if you don’t pick up. VoiceFront qualifies the lead, books the estimate, and texts you the details before you’re off the ladder.',
+    body: 'Most homeowners call the next contractor if you don’t pick up. VoiceFront qualifies the lead, books the estimate, and puts the details on your dashboard before you’re off the ladder.',
     sample: [
       { role: 'caller' as const, text: 'I need a quote for a fence repair this week.' },
       { role: 'agent' as const, text: 'I can book an on-site estimate Thursday at 4:00 — does that work?' },
@@ -1857,7 +1947,7 @@ export function IndustryTabs() {
               {line.text}
             </div>
           ))}
-          <p className="mt-2 text-center text-xs text-ink-muted/70">Sample exchange — voices and scripts are fully yours to shape.</p>
+          <p className="mt-2 text-center text-xs text-ink-muted/70">Sample exchange. Voices and scripts are fully yours to shape.</p>
         </div>
       </div>
     </div>
@@ -1869,27 +1959,27 @@ export function IndustryTabs() {
 export const FAQS = [
   {
     q: 'Does it really sound human?',
-    a: 'Yes. You pick from twelve premium voices (or bring your own ElevenLabs voice), and optional office ambience makes calls feel like a real front desk. Most callers never realize they spoke to an AI.',
+    a: 'Yes. You choose from twelve built-in voices in settings, each with natural pacing and a real front desk manner. Most callers never realize they spoke to an AI. Hear her yourself in the demo before you decide.',
   },
   {
     q: 'What happens when it can’t answer something?',
-    a: 'It does what a great receptionist does: transfers the call to the right person on your team, or takes a detailed message with a callback number — your rules decide which.',
+    a: 'It does what a great receptionist does: transfers the call to the right person on your team, or takes a detailed message with a callback number, and your rules decide which.',
   },
   {
     q: 'How do appointments reach my calendar?',
-    a: 'Bookings land in your VoiceFront calendar the moment the caller hangs up — with the name, number and reason. Two callers can never grab the same slot, and you can connect your Google or Microsoft calendar so it reads your real availability and never books over personal time.',
+    a: 'Bookings land in your VoiceFront calendar in the dashboard the moment the caller hangs up, with the patient’s name, number and reason for the visit. She checks that same calendar before she offers any time, so two callers can never take the same slot.',
   },
   {
     q: 'How long does setup take?',
-    a: 'About two minutes. Tell us about your business, pick a voice, set your hours, and forward your number. Changes you make in the dashboard apply to the very next call.',
+    a: 'About two minutes. Tell us about your clinic, pick a voice, set your hours, and forward your number. Changes you make in the dashboard apply to the very next call.',
   },
   {
     q: 'What does it cost?',
-    a: 'Pricing is tailored to your call volume — a solo contractor and a three-location clinic shouldn’t pay the same. Talk to us and you’ll have a quote within a day, with no contracts and no setup fees.',
+    a: 'Two plans, priced in the open. Starter After-Hours is $399 CAD a month with 300 included minutes. Core 24/7 is $599 CAD a month with 950 included minutes, and most clinics pick Core. Both come with $0 setup and a 7-day free trial, and you can cancel anytime. US pricing is on the pricing page.',
   },
   {
     q: 'Can I keep my existing phone number?',
-    a: 'Yes. You keep your number and simply forward it — always, after a few rings, or only after hours. You stay in control and can turn it off anytime.',
+    a: 'Yes. You keep your number and simply forward it, always, after a few rings, or only after hours. You stay in control and can turn it off anytime.',
   },
 ];
 
@@ -1926,13 +2016,13 @@ export function BeyondAnswering() {
           <ChatBubbles
             lines={[
               { role: 'caller', text: 'Is Dr. Lee free? It’s urgent.' },
-              { role: 'agent', text: 'One moment — connecting you now.' },
+              { role: 'agent', text: 'One moment, connecting you now.' },
             ]}
           />
           <div className="mt-2.5 flex items-center gap-2.5 rounded-xl border border-signal/20 bg-signal-soft/60 px-3 py-2">
             <Waveform bars={4} />
             <p className="text-[11.5px] font-medium leading-snug text-signal-deep">
-              “Sarah’s calling about a filling that fell out — putting her through.”
+              “Sarah’s calling about a filling that fell out, putting her through.”
             </p>
           </div>
         </div>
@@ -1944,47 +2034,54 @@ export function BeyondAnswering() {
         </h3>
         <p className="mt-2 flex-1 text-[14px] leading-relaxed text-ink-muted">
           When a call needs a real person, it rings your line and briefs your staff on who’s calling and
-          why — before connecting. Your team picks up already in the loop, not cold.
+          why, before connecting. Your team picks up already in the loop, not cold.
         </p>
       </div>
 
-      {/* Revenue captured */}
+      {/* The dashboard story */}
       <div className="flex h-full flex-col rounded-3xl border border-line/70 bg-white p-7 shadow-card transition-all duration-200 hover:-translate-y-1 hover:shadow-card-hover">
         <div className="rounded-2xl border border-signal/15 bg-gradient-to-br from-signal-soft/60 via-white to-white p-5">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-signal-deep">
-            Revenue captured
-          </p>
-          <p className="mt-1.5 font-display text-[34px] font-bold leading-none tracking-tight text-ink">
-            $4,200<span className="text-base font-semibold text-ink-muted">/mo</span>
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-ink-muted ring-1 ring-inset ring-ink/5">
-              28 bookings saved
-            </span>
-            <span className="rounded-full bg-clinic-soft px-2.5 py-1 text-[11px] font-semibold text-[#0b8a74]">
-              +9 after-hours
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-signal-deep">
+              On your dashboard
+            </p>
+            <span className="rounded-full bg-white px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-ink-muted ring-1 ring-inset ring-ink/5">
+              Example
             </span>
           </div>
+          <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+            {[
+              { n: '128', d: 'calls answered' },
+              { n: '34', d: 'bookings made' },
+              { n: '41', d: 'after hours' },
+            ].map((m) => (
+              <div key={m.d} className="rounded-xl bg-white px-2 py-3 ring-1 ring-inset ring-ink/5">
+                <p className="font-display text-[22px] font-bold leading-none tracking-tight text-ink">{m.n}</p>
+                <p className="mt-1.5 text-[10.5px] font-medium leading-tight text-ink-muted">{m.d}</p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-3 text-center text-[11px] text-ink-muted/80">One month at a sample clinic, for illustration.</p>
         </div>
         <span className="mt-5 inline-flex w-fit items-center rounded-full bg-signal-soft/70 px-2.5 py-1 text-[11px] font-semibold text-signal-deep">
-          On your dashboard
+          Live as it happens
         </span>
         <h3 className="mt-3 font-display text-lg font-semibold tracking-tight text-ink">
-          See the revenue it captures
+          See every call on your dashboard
         </h3>
         <p className="mt-2 flex-1 text-[14px] leading-relaxed text-ink-muted">
-          Every booking it saves — especially the after-hours calls you’d have missed — adds up on your
-          dashboard. Watch the receptionist pay for itself, in real dollars.
+          Every call she answers, every booking she makes, and every minute she spends lands on your
+          dashboard, with the recording, transcript and summary attached.
         </p>
       </div>
 
-      {/* Answers from your docs */}
+      {/* Answers from your clinic details */}
       <div className="flex h-full flex-col rounded-3xl border border-line/70 bg-white p-7 shadow-card transition-all duration-200 hover:-translate-y-1 hover:shadow-card-hover">
         <div className="rounded-2xl bg-paper/70 p-4 ring-1 ring-inset ring-ink/5">
           <ChatBubbles
             lines={[
-              { role: 'caller', text: 'Do you take Cigna insurance?' },
-              { role: 'agent', text: 'Yes — we’re in-network with Cigna and most major PPOs.' },
+              { role: 'caller', text: 'Do you take Sun Life?' },
+              { role: 'agent', text: 'We do, Sun Life is on our list. I can book you in, and the clinic confirms the details at your visit.' },
             ]}
           />
           <div className="mt-2.5 flex items-center gap-2 rounded-xl bg-white px-3 py-2 ring-1 ring-inset ring-ink/5">
@@ -1992,18 +2089,19 @@ export function BeyondAnswering() {
               <path d="M4 2.5h5L12 5.5v8H4z" strokeLinejoin="round" />
               <path d="M9 2.5V6h3M6 9h4M6 11h4" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
-            <p className="text-[11px] font-medium text-ink-muted">Answered from your uploaded documents</p>
+            <p className="text-[11px] font-medium text-ink-muted">Answered from the details you give her</p>
           </div>
         </div>
         <span className="mt-5 inline-flex w-fit items-center rounded-full bg-clinic-soft px-2.5 py-1 text-[11px] font-semibold text-[#0b8a74]">
-          Knowledge base
+          Your clinic, your facts
         </span>
         <h3 className="mt-3 font-display text-lg font-semibold tracking-tight text-ink">
-          Answers from your own docs
+          Answers from your own details
         </h3>
         <p className="mt-2 flex-1 text-[14px] leading-relaxed text-ink-muted">
-          Upload your pricing, insurance list, services or FAQs and it answers callers straight from them —
-          accurately, in your words, with no scripting.
+          She answers from the facts you set for your clinic, your hours, your services, your prices, and
+          the insurance plans you list in settings. If a caller asks something outside that, she takes a
+          message or transfers. She does not guess.
         </p>
       </div>
     </div>
