@@ -178,6 +178,13 @@ model User {
   passwordHash String   @map("password_hash")
   fullName     String   @map("full_name")
   role         Role     @default(OWNER)
+  /// Signed-in app theme saved to the account ('pearl' | 'midnight' |
+  /// 'deepteal'); null = no account choice, devices fall back to their
+  /// local default. Validated in the auth routes, stored as plain text.
+  theme        String?
+  /// Calm mode (reduced motion and effects) saved to the account; null =
+  /// never chosen, treated as off.
+  calmMode     Boolean? @map("calm_mode")
   tenantId     String   @map("tenant_id")
   tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   createdAt    DateTime @default(now()) @map("created_at")
