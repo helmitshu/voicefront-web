@@ -4,7 +4,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { z } from 'zod';
-import { ApiError, SignupApi, type Industry } from '@/lib/api';
+import { ApiError, setStoredPlan, SignupApi, type Industry } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { GoogleSignInButton } from '@/components/auth/GoogleSignInButton';
 import { INDUSTRY_TEMPLATES } from '@/domain/prompt-templates';
@@ -40,6 +40,15 @@ export default function RegisterPage() {
   // invite-only. Default assumes clinic is gated until the config confirms.
   const [inviteOnly, setInviteOnly] = useState<Industry[]>(['CLINIC']);
   const [industry, setIndustry] = useState<Industry>('CONSTRUCTION');
+
+  // Carry the pricing page's plan choice (?plan=core|starter) into the
+  // setup wizard via session storage. It is a preference, never a price:
+  // checkout re-derives the amount server-side from the workspace's
+  // locked pricing region.
+  useEffect(() => {
+    const plan = new URLSearchParams(window.location.search).get('plan');
+    if (plan === 'core' || plan === 'starter') setStoredPlan(plan);
+  }, []);
 
   useEffect(() => {
     const controller = new AbortController();
