@@ -141,11 +141,11 @@ function AdminChrome({ children }: { children: ReactNode }) {
   return (
     <SignedInShell
       theme="admin"
-      navLabel="Admin"
+      navLabel="Platform"
       homeHref="/admin"
       nav={nav}
       sidebarTop={
-        <span className="mx-2 mt-3 inline-flex w-fit items-center gap-1.5 rounded-full bg-signal/20 px-2.5 py-1 text-[11px] font-semibold text-clinic ring-1 ring-inset ring-signal/30">
+        <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-signal/20 px-2.5 py-1 text-[11px] font-semibold text-clinic ring-1 ring-inset ring-signal/30">
           <span className="h-1.5 w-1.5 rounded-full bg-signal" aria-hidden />
           {isFullAdmin ? 'Founder control center' : 'Support access'}
         </span>
@@ -153,7 +153,7 @@ function AdminChrome({ children }: { children: ReactNode }) {
       sidebarAboveUser={
         <Link
           href="/dashboard"
-          className="mb-3 flex items-center justify-center gap-2 rounded-xl border border-white/15 px-3 py-2 text-xs font-medium text-white/70 transition-colors hover:bg-white/5 hover:text-white"
+          className="mb-3 flex items-center justify-center gap-2 rounded-xl border border-shell-edge/20 px-3 py-2 text-xs font-medium text-shell-mut transition-colors hover:bg-white/5 hover:text-shell-ink"
         >
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3.5 w-3.5">
             <path d="M9.5 3 5 8l4.5 5" strokeLinecap="round" strokeLinejoin="round" />
@@ -172,9 +172,9 @@ function AdminChrome({ children }: { children: ReactNode }) {
         </h1>
       }
       drawerHeader={
-        <div className="px-2">
-          <p className="truncate text-[15px] font-semibold text-white">{me.tenant.companyName}</p>
-          <p className="mt-1 text-xs text-white/50">{isFullAdmin ? 'Founder control center' : 'Support access'}</p>
+        <div>
+          <p className="truncate text-[15px] font-semibold text-shell-ink">{me.tenant.companyName}</p>
+          <p className="mt-1 text-xs text-shell-mut">{isFullAdmin ? 'Founder control center' : 'Support access'}</p>
         </div>
       }
     >
