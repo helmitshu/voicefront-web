@@ -3,8 +3,8 @@
 import type { ReactNode } from 'react';
 import { RequireAuth, useAuth } from '@/lib/auth-context';
 import { SignedInShell, type ShellNavItem } from '@/components/app-shell/SignedInShell';
+import { PresetSwitch } from '@/components/app-shell/ThemePicker';
 import { ThemeProvider } from '@/lib/theme';
-import { Badge } from '@/components/ui/Card';
 import { INDUSTRY_LABELS } from '@/domain/prompt-templates';
 
 interface NavItem extends ShellNavItem {
@@ -116,51 +116,54 @@ function DashboardChrome({ children }: { children: ReactNode }) {
   return (
     <SignedInShell
       theme="app"
-      navLabel="Main"
+      navLabel="Workspace"
       homeHref="/dashboard"
       nav={nav}
-      sidebarTop={
-        <div className="mt-8 px-3">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-white/40">Workspace</p>
-          <p className="mt-1 truncate text-sm font-semibold text-white">{me.tenant.companyName}</p>
+      headerLeft={
+        /* The demo's workspace chip: mono label, company name, chevron. */
+        <div className="flex items-center gap-2.5 whitespace-nowrap rounded-full border border-line bg-card py-2 pl-3.5 pr-4 shadow-demo-sm">
+          <span className="font-mono text-[9.5px] font-semibold uppercase tracking-[0.1em] text-signal">
+            Workspace
+          </span>
+          <span className="text-[13.5px] font-bold text-ink">{me.tenant.companyName}</span>
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2.2"
+            aria-hidden
+            className="h-3.5 w-3.5 text-ink-faint"
+          >
+            <path d="m6 9 6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
         </div>
       }
-      headerLeft={
-        <>
-          <h1 className="truncate font-display text-[15px] font-semibold tracking-tight text-white">
-            {me.tenant.companyName}
-          </h1>
-          <Badge tone={me.tenant.industry === 'CLINIC' ? 'success' : 'warning'}>
-            {INDUSTRY_LABELS[me.tenant.industry]}
-          </Badge>
-        </>
-      }
       mobileTitle={
-        <h1 className="truncate text-[15px] font-semibold tracking-tight text-white">{me.tenant.companyName}</h1>
+        <h1 className="truncate text-[15px] font-bold tracking-tight text-ink">{me.tenant.companyName}</h1>
       }
       drawerHeader={
-        <div className="px-2">
-          <p className="truncate text-[15px] font-semibold text-white">{me.tenant.companyName}</p>
-          <p className="mt-1 flex items-center gap-1.5 text-xs text-white/50">
+        <div>
+          <p className="truncate text-[15px] font-semibold text-shell-ink">{me.tenant.companyName}</p>
+          <p className="mt-1 flex items-center gap-1.5 text-xs text-shell-mut">
             {INDUSTRY_LABELS[me.tenant.industry]}
             <span aria-hidden>·</span>
             <span className="inline-flex items-center gap-1.5">
-              <span aria-hidden className="h-1.5 w-1.5 rounded-full bg-clinic" />
+              <span aria-hidden className="live-dot h-1.5 w-1.5 rounded-full bg-clinic" />
               Live
             </span>
           </p>
         </div>
       }
       headerRight={
-        <div className="flex items-center gap-2 rounded-full border border-clinic/20 bg-clinic-soft/60 py-1 pl-2.5 pr-3">
-          <span className="relative flex h-2 w-2">
-            <span className="absolute h-full w-full animate-pulse-ring rounded-full bg-clinic" />
-            <span className="relative h-2 w-2 rounded-full bg-clinic" />
-          </span>
-          <span className="text-xs font-semibold text-clinic">Live</span>
-        </div>
+        <>
+          <PresetSwitch />
+          {/* The demo's live pill. */}
+          <div className="flex items-center gap-2 rounded-full border border-[rgba(20,184,166,0.35)] bg-clinic-soft px-3.5 py-2">
+            <span aria-hidden className="live-dot h-2 w-2 rounded-full bg-clinic" />
+            <span className="text-xs font-extrabold text-signal-deep">Live</span>
+          </div>
+        </>
       }
-      mainDecor
     >
       {children}
     </SignedInShell>
