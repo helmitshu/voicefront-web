@@ -1616,17 +1616,58 @@ export interface SupportChatMessage {
 export interface SupportPendingProposal {
   proposalId: string;
   /** Which task confirming will carry out: apply a booking-window change,
-   *  or file a ticket with the VoiceFront team. */
-  kind: 'booking_window' | 'ticket';
+   *  file a ticket with the VoiceFront team, run a simulated-patient call
+   *  (a proof or a drill), or add an approved knowledge document. */
+  kind: 'booking_window' | 'ticket' | 'proof' | 'drill' | 'knowledge_addition';
   summary: string;
+}
+
+/** One side of a simulated call's before/after pair. */
+export interface SupportSimulationSide {
+  when?: string;
+  successScore: number | null;
+  outcome: string | null;
+  summary: string | null;
+  transcript?: string | null;
+  durationSeconds?: number;
+  /** Signed media token for the recording; play via mediaUrl(). */
+  mediaToken: string | null;
+}
+
+/** A simulated call's result, attached to the chat turn that fetched it. */
+export interface SupportSimulationResult {
+  runId: string;
+  kind: 'PROOF' | 'DRILL';
+  status: string;
+  scenarioTitle: string;
+  before: SupportSimulationSide | null;
+  after: SupportSimulationSide | null;
+  note: string | null;
 }
 
 export interface SupportChatResponse {
   reply: string;
-  /** A task the agent proposed this turn (a booking-window change or a
-   *  ticket), awaiting the user's confirmation in the chat UI. Null when
-   *  nothing is proposed. */
+  /** A task the agent proposed this turn, awaiting the user's confirmation
+   *  in the chat UI. Null when nothing is proposed. */
   pendingProposal: SupportPendingProposal | null;
+  /** Set when this turn fetched a simulated call's result. */
+  simulationResult: SupportSimulationResult | null;
+  /** A pending weekly knowledge review waiting in this workspace. */
+  weeklyReview: { reviewId: string; gapCount: number; weekKey: string } | null;
+}
+
+export interface SupportRunResponse {
+  ran: boolean;
+  runId: string;
+  summary: string;
+  /** The agent's own confirmation line, shown as its next chat message. */
+  assistantMessage: string;
+}
+
+export interface SupportDrillScenario {
+  id: string;
+  title: string;
+  goal: string;
 }
 
 export interface SupportApplyResponse {
@@ -1659,6 +1700,26 @@ export const SupportApi = {
     api<SupportFileTicketResponse>('/api/support/file-ticket', {
       method: 'POST',
       body: { proposalId },
+    }),
+  /** Confirms a proposed proof or drill: places the simulated call. */
+  runSimulatedCall: (proposalId: string) =>
+    api<SupportRunResponse>('/api/support/run-simulated-call', {
+      method: 'POST',
+      body: { proposalId },
+    }),
+  /** Confirms a proposed knowledge addition: writes it and re-syncs. */
+  applyKnowledge: (proposalId: string) =>
+    api<SupportApplyResponse>('/api/support/apply-knowledge', {
+      method: 'POST',
+      body: { proposalId },
+    }),
+  /** The built-in patient drill library, for the scenario picker. */
+  drillScenarios: () =>
+    api<{ scenarios: SupportDrillScenario[] }>('/api/support/drill-scenarios'),
+  dismissWeeklyReview: (reviewId: string) =>
+    api<{ dismissed: boolean }>('/api/support/weekly-review/dismiss', {
+      method: 'POST',
+      body: { reviewId },
     }),
 };
 
