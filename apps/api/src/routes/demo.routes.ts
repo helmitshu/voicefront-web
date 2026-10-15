@@ -333,6 +333,7 @@ async function buildReceptionistAssistant(
   prospectName: string | undefined,
   confirmedFacts: ClinicFacts | undefined,
   customerNumber?: string,
+  channel: CallChannel = 'phone',
 ): Promise<TransientAssistant> {
   const tz = session.bundle.settings.timezone;
   const now = new Date();
@@ -352,10 +353,15 @@ async function buildReceptionistAssistant(
   const ctx: ReceptionistContext = {
     clinicName,
     facts,
+    // Web channel only: Maya drives the prospect's on-screen panel. The
+    // phone prompt is untouched (the flag adds a block, never edits one).
+    screenControl: channel === 'web',
     prospectFirstName: firstName(prospectName ?? leadRow.name),
-    // Known data (Call Map v1): the lead's name and the number this call
-    // dials. Maya confirms both in COLLECT instead of collecting them
-    // cold. Either is null only when the path genuinely lacks it.
+    // Known data (Call Map v1): the lead's name and their number (the
+    // number this call dials on the phone path, the number from the demo
+    // request form on the web path). Maya confirms both in COLLECT instead
+    // of collecting them cold. Either is null only when the path genuinely
+    // lacks it.
     prospectName: sanitizeDemoText(prospectName ?? leadRow.name, 80) || null,
     prospectPhone: customerNumber ? dialedNumberDisplay(customerNumber) : null,
     timezone: tz,
@@ -366,7 +372,7 @@ async function buildReceptionistAssistant(
     getSettingValue('PUBLIC_API_URL'),
     getSettingValue('VAPI_WEBHOOK_SECRET'),
   ]);
-  const assistant = buildTransientAssistant(session.bundle.tenant, session.bundle.settings, 'phone', now, {
+  const assistant = buildTransientAssistant(session.bundle.tenant, session.bundle.settings, channel, now, {
     serverUrl: publicApiUrl ? `${publicApiUrl}/api/vapi/inbound` : undefined,
     // Function-gated booking: the hold_appointment tool replaces the stock
     // booking tools, and its calls land on POST /demo/hold below, which
@@ -382,7 +388,10 @@ async function buildReceptionistAssistant(
     voice: GOLDEN_DEMO_VOICE,
     backgroundSound: 'office',
     includeFounderBooking: false,
-    includeScreenControl: false,
+    // Web channel only: the screen and summary tools ride along so Maya can
+    // drive the panel the prospect is watching. The hold tool is attached
+    // either way (the booking spine does not care about the channel).
+    includeScreenControl: channel === 'web',
     // Demo standard (v2): pin Maya's retuned call mechanics explicitly,
     // not builder defaults. Flux takes an end-of-turn threshold, not the
     // Nova endpointing timer, and smart endpointing stays off in the start
@@ -440,6 +449,36 @@ async function placeReceptionistDemoCall(input: {
     assistant,
   });
   return { callId: call.id, fromNumber: input.callerId.number };
+}
+
+/**
+ * The web twin of placeReceptionistDemoCall: same session, same Maya
+ * (same prompt builder, same hold-gated booking spine, same clinic
+ * facts), built for the browser channel so she also drives the on-screen
+ * panel. Nothing is dialed — the route hands the assistant and the Vapi
+ * public key to the browser, which starts the web call. A fresh panel
+ * state is part of the start, exactly like POST /demo/session: any
+ * screen or recap from a prior call on this session is dropped.
+ */
+async function startReceptionistWebDemo(input: {
+  sessionId: string;
+  lead: { name: string; businessName: string | null; factsJson: unknown };
+  prospectName?: string;
+  confirmedFacts?: ClinicFacts;
+  customerNumber: string;
+}): Promise<{ assistant: TransientAssistant }> {
+  const session = await resumeDemoSession(input.sessionId);
+  clearDemoScreen(session.sessionId);
+  clearDemoSummary(session.sessionId);
+  const assistant = await buildReceptionistAssistant(
+    session,
+    input.lead,
+    input.prospectName,
+    input.confirmedFacts,
+    input.customerNumber,
+    'web',
+  );
+  return { assistant };
 }
 
 export interface OwnerDemoTestCallInput {
@@ -1038,6 +1077,11 @@ const CallSchema = z.object({
   /** Which demo the prospect asked for: Ava's pitch (default) or Maya
    *  answering as their own clinic's receptionist. */
   demoKind: z.enum(['sales', 'receptionist']).default('sales'),
+  /** How the prospect wants the demo delivered. Canadian receptionist
+   *  demos default to 'web' (the browser) server-side; an explicit
+   *  'phone' is the prospect choosing the callback anyway, and every
+   *  other country ignores the field. */
+  delivery: z.enum(['phone', 'web']).optional(),
   /** The facts the prospect confirmed on the review step. Length caps
    *  mirror the prompt sanitizer; the server re-sanitizes regardless. */
   facts: z
@@ -1052,10 +1096,14 @@ const CallSchema = z.object({
 });
 
 /**
- * Outbound "Get a call": dials the prospect with Ava as the agent. Re-runs the
- * geo gate (US/CA IP or +1 number) so only eligible prospects can trigger a
- * call, picks the caller-ID by country (CA number for Canadians, US otherwise),
- * and places the call through Vapi with the same transient sales assistant.
+ * Demo start. For most prospects this is the outbound "Get a call": it
+ * re-runs the geo gate (US/CA IP or +1 number) so only eligible prospects
+ * can trigger a call, picks the caller-ID by country (CA number for
+ * Canadians, US otherwise), and places the call through Vapi. The one
+ * exception is the Canadian personalized (receptionist) demo, which
+ * starts as a browser web call instead of dialing — see the CA branch in
+ * the handler for why. Both modes share every gate above the branch:
+ * known session, per-destination cap, and the route's rate limiters.
  */
 demoRouter.post(
   '/call',
@@ -1103,6 +1151,48 @@ demoRouter.post(
 
     const numbers = await getDemoNumbers();
     const callerId = pickDemoCallerId(numbers, gate.ipCountry);
+
+    // Canadian personalized demos run in the browser, not on the phone
+    // network. A PSTN dial to a Canadian number cannot leave from the
+    // Vapi US number (free Vapi numbers refuse international calls), and
+    // the Canadian telephony fallback is a trial line whose opening
+    // message poisons the first impression. A browser voice call has
+    // neither problem, keeps the prospect on the page where the demo
+    // panel lives, and spends no Canadian telephony. So for a Canadian
+    // receptionist demo the start answers with a web call instead of
+    // dialing: same session, same Maya, same hold-gated booking spine.
+    // Only the public key crosses to the browser (a public identifier by
+    // design, the same one POST /demo/session already serves). An
+    // explicit delivery 'phone' is the prospect choosing the callback
+    // anyway (it is also the fallback the page offers when the
+    // microphone fails), and when the web key is not configured the
+    // request falls through to the phone call exactly as before.
+    if (body.demoKind === 'receptionist' && gate.ipCountry === 'CA' && body.delivery !== 'phone') {
+      const publicKey = await getSettingValue('VAPI_PUBLIC_KEY');
+      if (publicKey) {
+        const { assistant } = await startReceptionistWebDemo({
+          sessionId: body.sessionId,
+          lead,
+          prospectName: body.name,
+          confirmedFacts: body.facts,
+          customerNumber,
+        });
+        await setLeadMode(lead.id, 'web');
+        res.json({
+          ok: true,
+          mode: 'web',
+          publicKey,
+          assistant,
+          sessionId: body.sessionId,
+          country: gate.ipCountry,
+          // The page offers the phone call as the microphone fallback
+          // only when a caller-ID exists to dial from.
+          phoneFallbackAvailable: callerId !== null,
+        });
+        return;
+      }
+    }
+
     if (!callerId) {
       throw new HttpError(503, 'Outbound demo calling isn’t set up yet. Try the in-browser test instead.', 'NO_DEMO_NUMBER');
     }
@@ -1130,7 +1220,7 @@ demoRouter.post(
 
     if (body.leadId) await setLeadMode(body.leadId, 'call');
 
-    res.json({ ok: true, callId, fromNumber: callerId.number, country: gate.ipCountry });
+    res.json({ ok: true, mode: 'phone', callId, fromNumber: callerId.number, country: gate.ipCountry });
   }),
 );
 

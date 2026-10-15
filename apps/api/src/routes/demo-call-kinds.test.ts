@@ -18,6 +18,11 @@ import express from 'express';
  *    in the clinic's facts (golden voice, clinic opener, 300s cap);
  *  - no demoKind still builds the sales assistant (Ava), unchanged;
  *  - a forged session id is still 403 UNKNOWN_SESSION.
+ *
+ * The gate mock below geolocates to the US on purpose: Canadian
+ * receptionist demos no longer dial (they start as browser web calls),
+ * and that routing has its own file, demo-call-web-mode.test.ts. This
+ * file pins the phone path itself.
  */
 
 const demoLeadFindFirst = vi.fn();
@@ -75,7 +80,7 @@ vi.mock('../services/vapi.service', () => ({
 vi.mock('../services/geo.service', () => ({
   evaluateGate: vi.fn().mockResolvedValue({
     callAllowed: true,
-    ipCountry: 'CA',
+    ipCountry: 'US',
     phone: { country: 'CA', isNanp: true },
   }),
   // Distinct test IPs per case keep the route's rate limiters out of the way.
