@@ -122,6 +122,12 @@ function gridTimes(day: DemoDay): string[] {
 
 type DemoView = 'form' | 'confirm' | 'choose' | 'web' | 'call';
 
+/** What a demo submit did, in words. When Lyla asks for the submit, she
+ *  hears exactly this outcome (the 'lyla:demo-status' event below), the
+ *  same result the visitor sees on the form; the form's own onSubmit
+ *  ignores the return value and behaves exactly as before. */
+type DemoSubmitOutcome = { ok: true; view: DemoView } | { ok: false; reason: string };
+
 /** Lead-capture form state. `industry` starts unset so the user must pick one. */
 interface DemoFormState {
   name: string;
@@ -1340,10 +1346,21 @@ export function InteractiveDemo() {
         ...(typeof detail.email === 'string' && detail.email ? { email: detail.email } : {}),
         ...(typeof detail.phone === 'string' && detail.phone ? { phone: detail.phone } : {}),
         ...(typeof detail.website === 'string' && detail.website ? { website: detail.website } : {}),
+        // The business kind arrives in the form's own industry values;
+        // anything else leaves the toggle exactly as the visitor left it.
+        ...(detail.businessKind === 'clinic' || detail.businessKind === 'contractor' || detail.businessKind === 'other'
+          ? { industry: detail.businessKind }
+          : {}),
       }));
     };
     const onStart = () => {
-      void submitLeadRef.current({ preventDefault: () => undefined } as React.FormEvent);
+      // She hears back what the submit actually did, in the same outcome
+      // the visitor sees; without this she once reported a demo she had
+      // never started.
+      void (async () => {
+        const outcome = await submitLeadRef.current({ preventDefault: () => undefined } as React.FormEvent);
+        window.dispatchEvent(new CustomEvent('lyla:demo-status', { detail: outcome }));
+      })();
     };
     window.addEventListener('lyla:prefill', onPrefill);
     window.addEventListener('lyla:start-demo', onStart);
@@ -1385,7 +1402,7 @@ export function InteractiveDemo() {
   const live = phase === 'connecting' || phase === 'listening' || phase === 'assistant-speaking';
   const maya = webAgent === 'maya';
 
-  async function submitLead(e: React.FormEvent) {
+  async function submitLead(e: React.FormEvent): Promise<DemoSubmitOutcome> {
     e.preventDefault();
     setFormError(null);
     const name = form.name.trim();
@@ -1393,17 +1410,25 @@ export function InteractiveDemo() {
     const phone = form.phone.trim();
     if (!name || !email || !phone) {
       setFormError('Please fill in your name, email, and phone.');
-      return;
+      const missing = [
+        ...(!name ? ['name'] : []),
+        ...(!email ? ['email'] : []),
+        ...(!phone ? ['phone'] : []),
+      ];
+      return { ok: false, reason: `The demo form is missing: ${missing.join(', ')}.` };
     }
     if (!form.industry) {
       setFormError('Pick the kind of business you run so we can tailor the demo.');
-      return;
+      return { ok: false, reason: 'The demo form is missing: the kind of business.' };
     }
     // The submit button already waits for a token when the bot check is
     // configured; this guards the paths that bypass it (e.g. Enter in a
     // field), because the API rejects tokenless leads in that setup.
-    if (TURNSTILE_SITE_KEY && !turnstileToken) return;
+    if (TURNSTILE_SITE_KEY && !turnstileToken) {
+      return { ok: false, reason: 'The demo form bot check is not ready yet.' };
+    }
     setSubmitting(true);
+    let outcome: DemoSubmitOutcome;
     try {
       const businessName = form.businessName.trim();
       const website = form.website.trim();
@@ -1440,17 +1465,22 @@ export function InteractiveDemo() {
           pulledFacts: pulled !== null && Object.keys(pulled).length > 0,
         });
         setView('confirm');
+        outcome = { ok: true, view: 'confirm' };
       } else {
         setView('choose');
+        outcome = { ok: true, view: 'choose' };
       }
     } catch (err) {
+      let message: string;
       if (err instanceof ApiError && err.code === 'DEMO_DISABLED') {
-        setFormError('The demo is currently turned off — please check back soon.');
+        message = 'The demo is currently turned off — please check back soon.';
       } else if (err instanceof ApiError && err.code === 'VALIDATION_ERROR') {
-        setFormError('Please double-check your email and phone number.');
+        message = 'Please double-check your email and phone number.';
       } else {
-        setFormError(err instanceof ApiError ? err.message : 'Could not start the demo. Try again.');
+        message = err instanceof ApiError ? err.message : 'Could not start the demo. Try again.';
       }
+      setFormError(message);
+      outcome = { ok: false, reason: message };
     } finally {
       setSubmitting(false);
       if (TURNSTILE_SITE_KEY) {
@@ -1460,6 +1490,7 @@ export function InteractiveDemo() {
         turnstileResetRef.current?.();
       }
     }
+    return outcome;
   }
 
   /** Confirm step done: freeze the edited facts into the shape /call sends. */

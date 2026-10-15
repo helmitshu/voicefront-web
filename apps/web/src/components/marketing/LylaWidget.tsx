@@ -31,9 +31,55 @@ interface ChatMessage {
 type PageAction =
   | { type: 'guide_to_section'; section: 'demo' | 'how' | 'pricing' | 'faq' | 'book' }
   | { type: 'highlight_plan'; plan: 'starter' | 'core' }
-  | { type: 'prefill_demo'; fields: { name?: string; email?: string; phone?: string; website?: string } }
+  | {
+      type: 'prefill_demo';
+      fields: {
+        name?: string;
+        email?: string;
+        phone?: string;
+        website?: string;
+        /** The demo form's own industry values. */
+        businessKind?: 'clinic' | 'contractor' | 'other';
+      };
+    }
   | { type: 'start_demo' }
   | { type: 'open_signup'; plan: 'starter' | 'core' };
+
+/** What the page itself reports back about an action Lyla fired. Sent
+ *  once, on her next chat or proactive call, so she may only ever speak
+ *  of an outcome the page actually reported. Mirrors the API's shape. */
+interface PageReport {
+  action: string;
+  outcome: string;
+  detail?: string;
+}
+
+/** Maps the demo form's submit outcome (the 'lyla:demo-status' event
+ *  detail) into the report shape Lyla's context carries. Pure, like the
+ *  stream parser, so the mapping stays reviewable without a DOM. */
+export function pageReportFromDemoStatus(detail: unknown): PageReport {
+  const outcome = (detail ?? {}) as { ok?: unknown; view?: unknown; reason?: unknown };
+  if (outcome.ok === true) {
+    return {
+      action: 'start_demo',
+      outcome: 'submitted',
+      detail:
+        outcome.view === 'confirm'
+          ? 'The form shows the facts-check step now.'
+          : outcome.view === 'choose'
+            ? 'The form shows the demo choice step now.'
+            : undefined,
+    };
+  }
+  if (outcome.ok === false) {
+    return {
+      action: 'start_demo',
+      outcome: 'blocked',
+      detail: typeof outcome.reason === 'string' && outcome.reason ? outcome.reason : undefined,
+    };
+  }
+  return { action: 'start_demo', outcome: 'unknown' };
+}
 
 interface PublicChatResult {
   reply: string;
@@ -135,13 +181,29 @@ function scrollAndRing(el: HTMLElement | null, ringDelayMs = 500): void {
   window.setTimeout(() => ringElement(el), ringDelayMs);
 }
 
+/** Cleanup for a still-pending demo-status listener, so a second
+ *  start_demo never leaves the first one's listener (or timer) behind. */
+let pendingDemoStatusCleanup: (() => void) | null = null;
+
 /**
  * Executes the page actions Lyla returned, in order, after her reply has
  * rendered. Small and DOM-only on purpose: the web app has no test
  * runner, so this stays a thin shell over three primitives (scroll and
  * ring, a window event the demo form listens for, and navigation).
+ *
+ * For start_demo the hooks carry the honest handoff: onStartDemo steps
+ * her panel aside so the visitor can see the form she just submitted
+ * (on mobile the panel covers it), and onDemoStatus receives the form's
+ * own report of what the submit did, or a 'no-report' outcome when the
+ * form never answers.
  */
-export function executeLylaActions(actions: PageAction[]): void {
+export function executeLylaActions(
+  actions: PageAction[],
+  hooks?: {
+    onStartDemo?: () => void;
+    onDemoStatus?: (report: PageReport) => void;
+  },
+): void {
   for (const action of actions) {
     switch (action.type) {
       case 'guide_to_section':
@@ -162,9 +224,28 @@ export function executeLylaActions(actions: PageAction[]): void {
         break;
       }
       case 'start_demo': {
+        hooks?.onStartDemo?.();
         document.getElementById('demo')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         window.setTimeout(() => {
           window.dispatchEvent(new CustomEvent('lyla:start-demo'));
+          if (!hooks?.onDemoStatus) return;
+          const onDemoStatus = hooks.onDemoStatus;
+          pendingDemoStatusCleanup?.();
+          const cleanup = () => {
+            window.removeEventListener('lyla:demo-status', onStatus);
+            window.clearTimeout(timer);
+            if (pendingDemoStatusCleanup === cleanup) pendingDemoStatusCleanup = null;
+          };
+          const onStatus = (event: Event) => {
+            cleanup();
+            onDemoStatus(pageReportFromDemoStatus((event as CustomEvent<unknown>).detail));
+          };
+          const timer = window.setTimeout(() => {
+            cleanup();
+            onDemoStatus({ action: 'start_demo', outcome: 'no-report' });
+          }, 6000);
+          pendingDemoStatusCleanup = cleanup;
+          window.addEventListener('lyla:demo-status', onStatus);
         }, 600);
         break;
       }
@@ -376,6 +457,9 @@ export function LylaWidget() {
   const [proactiveNote, setProactiveNote] = useState<{ trigger: ProactiveTrigger; line: string } | null>(null);
 
   const sessionIdRef = useRef<string | null>(null);
+  /** The page's latest unreported action outcome; rides exactly one
+   *  chat or proactive call, then is spent. */
+  const pageReportRef = useRef<PageReport | null>(null);
   const greetingRef = useRef<string>(LYLA_PERSONA.greeting);
   const turnstileTokenRef = useRef<string | null>(null);
   const turnstileTokenAtRef = useRef<number>(0);
@@ -557,6 +641,7 @@ export function LylaWidget() {
         return;
       }
       try {
+        const reportSnapshot = pageReportRef.current;
         const res = await fetch(`${API_URL}/api/public/proactive`, {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
@@ -564,10 +649,14 @@ export function LylaWidget() {
             sessionId,
             trigger,
             visitorState: buildVisitorState(behaviorRef.current),
+            pageReport: reportSnapshot ?? undefined,
             referrer: document.referrer || undefined,
             localTime: new Date().toLocaleString(),
           }),
         });
+        // The report went out on this call; it is spent, like on a chat
+        // turn. A newer report is never eaten.
+        if (pageReportRef.current === reportSnapshot) pageReportRef.current = null;
         if (!res.ok) throw new Error('proactive refused');
         const data = (await res.json()) as { line: string | null };
         if (data.line) setProactiveNote({ trigger, line: data.line });
@@ -666,7 +755,18 @@ export function LylaWidget() {
       setMessages((current) => [...current, { role: 'assistant', text: result.reply }]);
       if (result.turnsLeft <= 0) setTurnsExhausted(true);
       if (result.actions.length > 0) {
-        window.setTimeout(() => executeLylaActions(result.actions), 60);
+        window.setTimeout(
+          () =>
+            executeLylaActions(result.actions, {
+              // Her panel steps aside for a demo submit, and the form's
+              // own outcome is kept for her next turn.
+              onStartDemo: () => setOpen(false),
+              onDemoStatus: (report) => {
+                pageReportRef.current = report;
+              },
+            }),
+          60,
+        );
       }
     },
     [stopReveal],
@@ -677,6 +777,10 @@ export function LylaWidget() {
       sessionId,
       messages: history.slice(-20),
       visitorState: buildVisitorState(behaviorRef.current),
+      // Read, not consumed: sendText spends the report only once the
+      // turn has actually gone out, so the stream-to-plain fallback
+      // carries the same body.
+      pageReport: pageReportRef.current ?? undefined,
       referrer: document.referrer || undefined,
       localTime: new Date().toLocaleString(),
     }),
@@ -766,6 +870,7 @@ export function LylaWidget() {
       setMessages(history);
       setInput('');
       setSending(true);
+      const reportSnapshot = pageReportRef.current;
       try {
         let result: PublicChatResult;
         try {
@@ -788,6 +893,9 @@ export function LylaWidget() {
         }
         setMessages((current) => [...current, { role: 'assistant', text: message }]);
       } finally {
+        // The page report rode this turn, whichever path it took; it is
+        // spent now. A newer report (a different object) is never eaten.
+        if (pageReportRef.current === reportSnapshot) pageReportRef.current = null;
         setSending(false);
       }
     },
