@@ -15,9 +15,15 @@ const VALUE_PROPS = [
 export default function AuthLayout({ children }: { children: ReactNode }) {
   return (
     <RedirectIfAuthed>
-      <div className="grid min-h-screen lg:grid-cols-[5fr_6fr]">
+      {/* The auth pages opt into the theme system like the signed-in app:
+          `.theme-root` resolves the palette from the visitor's saved theme
+          (set on <html> before first paint by the root layout script), so a
+          Midnight user signs in through a Midnight page. The wrapper paints
+          the themed paper itself; the brand panel uses ink-deep, which
+          stays dark in every theme. */}
+      <div className="theme-root grid min-h-screen bg-paper text-ink lg:grid-cols-[5fr_6fr]">
         {/* Brand panel */}
-        <aside className="relative hidden flex-col justify-between overflow-hidden bg-ink p-10 lg:flex">
+        <aside className="relative hidden flex-col justify-between overflow-hidden bg-ink-deep p-10 lg:flex">
           <div
             aria-hidden
             className="pointer-events-none absolute -right-32 -top-32 h-96 w-96 rounded-full bg-signal/20 blur-3xl"
