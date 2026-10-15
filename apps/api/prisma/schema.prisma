@@ -31,6 +31,7 @@ enum CallStatus {
   VOICEMAIL
   FAILED
   UNKNOWN
+  IN_PROGRESS
 }
 
 enum AppointmentStatus {
