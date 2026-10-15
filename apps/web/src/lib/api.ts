@@ -109,7 +109,7 @@ export async function api<T>(path: string, options: RequestOptions = {}): Promis
 export type Role = 'OWNER' | 'MANAGER' | 'AGENT';
 export type Industry = 'CLINIC' | 'CONSTRUCTION';
 export type OnboardingStep = 'PROFILE' | 'PROMPT' | 'VOICE_TEST';
-export type CallStatus = 'COMPLETED' | 'FORWARDED' | 'VOICEMAIL' | 'FAILED' | 'UNKNOWN';
+export type CallStatus = 'COMPLETED' | 'FORWARDED' | 'VOICEMAIL' | 'FAILED' | 'UNKNOWN' | 'IN_PROGRESS';
 
 export interface OnboardingView {
   hasConfiguredProfile: boolean;
