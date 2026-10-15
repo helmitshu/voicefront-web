@@ -141,7 +141,7 @@ export default function RegisterPage() {
                   className={`rounded-2xl border p-4 text-left transition-all ${
                     selected
                       ? 'border-signal bg-signal-soft shadow-card'
-                      : 'border-line bg-white hover:border-ink-muted/40'
+                      : 'border-line bg-card hover:border-ink-muted/40'
                   }`}
                 >
                   <span aria-hidden className="text-xl">
