@@ -25,7 +25,7 @@ import { Spinner } from '@/components/ui/Spinner';
 type View = 'chat' | 'work' | 'drafts' | 'activity' | 'failures' | 'abilities';
 type PaneMode = 'thread' | 'new-discuss';
 
-const EMPTY_PENDING: TeamPending = { memberSlugs: [], nextVisibleAt: null };
+const EMPTY_PENDING: TeamPending = { memberSlugs: [], nextVisibleAt: null, active: false };
 
 const WORK_STATUS_LABEL: Record<WorkItemStatus, string> = {
   QUEUED: 'Queued',
@@ -207,17 +207,19 @@ export default function AdminAiTeamPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
   }, [messages, pending, sending]);
 
-  // Human pacing: while a reply is on its way, poll the open thread
-  // every 2 seconds so it lands the moment its visibleAt passes. The
-  // poll stops on its own when nothing is pending anymore.
+  // While a reply is on its way, or a discussion debate is still
+  // running, poll the open thread every 2 seconds so replies land the
+  // moment they are ready. The poll stops on its own when nothing is
+  // pending and no debate is live.
   const pendingCount = pending.memberSlugs.length;
+  const discussionLive = pending.active;
   useEffect(() => {
-    if (!selectedThreadId || pendingCount === 0) return;
+    if (!selectedThreadId || (pendingCount === 0 && !discussionLive)) return;
     const id = setInterval(() => {
       void refreshThread(selectedThreadId, true);
     }, 2000);
     return () => clearInterval(id);
-  }, [selectedThreadId, pendingCount, refreshThread]);
+  }, [selectedThreadId, pendingCount, discussionLive, refreshThread]);
 
   const openThread = useCallback(
     (thread: TeamThread) => {
@@ -318,7 +320,7 @@ export default function AdminAiTeamPage() {
         topic,
         ...(seats.length > 0 ? { memberSlugs: seats } : {}),
       });
-      toast('Discussion started. The team weighs in one voice at a time.', 'success');
+      toast('Discussion started. Replies land as the team weighs in.', 'success');
       setDiscussTopic('');
       await loadThreads().catch(() => undefined);
       openThread(thread);
@@ -439,14 +441,15 @@ export default function AdminAiTeamPage() {
         <div>
           <h2 className="font-display text-[26px] font-semibold tracking-tight text-ink">AI Team</h2>
           <p className="mt-1 max-w-2xl text-sm text-ink-muted">
-            Your team room. Talk to them, start a discussion, and queue work here. They talk and
-            draft; execution stays with Cleo, and nothing they draft ships on its own.
+            Your team room. They talk and draft here; execution stays with Cleo, and nothing they
+            draft ships on its own.
           </p>
         </div>
       </div>
 
-      {/* View tabs: the chat is the room; everything else lives behind these. */}
-      <div className="flex flex-wrap gap-2">
+      {/* View tabs: the chat is the room; everything else lives behind these.
+          One scrollable row on phones, wrapping only on wide screens. */}
+      <div className="flex gap-2 overflow-x-auto pb-1 lg:flex-wrap lg:overflow-visible [&>*]:shrink-0">
         {tabs.map((tab) => (
           <Button
             key={tab.key}
@@ -588,15 +591,19 @@ export default function AdminAiTeamPage() {
           </div>
 
           {/* Main pane: one conversation at a time. */}
-          <Card padded={false} className="flex min-h-[560px] flex-col overflow-hidden">
+          <Card
+            padded={false}
+            className="flex h-[calc(100dvh-17rem)] min-h-[380px] flex-col overflow-hidden lg:h-auto lg:min-h-[560px]"
+          >
             {paneMode === 'new-discuss' ? (
               <div className="flex flex-1 flex-col p-6">
                 <h3 className="font-display text-[17px] font-semibold tracking-tight text-ink">
                   Start a discussion
                 </h3>
                 <p className="mt-1 text-sm text-ink-muted">
-                  Give the team a topic. Seated members weigh in one voice at a time, an auto
-                  summary closes it out, and Cleo records the decision in the thread.
+                  Give the team a topic. Seated members weigh in together, replies land as they
+                  are ready, an auto summary closes it out, and Cleo records the decision in the
+                  thread.
                 </p>
                 <div className="mt-5">
                   <Textarea
@@ -834,6 +841,11 @@ export default function AdminAiTeamPage() {
                         );
                       })}
                     </ul>
+                  )}
+                  {pending.active && pending.memberSlugs.length === 0 && (
+                    <p className="mt-4 flex items-center gap-2 text-sm text-ink-muted">
+                      <Spinner className="h-4 w-4 text-signal" /> The team is gathering…
+                    </p>
                   )}
                   {pending.memberSlugs.map((slug) => {
                     const member = memberBySlug.get(slug);
