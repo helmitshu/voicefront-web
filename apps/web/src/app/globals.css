@@ -26,7 +26,13 @@
  *   demo --glow / --glow-2 → --vf-glow / --vf-glow-2, --grad → --vf-grad,
  *   --topbar → --vf-topbar,
  *   --shadow / --shadow-sm → --vf-shadow / --vf-shadow-sm, --stage → --vf-stage.
- * Midnight is the default. */
+ * Midnight is the default.
+ *
+ * One deliberate deviation from the demo values: --vf-faint and
+ * --vf-shell-faint are lifted in all three themes so the small text they
+ * carry (mono labels, table headers, sidebar section titles) meets WCAG AA
+ * contrast (at least 4.5:1) on the paper, card, and shell backgrounds.
+ * --vf-ink-muted already passed in all three themes and is unchanged. */
 :root {
   --vf-ink: 30 36 33;
   --vf-ink-soft: 44 51 46;
@@ -77,7 +83,7 @@ html[data-theme='pearl'] .theme-root {
   --vf-ink: 18 33 29;
   --vf-ink-soft: 49 65 59;
   --vf-ink-muted: 93 109 103;
-  --vf-faint: 139 152 145;
+  --vf-faint: 101 111 106;
   --vf-ink-deep: 10 38 32;
   --vf-ink-deeper: 7 29 23;
   --vf-paper: 244 241 233;
@@ -106,7 +112,7 @@ html[data-theme='pearl'] .theme-root {
   --vf-shell-edge: 94 234 212;
   --vf-shell-ink: 234 244 240;
   --vf-shell-mut: 147 179 168;
-  --vf-shell-faint: 95 127 117;
+  --vf-shell-faint: 127 153 145;
   --vf-glow: 20 184 166;
   --vf-glow-2: 14 165 198;
   --vf-stage: 10 38 32;
@@ -120,7 +126,7 @@ html[data-theme='midnight'] .theme-root {
   --vf-ink: 233 242 246;
   --vf-ink-soft: 195 211 220;
   --vf-ink-muted: 143 165 178;
-  --vf-faint: 95 118 132;
+  --vf-faint: 114 134 147;
   --vf-ink-deep: 4 9 13;
   --vf-ink-deeper: 3 7 10;
   --vf-paper: 6 12 17;
@@ -149,7 +155,7 @@ html[data-theme='midnight'] .theme-root {
   --vf-shell-edge: 94 234 212;
   --vf-shell-ink: 234 246 243;
   --vf-shell-mut: 143 180 172;
-  --vf-shell-faint: 85 112 106;
+  --vf-shell-faint: 106 130 125;
   --vf-glow: 45 212 191;
   --vf-glow-2: 56 189 248;
   --vf-stage: 4 9 13;
@@ -163,7 +169,7 @@ html[data-theme='deepteal'] .theme-root {
   --vf-ink: 237 246 242;
   --vf-ink-soft: 201 222 214;
   --vf-ink-muted: 147 181 169;
-  --vf-faint: 100 138 126;
+  --vf-faint: 127 158 149;
   --vf-ink-deep: 5 27 22;
   --vf-ink-deeper: 4 18 14;
   --vf-paper: 7 35 29;
@@ -192,7 +198,7 @@ html[data-theme='deepteal'] .theme-root {
   --vf-shell-edge: 94 234 212;
   --vf-shell-ink: 234 244 240;
   --vf-shell-mut: 147 179 168;
-  --vf-shell-faint: 95 127 117;
+  --vf-shell-faint: 116 144 135;
   --vf-glow: 46 211 166;
   --vf-glow-2: 76 201 232;
   --vf-stage: 5 27 22;
@@ -419,4 +425,42 @@ html[data-theme='deepteal'] .theme-root {
   .bg-wave-3 {
     animation: none !important;
   }
+}
+
+/* Calm mode: the user-chosen counterpart to the media query above. The
+   pre-paint init script and the theme provider set data-calm="true" on
+   <html> (Settings → Appearance → "Reduce motion and effects"); the
+   stilling mirrors prefers-reduced-motion exactly and applies on top of
+   it, independently. This covers every CSS-driven motion in the app: the
+   logo equalizer and sweep, the live-call waveform bars, the waveform
+   component, and the ambient background loops. */
+html[data-calm='true'] {
+  scroll-behavior: auto;
+}
+html[data-calm='true'] .logo-eq-bar {
+  animation: none !important;
+  transform: scaleY(0.8);
+}
+html[data-calm='true'] .logo-sweep,
+html[data-calm='true'] .logo-ring {
+  animation: none !important;
+  opacity: 0;
+}
+html[data-calm='true'] .live-dot {
+  animation: none !important;
+}
+html[data-calm='true'] .animate-wave-bar {
+  animation: none !important;
+  transform: scaleY(calc(var(--wave-max, 1) * 0.6));
+}
+html[data-calm='true'] .animate-fade-up,
+html[data-calm='true'] .animate-pulse-ring,
+html[data-calm='true'] .animate-wave-x,
+html[data-calm='true'] .bg-aurora-a,
+html[data-calm='true'] .bg-aurora-b,
+html[data-calm='true'] .bg-aurora-c,
+html[data-calm='true'] .bg-wave-1,
+html[data-calm='true'] .bg-wave-2,
+html[data-calm='true'] .bg-wave-3 {
+  animation: none !important;
 }
