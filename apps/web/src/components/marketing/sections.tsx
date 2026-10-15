@@ -188,7 +188,7 @@ export function SiteHeader() {
  * A real sample call, playable in the hero. The recording itself lives at
  * /samples/maya-call.wav in public assets; the player is wired to that path.
  */
-function SampleCallPlayer() {
+export function SampleCallPlayer() {
   return (
     <div id="sample-call" className="max-w-[500px] rounded-3xl border border-white/12 bg-white/[0.05] p-5 backdrop-blur">
       <div className="flex items-center gap-3">
@@ -272,20 +272,6 @@ export function HeroSection() {
               >
                 {authed ? 'Open your dashboard' : 'Start your 7-day free trial'}
               </Link>
-              <Link
-                href="#sample-call"
-                className="group flex items-center gap-2 rounded-full border border-white/20 bg-white/[0.06] px-6 py-3.5 text-[15px] font-semibold text-white backdrop-blur transition-all duration-300 ease-smooth hover:-translate-y-0.5 hover:bg-white/[0.12]"
-              >
-                <svg viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
-                  <path d="M4.5 2.8v10.4c0 .9 1 1.5 1.8 1L13 9a1.15 1.15 0 0 0 0-2L6.3 1.9c-.8-.5-1.8 0-1.8.9Z" />
-                </svg>
-                Hear a sample call
-              </Link>
-            </div>
-          </Reveal>
-          <Reveal delay={320}>
-            <div className="mt-9">
-              <SampleCallPlayer />
             </div>
           </Reveal>
         </div>
