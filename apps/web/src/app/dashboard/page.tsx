@@ -145,9 +145,13 @@ export default function OverviewPage() {
         </p>
       </div>
 
-      {/* Activation rescue: once live but before the first call lands, show the
-          owner the one real-world step (forward the line) + a self-test. */}
-      {inboundNumber && recent !== null && recent.length === 0 && <GoLiveGuide number={inboundNumber} />}
+      {/* Activation rescue: while the line has taken no calls in the last 30
+          days, show the owner the setup steps (number, forwarding, self-test).
+          It steps aside on its own once calls are flowing. */}
+      {inboundNumber &&
+        ((recent !== null && recent.length === 0) || (stats !== null && stats.callsLast30Days === 0)) && (
+          <GoLiveGuide number={inboundNumber} />
+        )}
 
       {statsError ? (
         <Card>
@@ -168,6 +172,7 @@ export default function OverviewPage() {
           <StatCard
             label="Calls · last 7 days"
             value={String(stats.callsLast7Days)}
+            hint={stats.callsLast7Days === 0 ? 'No calls yet' : undefined}
             icon={
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4">
                 <path
@@ -180,6 +185,7 @@ export default function OverviewPage() {
           <StatCard
             label="Calls · last 30 days"
             value={String(stats.callsLast30Days)}
+            hint={stats.callsLast30Days === 0 ? 'No calls yet' : undefined}
             icon={
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4">
                 <rect x="2.5" y="3" width="11" height="10.5" rx="2" />
@@ -191,6 +197,7 @@ export default function OverviewPage() {
             label="Minutes handled · 30 days"
             value={String(stats.minutesLast30Days)}
             sublabel={`${stats.forwardedLast30Days} calls transferred to your team`}
+            hint={stats.minutesLast30Days === 0 ? 'No minutes yet' : undefined}
             icon={
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4">
                 <circle cx="8" cy="8" r="6" />
@@ -201,6 +208,7 @@ export default function OverviewPage() {
           <StatCard
             label="Spend · last 30 days"
             value={formatCents(stats.costCentsLast30Days)}
+            hint={stats.costCentsLast30Days === 0 ? 'No spend yet' : undefined}
             icon={
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4">
                 <circle cx="8" cy="8" r="6" />
