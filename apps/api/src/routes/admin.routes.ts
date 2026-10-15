@@ -18,6 +18,7 @@ import { defaultBusinessHours } from '../domain/agent-config';
 import { industryDefaults, industryPersona } from '../domain/prompt-templates';
 import { getTenantFeatures, setFeatureByAdmin } from '../services/features.service';
 import { listSupportTickets } from '../services/support-ticket.service';
+import { teamRouter } from './team.routes';
 import {
   SETTING_KEYS,
   SETTING_META,
@@ -1585,3 +1586,10 @@ adminRouter.post(
     res.json({ sent, total: body.recipients.length, results });
   }),
 );
+
+/* ------------------------------- AI team -------------------------------- */
+/* The AI Team room (design v2, Oct 15 2026): members, threads, discuss,    */
+/* tools, abilities, work queue. Sub-paths under /team/*; they do not touch */
+/* the human operator endpoints above (GET/POST /team, DELETE /team/:email)*/
+/* which stay exactly as they were for future human hires.                  */
+adminRouter.use(teamRouter);
