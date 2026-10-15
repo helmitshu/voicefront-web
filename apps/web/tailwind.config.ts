@@ -15,6 +15,7 @@ const config: Config = {
           DEFAULT: 'rgb(var(--vf-ink) / <alpha-value>)',
           soft: 'rgb(var(--vf-ink-soft) / <alpha-value>)',
           muted: 'rgb(var(--vf-ink-muted) / <alpha-value>)',
+          faint: 'rgb(var(--vf-faint) / <alpha-value>)',
           // Near-black teal-charcoal for full-bleed "anchor" sections — the dark
           // moments that give the light pages contrast rhythm and a premium feel.
           deep: 'rgb(var(--vf-ink-deep) / <alpha-value>)',
@@ -23,10 +24,33 @@ const config: Config = {
         // Warm off-white page canvas + tinted surface. `card` is the elevated
         // surface (pure white in the light themes, deep ink in Midnight);
         // `paper` is the calm neutral behind it.
-        paper: 'rgb(var(--vf-paper) / <alpha-value>)',
+        paper: {
+          DEFAULT: 'rgb(var(--vf-paper) / <alpha-value>)',
+          2: 'rgb(var(--vf-paper-2) / <alpha-value>)',
+        },
         surface: 'rgb(var(--vf-surface) / <alpha-value>)',
+        surface3: 'rgb(var(--vf-surface-3) / <alpha-value>)',
         card: 'rgb(var(--vf-card) / <alpha-value>)',
-        line: 'rgb(var(--vf-line) / <alpha-value>)',
+        line: {
+          DEFAULT: 'rgb(var(--vf-line) / <alpha-value>)',
+          strong: 'rgb(var(--vf-line-2) / <alpha-value>)',
+        },
+        // The demo's shell scale: the sidebar/dark-stage surfaces and their
+        // own ink ramp. Always dark in every theme (the shell never flips).
+        shell: {
+          DEFAULT: 'rgb(var(--vf-shell) / <alpha-value>)',
+          2: 'rgb(var(--vf-shell-2) / <alpha-value>)',
+          edge: 'rgb(var(--vf-shell-edge) / <alpha-value>)',
+          ink: 'rgb(var(--vf-shell-ink) / <alpha-value>)',
+          mut: 'rgb(var(--vf-shell-mut) / <alpha-value>)',
+          faint: 'rgb(var(--vf-shell-faint) / <alpha-value>)',
+        },
+        // Signal glow pair: the bright end of the brand gradient (logo bars,
+        // sparklines, KPI strip) and its cyan partner.
+        glow: {
+          DEFAULT: 'rgb(var(--vf-glow) / <alpha-value>)',
+          2: 'rgb(var(--vf-glow-2) / <alpha-value>)',
+        },
         // Primary accent: deep, calm teal. Drives CTAs, active states, key
         // badges and small highlights — never large saturated blocks.
         // Text/icon color that sits ON a signal fill (white on the light
@@ -68,9 +92,12 @@ const config: Config = {
       boxShadow: {
         // Soft, layered, low-opacity shadows — ambient + key light, the way a
         // physical card casts. Diffuse rather than hard for a calm, premium feel.
-        card: '0 1px 2px rgba(20, 30, 25, 0.03), 0 6px 16px -6px rgba(20, 30, 25, 0.06), 0 14px 36px -14px rgba(20, 30, 25, 0.06)',
-        'card-hover':
-          '0 2px 4px rgba(20, 30, 25, 0.04), 0 12px 28px -8px rgba(20, 30, 25, 0.10), 0 28px 60px -18px rgba(20, 30, 25, 0.10)',
+        // `card` resolves through the theme variable: the :root value is the
+        // app's original soft shadow (so unthemed pages never move) and each
+        // signed-in theme swaps in the demo's exact shadow for that preset.
+        card: 'var(--vf-shadow)',
+        'card-hover': 'var(--vf-shadow)',
+        'demo-sm': 'var(--vf-shadow-sm)',
         lift: '0 4px 10px -4px rgba(20, 30, 25, 0.06), 0 24px 56px -20px rgba(20, 30, 25, 0.14)',
         pop: '0 1px 2px rgba(10, 87, 79, 0.20), 0 6px 18px -4px rgba(14, 107, 99, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.18)',
         input: '0 1px 2px rgba(20, 30, 25, 0.04)',
