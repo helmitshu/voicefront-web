@@ -13,6 +13,11 @@ import { industryDefaults, industryPersona } from '../domain/prompt-templates';
 import { getAuth, requireAuth } from '../middleware/auth';
 import { requiresInvite, inviteOnlyIndustries } from '../config/env';
 import { resolvePlatformRole } from '../services/platform-admin.service';
+import {
+  resolveSignupPricingRegion,
+  normalizePricingRegion,
+  type PricingRegion,
+} from '../services/pricing-region.service';
 import { consumeAccessCode } from '../services/access-code.service';
 import { verifyGoogleIdToken } from '../services/google-auth.service';
 import { getOnboarding, toOnboardingView } from '../services/onboarding.service';
@@ -33,6 +38,11 @@ const RegisterSchema = z.object({
   fullName: z.string().trim().min(2, 'Please enter your name').max(80),
   email: z.string().trim().toLowerCase().email('Please enter a valid email'),
   password: z.string().min(8, 'Password must be at least 8 characters').max(128),
+  /** The business website, mirroring the demo's field. Optional; when
+   *  given, the server reads it (SSRF-guarded, same pipeline as the demo)
+   *  to verify the pricing region. It is a verification input only: the
+   *  region itself is never accepted from the client. */
+  website: z.string().trim().url().max(300).optional(),
   /** One-time invitation code from the founder. Required for ordinary
    *  customers; platform operators (bootstrap/granted) are exempt. */
   accessCode: z.string().trim().max(40).optional(),
@@ -74,6 +84,9 @@ interface MeResponse {
     slug: string;
     industry: 'CLINIC' | 'CONSTRUCTION';
     subscriptionStatus: string;
+    /** Server-owned price book ('USD' default, 'CAD' only for a verified
+     *  Canadian business or an admin override). */
+    pricingRegion: PricingRegion;
   };
   onboarding: ReturnType<typeof toOnboardingView>;
 }
@@ -105,6 +118,7 @@ async function buildMe(userId: string): Promise<MeResponse> {
       slug: user.tenant.slug,
       industry: user.tenant.industry,
       subscriptionStatus: user.tenant.subscriptionStatus,
+      pricingRegion: normalizePricingRegion(user.tenant.pricingRegion),
     },
     onboarding: toOnboardingView(onboarding),
   };
@@ -188,6 +202,15 @@ authRouter.post(
           userId: result.user.id,
           tenantId: result.tenant.id,
           role: result.user.role,
+        });
+        // Pricing region: verify the business before the first response
+        // is built, so the grant is already visible in `me`. Carry-over
+        // from the demo first, then the website given at signup. Never
+        // throws; the USD default stands unless the business verifies
+        // as Canadian.
+        await resolveSignupPricingRegion(result.tenant.id, {
+          email: body.email,
+          website: body.website ?? null,
         });
         const me = await buildMe(result.user.id);
         res.status(201).json({ token, ...me });
@@ -352,6 +375,13 @@ authRouter.post(
           userId: result.user.id,
           tenantId: result.tenant.id,
           role: result.user.role,
+        });
+        // Pricing region: Google signup collects no website, so only the
+        // demo carry-over can grant CAD here (same email as a verified
+        // demo lead). Never throws; the USD default otherwise stands.
+        await resolveSignupPricingRegion(result.tenant.id, {
+          email: profile.email,
+          website: null,
         });
         const me = await buildMe(result.user.id);
         res.status(201).json({ token, ...me });

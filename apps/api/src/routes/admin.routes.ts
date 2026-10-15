@@ -87,6 +87,7 @@ import { placeOwnerDemoTestCall } from './demo.routes';
 import { buildOutreachEmail } from '../services/outreach.service';
 import { sendOutreachEmail } from '../services/mailer.service';
 import { getMonthlyUsage } from '../services/usage.service';
+import { normalizePricingRegion } from '../services/pricing-region.service';
 import {
   addNumber,
   availableCount,
@@ -225,6 +226,7 @@ adminRouter.get(
           industry: t.industry,
           subscriptionStatus: t.subscriptionStatus,
           markupBps: t.markupBps,
+          pricingRegion: normalizePricingRegion(t.pricingRegion),
           blocked: t.isBlocked,
           receptionistActive: t.onboarding?.isActive ?? false,
           inboundPhoneNumber: t.agentSettings?.inboundPhoneNumber ?? null,
@@ -300,6 +302,12 @@ adminRouter.get(
         industry: tenant.industry,
         subscriptionStatus: tenant.subscriptionStatus,
         markupBps: tenant.markupBps,
+        /** Server-owned price book, with its grant provenance. */
+        pricingRegion: normalizePricingRegion(tenant.pricingRegion),
+        pricingRegionSource: tenant.pricingRegionSource ?? null,
+        pricingRegionVerifiedAt: tenant.pricingRegionVerifiedAt
+          ? tenant.pricingRegionVerifiedAt.toISOString()
+          : null,
         monthlyMinuteLimit: tenant.monthlyMinuteLimit,
         usage,
         blocked: tenant.isBlocked,
@@ -337,6 +345,10 @@ const TenantPatchSchema = z
     receptionistActive: z.boolean(),
     markupBps: z.coerce.number().int().min(0).max(30000),
     monthlyMinuteLimit: z.coerce.number().int().min(0).max(100000),
+    /** Manual price-book override ('USD' | 'CAD'). The escape hatch for a
+     *  business the website verification could not classify. Recorded
+     *  with source 'admin' and a timestamp, like any verification grant. */
+    pricingRegion: z.enum(['USD', 'CAD']),
     blocked: z.boolean(),
     /** Operator entitlement: turn multi-provider booking on/off for this customer. */
     multiProviderEnabled: z.boolean(),
@@ -358,6 +370,7 @@ adminRouter.patch(
       patch.subscriptionStatus !== undefined ||
       patch.markupBps !== undefined ||
       patch.monthlyMinuteLimit !== undefined ||
+      patch.pricingRegion !== undefined ||
       patch.blocked !== undefined ||
       patch.multiProviderEnabled !== undefined ||
       patch.multiProviderSelfManage !== undefined;
@@ -379,6 +392,7 @@ adminRouter.patch(
       patch.subscriptionStatus !== undefined ||
       patch.markupBps !== undefined ||
       patch.monthlyMinuteLimit !== undefined ||
+      patch.pricingRegion !== undefined ||
       patch.blocked !== undefined ||
       patch.multiProviderEnabled !== undefined ||
       patch.multiProviderSelfManage !== undefined
@@ -389,6 +403,13 @@ adminRouter.patch(
           ...(patch.subscriptionStatus !== undefined ? { subscriptionStatus: patch.subscriptionStatus } : {}),
           ...(patch.markupBps !== undefined ? { markupBps: patch.markupBps } : {}),
           ...(patch.monthlyMinuteLimit !== undefined ? { monthlyMinuteLimit: patch.monthlyMinuteLimit } : {}),
+          ...(patch.pricingRegion !== undefined
+            ? {
+                pricingRegion: patch.pricingRegion,
+                pricingRegionSource: 'admin',
+                pricingRegionVerifiedAt: new Date(),
+              }
+            : {}),
           ...(patch.blocked !== undefined ? { isBlocked: patch.blocked } : {}),
           ...(patch.multiProviderEnabled !== undefined ? { multiProviderEnabled: patch.multiProviderEnabled } : {}),
           ...(patch.multiProviderSelfManage !== undefined
