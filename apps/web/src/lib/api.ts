@@ -1630,7 +1630,15 @@ export interface TeamMessage {
   authorSlug: string | null;
   label: string | null;
   body: string;
+  /** Human pacing: when a member reply becomes visible. Null = immediate. */
+  visibleAt: string | null;
   createdAt: string;
+}
+
+/** Who still has a reply on its way in a thread, and when the next lands. */
+export interface TeamPending {
+  memberSlugs: string[];
+  nextVisibleAt: string | null;
 }
 
 export type WorkItemStatus = 'QUEUED' | 'IN_PROGRESS' | 'DONE';
@@ -1688,7 +1696,10 @@ export const TeamApi = {
   createThread: (input: { type: TeamThreadType; memberSlug?: string }) =>
     api<{ thread: TeamThread }>('/api/admin/team/threads', { method: 'POST', body: input }),
   messages: (threadId: string, signal?: AbortSignal) =>
-    api<{ messages: TeamMessage[] }>(`/api/admin/team/threads/${threadId}/messages`, { signal }),
+    api<{ messages: TeamMessage[]; pending: TeamPending }>(
+      `/api/admin/team/threads/${threadId}/messages`,
+      { signal },
+    ),
   sendMessage: (threadId: string, body: string) =>
     api<{ message: TeamMessage; reply?: TeamMessage }>(
       `/api/admin/team/threads/${threadId}/messages`,
