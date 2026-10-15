@@ -808,23 +808,19 @@ const PLAN_INCLUDES = [
   'Recordings, transcripts and summaries for every call',
 ];
 
-function CurrencyToggle({ value, onChange }: { value: Currency; onChange: (c: Currency) => void }) {
+/**
+ * The currency shown is decided server-side by the visitor's country
+ * (Canadian visitors see CAD, everyone else USD). There is no toggle on
+ * purpose: the price book a clinic is billed on follows its verified
+ * business region, not a switch on the page.
+ */
+function PricingCurrencyNote({ currency }: { currency: Currency }) {
   return (
-    <div className="inline-flex rounded-full border border-line bg-white p-1 shadow-input" role="group" aria-label="Currency">
-      {(['CAD', 'USD'] as Currency[]).map((c) => (
-        <button
-          key={c}
-          type="button"
-          onClick={() => onChange(c)}
-          aria-pressed={value === c}
-          className={`rounded-full px-4 py-1.5 text-[13px] font-semibold transition-all duration-200 ${
-            value === c ? 'bg-ink text-white shadow-pop' : 'text-ink-muted hover:text-ink'
-          }`}
-        >
-          {c}
-        </button>
-      ))}
-    </div>
+    <p className="mt-6 text-center text-[13px] text-ink-muted">
+      {currency === 'CAD'
+        ? 'Shown in Canadian dollars. Canadian clinics are billed in CAD.'
+        : 'Prices in US dollars. Canadian clinics are billed in Canadian dollars at the Canadian prices.'}
+    </p>
   );
 }
 
@@ -891,8 +887,7 @@ function TierCard({ tier, currency, compact = false }: { tier: PricingTier; curr
   );
 }
 
-export function PricingSection() {
-  const [currency, setCurrency] = useState<Currency>('CAD');
+export function PricingSection({ currency }: { currency: Currency }) {
   return (
     <section className="px-6 py-24 md:py-32">
       <div className="mx-auto max-w-6xl">
@@ -905,9 +900,6 @@ export function PricingSection() {
             No quotes, no calls with a salesperson. Pick the plan that matches when your clinic misses
             calls, start the free trial, and forward your number.
           </p>
-          <div className="mt-7 flex justify-center">
-            <CurrencyToggle value={currency} onChange={setCurrency} />
-          </div>
         </Reveal>
         <div className="mx-auto mt-12 grid max-w-4xl gap-6 md:grid-cols-2">
           {PRICING_TIERS.map((tier, i) => (
@@ -916,6 +908,7 @@ export function PricingSection() {
             </Reveal>
           ))}
         </div>
+        <PricingCurrencyNote currency={currency} />
         <Reveal delay={150}>
           <div className="mx-auto mt-10 max-w-4xl rounded-3xl border border-signal/15 bg-signal-soft/40 p-8">
             <p className="text-sm font-semibold uppercase tracking-[0.12em] text-signal-deep">Every plan includes</p>
@@ -939,8 +932,7 @@ export function PricingSection() {
 }
 
 /** Compact pricing strip for the home page: the same two plans, one glance. */
-export function PricingStripSection() {
-  const [currency, setCurrency] = useState<Currency>('CAD');
+export function PricingStripSection({ currency }: { currency: Currency }) {
   return (
     <section className="border-t border-line/60 px-6 py-24 md:py-28">
       <div className="mx-auto max-w-6xl">
@@ -954,7 +946,6 @@ export function PricingStripSection() {
               Two plans, $0 setup, and a 7-day free trial on both. Most clinics pick Core.
             </p>
           </div>
-          <CurrencyToggle value={currency} onChange={setCurrency} />
         </Reveal>
         <div className="mt-10 grid gap-6 md:grid-cols-2">
           {PRICING_TIERS.map((tier, i) => (
@@ -963,6 +954,7 @@ export function PricingStripSection() {
             </Reveal>
           ))}
         </div>
+        <PricingCurrencyNote currency={currency} />
         <Reveal delay={120} className="mt-8 text-center">
           <Link href="/pricing" className="group inline-flex items-center gap-1.5 text-[15px] font-semibold text-signal-deep transition-colors hover:text-signal">
             See what is included in each plan

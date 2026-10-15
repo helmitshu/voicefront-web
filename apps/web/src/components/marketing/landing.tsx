@@ -1975,7 +1975,7 @@ export const FAQS = [
   },
   {
     q: 'What does it cost?',
-    a: 'Two plans, priced in the open. Starter After-Hours is $399 CAD a month with 300 included minutes. Core 24/7 is $599 CAD a month with 950 included minutes, and most clinics pick Core. Both come with $0 setup and a 7-day free trial, and you can cancel anytime. US pricing is on the pricing page.',
+    a: 'Two plans, priced in the open. Starter After-Hours is $299 a month with 300 included minutes. Core 24/7 is $499 a month with 950 included minutes, and most clinics pick Core. Prices are in US dollars. Canadian clinics are billed in Canadian dollars, $399 for Starter and $599 for Core. Both plans come with $0 setup and a 7-day free trial, and you can cancel anytime.',
   },
   {
     q: 'Can I keep my existing phone number?',
