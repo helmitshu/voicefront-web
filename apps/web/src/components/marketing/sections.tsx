@@ -761,6 +761,7 @@ type Currency = 'CAD' | 'USD';
 
 interface PricingTier {
   name: string;
+  plan: 'starter' | 'core';
   hero?: boolean;
   blurb: string;
   price: Record<Currency, number>;
@@ -773,6 +774,7 @@ interface PricingTier {
 const PRICING_TIERS: PricingTier[] = [
   {
     name: 'Starter After-Hours',
+    plan: 'starter',
     blurb: 'For clinics that mainly miss calls once the front desk closes.',
     price: { CAD: 399, USD: 299 },
     minutes: 300,
@@ -785,6 +787,7 @@ const PRICING_TIERS: PricingTier[] = [
   },
   {
     name: 'Core 24/7',
+    plan: 'core',
     hero: true,
     blurb: 'For clinics that never want a call to ring out.',
     price: { CAD: 599, USD: 499 },
@@ -825,7 +828,10 @@ function PricingCurrencyNote({ currency }: { currency: Currency }) {
 }
 
 function TierCard({ tier, currency, compact = false }: { tier: PricingTier; currency: Currency; compact?: boolean }) {
-  const { primaryHref } = usePrimaryCta();
+  const { authed, primaryHref } = usePrimaryCta();
+  // The trial button carries the picked plan into signup; signed-in owners
+  // go to their dashboard instead, exactly like the other primary CTAs.
+  const trialHref = authed ? primaryHref : `/register?plan=${tier.plan}`;
   return (
     <div
       className={`relative flex h-full flex-col rounded-3xl p-8 ${
@@ -871,7 +877,7 @@ function TierCard({ tier, currency, compact = false }: { tier: PricingTier; curr
         </ul>
       )}
       <Link
-        href={primaryHref}
+        href={trialHref}
         className={`mt-8 rounded-full px-6 py-3 text-center text-[14.5px] font-semibold transition-all duration-150 hover:-translate-y-0.5 ${
           tier.hero
             ? 'bg-white text-ink shadow-lift'
