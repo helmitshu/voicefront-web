@@ -115,12 +115,15 @@ export function StatCard({
   label,
   value,
   sublabel,
+  hint,
   accent = false,
   icon,
 }: {
   label: string;
   value: string;
   sublabel?: string;
+  /** Quiet muted line under the value, for a zero stat that needs context. */
+  hint?: string;
   /** Kept for call-site compatibility; the demo KPI treatment is uniform. */
   accent?: boolean;
   icon?: ReactNode;
@@ -148,6 +151,7 @@ export function StatCard({
         {sublabel && (
           <p className="mt-1.5 text-xs font-bold leading-relaxed text-signal sm:text-[12.5px]">{sublabel}</p>
         )}
+        {hint && <p className="mt-1.5 text-xs leading-relaxed text-ink-muted">{hint}</p>}
       </div>
     </Card>
   );
