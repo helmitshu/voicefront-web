@@ -1148,6 +1148,10 @@ model TeamMessage {
   authorSlug String?       @map("author_slug")
   label      String?
   body       String        @db.Text
+  // Human pacing: a member reply carries the moment it becomes visible
+  // and stays hidden from thread reads until then. Null (owner, CEO and
+  // SYSTEM messages) means visible immediately.
+  visibleAt  DateTime?     @map("visible_at")
   createdAt  DateTime      @default(now()) @map("created_at")
 
   @@index([threadId, createdAt])
