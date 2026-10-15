@@ -201,6 +201,8 @@ model Tenant {
   fsmConnections      FsmConnection[]
   supportTickets      SupportTicket[]
   subscription        Subscription?
+  simulatedCallRuns   SimulatedCallRun[]
+  adamWeeklyReviews   AdamWeeklyReview[]
 
   @@map("tenants")
 }
@@ -1288,4 +1290,86 @@ model StripeEvent {
   processedAt DateTime @default(now()) @map("processed_at")
 
   @@map("stripe_events")
+}
+
+/// One simulated-patient call run by the support agent (Adam): either a
+/// PROOF (replay the scenario of a real call that went badly, after a fix)
+/// or a DRILL (a library or custom scenario, no fix involved). The patient
+/// is a platform assistant that dials the workspace's own receptionist line;
+/// both legs carry this run's id in their assistant metadata, so the webhook
+/// captures the result HERE and never writes a tenant CallLog — simulated
+/// calls stay out of patient stats, usage minutes, and ROI math by
+/// construction. Any booking the receptionist makes during the call is
+/// written into the demo sandbox scope and deleted when the run finalizes;
+/// `cleanupCount` records how many sandbox rows the finalizer removed (plus
+/// any real-calendar rows it had to cancel, which by design should be 0).
+model SimulatedCallRun {
+  id              String    @id @default(cuid())
+  tenantId        String    @map("tenant_id")
+  tenant          Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdByUserId String    @map("created_by_user_id")
+  /// PROOF | DRILL
+  kind            String
+  /// PLACED | ANSWERED | COMPLETED | FAILED | TIMED_OUT
+  status          String    @default("PLACED")
+  scenarioTitle   String    @map("scenario_title")
+  /// The simulated patient's persona script (system prompt), generated from
+  /// a real call's summary (proof), the scenario library, or the owner's
+  /// free text (drill). Built from summaries and structured data only —
+  /// never from raw patient identifiers.
+  scenarioPrompt  String    @map("scenario_prompt") @db.Text
+  /// PROOF only: the real call being replayed, and Adam's diagnosis.
+  sourceCallLogId String?   @map("source_call_log_id")
+  diagnosis       String?   @db.Text
+  fixSummary      String?   @map("fix_summary") @db.Text
+  /// Platform caller-ID number the patient leg was placed from; the inbound
+  /// (receptionist) leg is matched to this run by tenant + this number.
+  originNumber    String?   @map("origin_number")
+  /// Provider call ids of the two legs, once known.
+  patientCallId       String? @map("patient_call_id")
+  receptionistCallId  String? @map("receptionist_call_id")
+  /// The receptionist leg's captured result (the canonical evidence).
+  resultSummary         String? @map("result_summary") @db.Text
+  resultTranscript      String? @map("result_transcript") @db.Text
+  resultRecordingUrl    String? @map("result_recording_url") @db.Text
+  resultSuccessScore    Int?    @map("result_success_score")
+  resultOutcome         String? @map("result_outcome")
+  resultDurationSeconds Int     @default(0) @map("result_duration_seconds")
+  /// The patient leg's transcript/recording, kept as fallback evidence when
+  /// the receptionist leg's report never arrives.
+  patientTranscript   String? @map("patient_transcript") @db.Text
+  patientRecordingUrl String? @map("patient_recording_url") @db.Text
+  cleanupCount        Int     @default(0) @map("cleanup_count")
+  createdAt           DateTime @default(now()) @map("created_at")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+  completedAt         DateTime? @map("completed_at")
+
+  @@index([tenantId, createdAt(sort: Desc)])
+  @@index([tenantId, kind, createdAt(sort: Desc)])
+  @@map("simulated_call_runs")
+}
+
+/// Adam's weekly knowledge review for one workspace: the questions patients
+/// asked in the last 7 days that the receptionist could not answer, grouped
+/// and counted by the weekly job. The row existing with status PENDING is
+/// what surfaces the review in Adam's chat surface; DISMISSED and REVIEWED
+/// rows stay as the record that the week was handled. One row per tenant
+/// per ISO week.
+model AdamWeeklyReview {
+  id        String   @id @default(cuid())
+  tenantId  String   @map("tenant_id")
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  /// ISO week key in the workspace timezone, e.g. "2026-W42".
+  weekKey   String   @map("week_key")
+  /// The scan result: [{ topic, count, draftable, examples: [...] }].
+  gaps      Json
+  gapCount  Int      @default(0) @map("gap_count")
+  /// PENDING | DISMISSED | REVIEWED
+  status    String   @default("PENDING")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([tenantId, weekKey])
+  @@index([tenantId, status])
+  @@map("adam_weekly_reviews")
 }
