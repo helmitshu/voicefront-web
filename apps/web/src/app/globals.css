@@ -8,19 +8,39 @@
    them. Inside the signed-in app (`.theme-root`, rendered by the dashboard and
    admin layouts) the active theme — `data-theme` on <html>, set before first
    paint by the inline script in the root layout and switched at runtime by
-   ThemeProvider — swaps the values. Themes: pearl (the current look,
-   sharpened), midnight (default; dark futuristic), deepteal (the shell's
-   deep teal carried across the whole product). */
+   ThemeProvider — swaps the values.
+ *
+ * The three theme blocks below carry the APPROVED DEMO's tokens verbatim
+ * (demo presets pearl / midnight / current = Deep Teal), mapped onto the
+ * app's variable names:
+ *   demo --bg → --vf-paper          demo --surface   → --vf-card
+ *   demo --bg-2 → --vf-paper-2      demo --surface-2 → --vf-surface
+ *   demo --ink → --vf-ink           demo --surface-3 → --vf-surface-3
+ *   demo --ink-2 → --vf-ink-soft    demo --line / --line-2 → --vf-line / --vf-line-2
+ *   demo --muted → --vf-ink-muted   demo --accent → --vf-signal
+ *   demo --faint → --vf-faint       demo --accent-strong → --vf-signal-deep
+ *   demo --live → --vf-clinic       demo --amber → --vf-construction
+ *   demo --rose → --vf-danger       demo --ok-bg → --vf-clinic-soft / --vf-signal-soft
+ *   demo --shell / --shell-2 / --shell-edge / --shell-ink / --shell-mut /
+ *   --shell-faint → the --vf-shell* scale (the shell is dark in every theme)
+ *   demo --glow / --glow-2 → --vf-glow / --vf-glow-2, --grad → --vf-grad,
+ *   --grid-line → --vf-grid-line, --topbar → --vf-topbar,
+ *   --shadow / --shadow-sm → --vf-shadow / --vf-shadow-sm, --stage → --vf-stage.
+ * Midnight is the default. */
 :root {
   --vf-ink: 30 36 33;
   --vf-ink-soft: 44 51 46;
   --vf-ink-muted: 102 112 107;
+  --vf-faint: 102 112 107;
   --vf-ink-deep: 11 23 20;
   --vf-ink-deeper: 7 18 16;
   --vf-paper: 246 247 243;
+  --vf-paper-2: 241 244 241;
   --vf-surface: 241 244 241;
+  --vf-surface-3: 228 231 226;
   --vf-card: 255 255 255;
   --vf-line: 228 231 226;
+  --vf-line-2: 210 214 208;
   --vf-signal: 14 107 99;
   --vf-on-signal: 255 255 255;
   --vf-signal-deep: 10 87 79;
@@ -35,22 +55,43 @@
   --vf-gold-soft: 244 233 211;
   --vf-danger: 192 69 63;
   --vf-danger-soft: 248 231 229;
+  /* Shell scale + demo string tokens: Pearl values as the unthemed fallback
+     (the shell only ever renders inside .theme-root, which overrides them). */
+  --vf-shell: 10 38 32;
+  --vf-shell-2: 13 50 41;
+  --vf-shell-edge: 94 234 212;
+  --vf-shell-ink: 234 244 240;
+  --vf-shell-mut: 147 179 168;
+  --vf-shell-faint: 95 127 117;
+  --vf-glow: 20 184 166;
+  --vf-glow-2: 14 165 198;
+  --vf-stage: 10 38 32;
+  --vf-grad: linear-gradient(92deg, #0c7a66, #12a594 55%, #0ea5c6);
+  --vf-grid-line: rgba(11, 39, 33, 0.055);
+  --vf-topbar: rgba(246, 247, 243, 0.86);
+  --vf-shadow: 0 1px 2px rgba(20, 30, 25, 0.03), 0 6px 16px -6px rgba(20, 30, 25, 0.06),
+    0 14px 36px -14px rgba(20, 30, 25, 0.06);
+  --vf-shadow-sm: 0 1px 2px rgba(20, 30, 25, 0.04), 0 6px 16px -6px rgba(20, 30, 25, 0.06);
 }
 
 html[data-theme='pearl'] .theme-root {
   --vf-ink: 18 33 29;
   --vf-ink-soft: 49 65 59;
   --vf-ink-muted: 93 109 103;
+  --vf-faint: 139 152 145;
   --vf-ink-deep: 10 38 32;
   --vf-ink-deeper: 7 29 23;
   --vf-paper: 244 241 233;
-  --vf-surface: 241 238 227;
+  --vf-paper-2: 237 233 221;
+  --vf-surface: 251 250 245;
+  --vf-surface-3: 241 238 227;
   --vf-card: 255 255 255;
   --vf-line: 226 221 207;
+  --vf-line-2: 212 207 190;
   --vf-signal: 12 122 102;
   --vf-on-signal: 255 255 255;
   --vf-signal-deep: 9 92 77;
-  --vf-signal-soft: 217 238 234;
+  --vf-signal-soft: 223 242 233;
   --vf-clinic: 14 159 110;
   --vf-clinic-soft: 223 242 233;
   --vf-construction: 176 124 31;
@@ -61,21 +102,39 @@ html[data-theme='pearl'] .theme-root {
   --vf-gold-soft: 244 233 211;
   --vf-danger: 179 64 46;
   --vf-danger-soft: 248 227 222;
+  --vf-shell: 10 38 32;
+  --vf-shell-2: 13 50 41;
+  --vf-shell-edge: 94 234 212;
+  --vf-shell-ink: 234 244 240;
+  --vf-shell-mut: 147 179 168;
+  --vf-shell-faint: 95 127 117;
+  --vf-glow: 20 184 166;
+  --vf-glow-2: 14 165 198;
+  --vf-stage: 10 38 32;
+  --vf-grad: linear-gradient(92deg, #0c7a66, #12a594 55%, #0ea5c6);
+  --vf-grid-line: rgba(11, 39, 33, 0.055);
+  --vf-topbar: rgba(244, 241, 233, 0.86);
+  --vf-shadow: 0 18px 44px -22px rgba(11, 39, 33, 0.28), 0 2px 6px rgba(11, 39, 33, 0.05);
+  --vf-shadow-sm: 0 8px 22px -12px rgba(11, 39, 33, 0.22);
 }
 
 html[data-theme='midnight'] .theme-root {
   --vf-ink: 233 242 246;
   --vf-ink-soft: 195 211 220;
   --vf-ink-muted: 143 165 178;
+  --vf-faint: 95 118 132;
   --vf-ink-deep: 4 9 13;
   --vf-ink-deeper: 3 7 10;
   --vf-paper: 6 12 17;
+  --vf-paper-2: 8 19 27;
   --vf-surface: 14 28 40;
+  --vf-surface-3: 18 38 53;
   --vf-card: 11 22 31;
   --vf-line: 27 46 61;
-  --vf-signal: 20 184 166;
-  --vf-on-signal: 4 33 27;
-  --vf-signal-deep: 45 212 191;
+  --vf-line-2: 39 64 82;
+  --vf-signal: 45 212 191;
+  --vf-on-signal: 3 33 27;
+  --vf-signal-deep: 94 234 212;
   --vf-signal-soft: 14 46 36;
   --vf-clinic: 52 211 153;
   --vf-clinic-soft: 14 46 36;
@@ -87,20 +146,38 @@ html[data-theme='midnight'] .theme-root {
   --vf-gold-soft: 44 36 16;
   --vf-danger: 240 131 107;
   --vf-danger-soft: 51 27 21;
+  --vf-shell: 4 9 13;
+  --vf-shell-2: 7 19 27;
+  --vf-shell-edge: 94 234 212;
+  --vf-shell-ink: 234 246 243;
+  --vf-shell-mut: 143 180 172;
+  --vf-shell-faint: 85 112 106;
+  --vf-glow: 45 212 191;
+  --vf-glow-2: 56 189 248;
+  --vf-stage: 4 9 13;
+  --vf-grad: linear-gradient(92deg, #2dd4bf, #34c7e8);
+  --vf-grid-line: rgba(94, 234, 212, 0.05);
+  --vf-topbar: rgba(6, 12, 17, 0.85);
+  --vf-shadow: 0 22px 50px -22px rgba(0, 0, 0, 0.75), 0 2px 8px rgba(0, 0, 0, 0.4);
+  --vf-shadow-sm: 0 10px 26px -12px rgba(0, 0, 0, 0.6);
 }
 
 html[data-theme='deepteal'] .theme-root {
   --vf-ink: 237 246 242;
   --vf-ink-soft: 201 222 214;
   --vf-ink-muted: 147 181 169;
+  --vf-faint: 100 138 126;
   --vf-ink-deep: 5 27 22;
   --vf-ink-deeper: 4 18 14;
   --vf-paper: 7 35 29;
+  --vf-paper-2: 6 35 29;
   --vf-surface: 15 54 45;
+  --vf-surface-3: 19 66 55;
   --vf-card: 12 46 39;
   --vf-line: 27 70 59;
+  --vf-line-2: 36 88 73;
   --vf-signal: 46 211 166;
-  --vf-on-signal: 4 33 27;
+  --vf-on-signal: 3 33 27;
   --vf-signal-deep: 124 240 203;
   --vf-signal-soft: 14 58 42;
   --vf-clinic: 62 213 152;
@@ -110,9 +187,23 @@ html[data-theme='deepteal'] .theme-root {
   --vf-gold: 227 179 65;
   --vf-gold-light: 230 190 114;
   --vf-gold-deep: 227 179 65;
-  --vf-gold-soft: 44 42 16;
+  --vf-gold-soft: 44 36 16;
   --vf-danger: 240 131 107;
   --vf-danger-soft: 51 27 21;
+  --vf-shell: 5 27 22;
+  --vf-shell-2: 8 39 32;
+  --vf-shell-edge: 94 234 212;
+  --vf-shell-ink: 234 244 240;
+  --vf-shell-mut: 147 179 168;
+  --vf-shell-faint: 95 127 117;
+  --vf-glow: 46 211 166;
+  --vf-glow-2: 76 201 232;
+  --vf-stage: 5 27 22;
+  --vf-grad: linear-gradient(92deg, #2ed3a6, #4cc9e8);
+  --vf-grid-line: rgba(94, 234, 212, 0.05);
+  --vf-topbar: rgba(7, 35, 29, 0.88);
+  --vf-shadow: 0 22px 50px -22px rgba(0, 0, 0, 0.6), 0 2px 8px rgba(0, 0, 0, 0.3);
+  --vf-shadow-sm: 0 10px 26px -12px rgba(0, 0, 0, 0.5);
 }
 
 @layer base {
@@ -152,6 +243,39 @@ html[data-theme='deepteal'] .theme-root {
     outline: 2px solid theme('colors.signal.DEFAULT');
     outline-offset: 2px;
     border-radius: 8px;
+  }
+}
+
+/* --------------------- demo design system, signed-in scope ------------------ */
+/* Typography: the demo runs Sora for display and Manrope for body (loaded in
+   the root layout). Scoped to .theme-root so marketing/auth keep their
+   Space Grotesk / Public Sans pairing untouched. */
+.theme-root {
+  font-family: 'Manrope', 'Public Sans', system-ui, sans-serif;
+}
+.theme-root h1,
+.theme-root h2,
+.theme-root h3,
+.theme-root h4,
+.theme-root .font-display {
+  font-family: 'Sora', 'Space Grotesk', system-ui, sans-serif;
+  letter-spacing: -0.015em;
+}
+
+@layer utilities {
+  /* The demo's signal gradient (logo, KPI strip, accent fills). */
+  .bg-grad {
+    background-image: var(--vf-grad);
+  }
+  /* The demo's shell gradient: lighter shell-2 at the top settling into shell. */
+  .bg-shell-grad {
+    background-image: linear-gradient(180deg, rgb(var(--vf-shell-2)), rgb(var(--vf-shell)) 30%);
+  }
+  /* The demo's workspace grid backdrop: 44px lines over the page canvas. */
+  .vf-grid-bg {
+    background-image: linear-gradient(var(--vf-grid-line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--vf-grid-line) 1px, transparent 1px);
+    background-size: 44px 44px;
   }
 }
 
@@ -204,34 +328,70 @@ html[data-theme='deepteal'] .theme-root {
 .bg-wave-2 { animation: bg-wave-2 25s ease-in-out infinite; transform-origin: bottom; }
 .bg-wave-3 { animation: bg-wave-3 31s ease-in-out infinite; transform-origin: bottom; }
 
-/* ------------------------- animated logo (shell only) ----------------------- */
-/* The waveform mark in the signed-in shell breathes: each bar runs a gentle
-   equalizer (transform-only, GPU-friendly) with a staggered delay, and a soft
-   light sweep crosses the tile every few seconds. Subtle and slow — corporate,
-   not playful. transform-box: fill-box makes each SVG rect scale around its
-   own center. */
+/* ------------------------- animated logo (the demo mark) -------------------- */
+/* The demo's waveform mark: a dark teal tile (identical in every theme) with
+   five gradient bars running a gentle equalizer, an orbiting ring, and a
+   light sweep. Transform-only so the loops stay GPU-friendly. */
+.logo-mark {
+  border-radius: 28%;
+  background: linear-gradient(150deg, #11443a 0%, #0a2b23 58%, #061d18 100%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.22),
+    inset 0 0 0 1px rgba(94, 234, 212, 0.22),
+    0 8px 20px -8px rgba(4, 24, 19, 0.65);
+}
+.logo-bar {
+  display: block;
+  width: 13%;
+  border-radius: 99px;
+  background: linear-gradient(180deg, #7cf5dc, #2dd4bf 55%, #12a5c4);
+  box-shadow: 0 0 8px rgba(45, 212, 191, 0.55);
+}
 @keyframes logo-eq {
-  0%, 100% { transform: scaleY(0.55); }
+  0%, 100% { transform: scaleY(0.62); }
   50% { transform: scaleY(1); }
 }
 @keyframes logo-sweep {
-  0%, 55% { transform: translateX(-130%) skewX(-18deg); opacity: 0; }
-  62% { opacity: 0.55; }
-  75%, 100% { transform: translateX(240%) skewX(-18deg); opacity: 0; }
+  0%, 55% { transform: translateX(-160%) skewX(-18deg); opacity: 0; }
+  68% { opacity: 0.55; }
+  88%, 100% { transform: translateX(340%) skewX(-18deg); opacity: 0; }
 }
 .logo-eq-bar {
-  transform-box: fill-box;
   transform-origin: center;
   animation: logo-eq 2.6s ease-in-out infinite;
 }
 .logo-sweep {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  width: 45%;
-  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.35), transparent);
-  animation: logo-sweep 6.5s ease-in-out infinite;
+  top: -30%;
+  bottom: -30%;
+  width: 34%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.35), transparent);
+  animation: logo-sweep 4.6s ease-in-out infinite;
   pointer-events: none;
+}
+@keyframes logo-spin {
+  to { transform: rotate(360deg); }
+}
+.logo-ring {
+  position: absolute;
+  inset: -6px;
+  border-radius: 36%;
+  border: 1.5px solid transparent;
+  border-top-color: rgb(var(--vf-glow));
+  border-right-color: rgba(94, 234, 212, 0.35);
+  opacity: 0.55;
+  animation: logo-spin 7s linear infinite;
+  pointer-events: none;
+}
+
+/* The demo's pulsing live dot (agent status, Live pills). */
+@keyframes dot-pulse {
+  70% { box-shadow: 0 0 0 7px rgba(52, 211, 153, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(52, 211, 153, 0); }
+}
+.live-dot {
+  box-shadow: 0 0 0 0 rgba(52, 211, 153, 0.5);
+  animation: dot-pulse 2s infinite;
 }
 
 /* Respect users who opt out of motion: stop loops, settle bars statically. */
@@ -240,9 +400,13 @@ html[data-theme='deepteal'] .theme-root {
     animation: none !important;
     transform: scaleY(0.8);
   }
-  .logo-sweep {
+  .logo-sweep,
+  .logo-ring {
     animation: none !important;
     opacity: 0;
+  }
+  .live-dot {
+    animation: none !important;
   }
   .animate-wave-bar {
     animation: none !important;
