@@ -483,6 +483,14 @@ function callReply(name: string, args: Record<string, unknown>) {
 function statusReply(status: number) {
   return { __status: status, error: { message: 'temporary model failure' } };
 }
+/** A scripted Gemini SSE stream: one frame per parts array. */
+function streamReply(frames: Array<Array<Record<string, unknown>>>) {
+  return { __stream: frames };
+}
+/** A scripted Gemini SSE stream that breaks after its frames are read. */
+function streamErrorReply(frames: Array<Array<Record<string, unknown>>>) {
+  return { __streamError: frames };
+}
 
 const realFetch = globalThis.fetch.bind(globalThis);
 const fetchStub = vi.fn(async (_url: unknown, init?: { body?: string }) => {
@@ -503,6 +511,32 @@ const fetchStub = vi.fn(async (_url: unknown, init?: { body?: string }) => {
     next && typeof next === 'object' && '__status' in next
       ? Number((next as { __status: unknown }).__status)
       : 200;
+  if (status === 200 && next && typeof next === 'object' && ('__stream' in next || '__streamError' in next)) {
+    const breakAfter = '__streamError' in next;
+    const frames = [
+      ...(((next as { __stream?: unknown[]; __streamError?: unknown[] }).__stream ??
+        (next as { __streamError?: unknown[] }).__streamError) as Array<Array<Record<string, unknown>>>),
+    ];
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        const parts = frames.shift();
+        if (parts) {
+          controller.enqueue(
+            encoder.encode(`data: ${JSON.stringify({ candidates: [{ content: { parts } }] })}\n\n`),
+          );
+        } else if (breakAfter) {
+          controller.error(new Error('socket reset mid-stream'));
+        } else {
+          controller.close();
+        }
+      },
+    });
+    return new Response(body, {
+      status: 200,
+      headers: { 'content-type': 'text/event-stream' },
+    });
+  }
   return new Response(JSON.stringify(next), {
     status,
     headers: { 'content-type': 'application/json' },
@@ -1376,5 +1410,252 @@ describe('support agent inventions (proofs, drills, weekly upgrade)', () => {
     state.geminiScript.push(textReply('Hello again.'));
     const second = await chat(tokenA(), 'Hi again');
     expect(second.body.weeklyReview).toBeNull();
+  });
+});
+
+/* --------------- analysis digest + turn-cap headroom -------------------- */
+
+describe('support agent analysis digest', () => {
+  const novemberCall = (overrides: Record<string, unknown>) => ({
+    tenantId: 'tenant_a',
+    endedAt: new Date('2026-11-03T15:00:00Z'),
+    endedReason: 'assistant-ended-call',
+    callerNumber: '+14165550001',
+    channel: 'phone',
+    status: 'COMPLETED',
+    leadQuality: 'COLD',
+    appointmentBooked: false,
+    durationSeconds: 60,
+    structuredData: {},
+    ...overrides,
+  });
+
+  it('computes the digest in one pass: distribution, average, worst calls, truncation', async () => {
+    state.calls.set('call_n1', novemberCall({
+      id: 'call_n1', startedAt: new Date('2026-11-03T14:00:00Z'),
+      outcome: 'NO_ACTION', intent: 'QUESTION', urgency: 'HIGH',
+      summary: 'Worst call summary.', transcript: 'x'.repeat(5000), successScore: 2,
+    }) as never);
+    state.calls.set('call_n2', novemberCall({
+      id: 'call_n2', startedAt: new Date('2026-11-03T13:00:00Z'),
+      outcome: 'MESSAGE_TAKEN', intent: 'BOOK', urgency: 'LOW',
+      summary: 'Second worst summary.', transcript: 'short transcript', successScore: 3,
+    }) as never);
+    state.calls.set('call_n3', novemberCall({
+      id: 'call_n3', startedAt: new Date('2026-11-03T12:00:00Z'),
+      outcome: 'BOOKED', intent: 'BOOK', urgency: 'LOW', appointmentBooked: true,
+      summary: 'Great call.', transcript: 'Booked happily.', successScore: 9,
+    }) as never);
+    state.calls.set('call_n4', novemberCall({
+      id: 'call_n4', startedAt: new Date('2026-11-03T11:00:00Z'),
+      outcome: 'BOOKED', intent: null, urgency: null, appointmentBooked: true,
+      summary: null, transcript: null, successScore: null,
+    }) as never);
+    state.calls.set('call_n5', novemberCall({
+      id: 'call_n5', startedAt: new Date('2026-11-03T10:00:00Z'),
+      outcome: null, intent: 'QUESTION', urgency: 'HIGH',
+      summary: null, transcript: null, successScore: null,
+    }) as never);
+
+    state.geminiScript.push(
+      callReply('analyze_call_quality', { startDate: '2026-11-01', endDate: '2026-11-30' }),
+      textReply('Here is the analysis.'),
+    );
+    const res = await chat(tokenA(), 'Analyze all my calls and tell me what needs addressing.');
+    expect(res.status).toBe(200);
+    expect(res.body.reply).toBe('Here is the analysis.');
+
+    const [digest] = toolResultsShownToModel();
+    expect(digest?.totalCalls).toBe(5);
+    expect(digest?.scoredCalls).toBe(3);
+    expect(digest?.unscoredCalls).toBe(2);
+    expect(digest?.averageSuccessScore).toBe(4.7);
+    expect(digest?.bookedCalls).toBe(2);
+    expect(digest?.outcomeCounts).toEqual([
+      { value: 'BOOKED', count: 2 },
+      { value: 'MESSAGE_TAKEN', count: 1 },
+      { value: 'NO_ACTION', count: 1 },
+      { value: 'UNRECORDED', count: 1 },
+    ]);
+    expect(digest?.intentCounts).toEqual([
+      { value: 'BOOK', count: 2 },
+      { value: 'QUESTION', count: 2 },
+      { value: 'UNRECORDED', count: 1 },
+    ]);
+    expect(digest?.urgencyCounts).toEqual([
+      { value: 'HIGH', count: 2 },
+      { value: 'LOW', count: 2 },
+      { value: 'UNRECORDED', count: 1 },
+    ]);
+    expect(digest?.worstCalls.map((c: Record<string, any>) => c.id)).toEqual([
+      'call_n1', 'call_n2', 'call_n3',
+    ]);
+    expect(digest?.worstCalls[0]).toMatchObject({
+      successScore: 2,
+      summary: 'Worst call summary.',
+      transcriptAvailable: true,
+      transcriptTruncated: true,
+    });
+    expect(digest?.worstCalls[0].transcript).toHaveLength(4000);
+    expect(digest?.worstCallTranscriptsCappedAtChars).toBe(4000);
+    expect(digest?.analysisCapped).toBe(false);
+  });
+
+  it('only ever digests the caller workspace calls', async () => {
+    state.geminiScript.push(
+      callReply('analyze_call_quality', { startDate: '2026-10-01', endDate: '2026-10-31' }),
+      textReply('Your digest.'),
+    );
+    const res = await chat(tokenB(), 'Analyze my calls.');
+    expect(res.status).toBe(200);
+    const [digest] = toolResultsShownToModel();
+    expect(digest?.totalCalls).toBe(1);
+    expect(digest?.scoredCalls).toBe(1);
+    expect(digest?.averageSuccessScore).toBe(2);
+    expect(digest?.worstCalls.map((c: Record<string, any>) => c.id)).toEqual(['call_b1']);
+    expect(JSON.stringify(state.geminiRequests)).not.toContain('call_a1');
+    expect(JSON.stringify(state.geminiRequests)).not.toContain('Booked a cleaning for next week.');
+  });
+
+  it('answers a whole-log analysis in two model rounds through the digest tool', async () => {
+    state.geminiScript.push(callReply('analyze_call_quality', {}), textReply('Analysis complete.'));
+    const res = await chat(
+      tokenA(),
+      'Analyze all my call logs and tell me issues that need to be addressed.',
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.reply).toBe('Analysis complete.');
+    // One tool round plus the summarizing round: the whole-log question
+    // that used to die at the turn cap now finishes in two model calls.
+    expect(fetchStub).toHaveBeenCalledTimes(2);
+  });
+
+  it('allows longer tool conversations under the raised turn cap', async () => {
+    for (let i = 0; i < 7; i += 1) state.geminiScript.push(callReply('get_booking_window', {}));
+    state.geminiScript.push(textReply('Done after several checks.'));
+    const res = await chat(tokenA(), 'Check my hours, then check them again a few times.');
+    expect(res.status).toBe(200);
+    expect(res.body.reply).toBe('Done after several checks.');
+  });
+});
+
+/* --------------------------- streamed chat ------------------------------ */
+
+async function chatStream(token: string, text: string) {
+  const res = await realFetch(`${base}/api/support/chat/stream`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` },
+    body: JSON.stringify({ messages: [{ role: 'user', text }] }),
+  });
+  const raw = await res.text();
+  return { status: res.status, contentType: res.headers.get('content-type') ?? '', raw };
+}
+
+function sseEvents(raw: string): Array<{ event: string; data: Record<string, any> }> {
+  return raw
+    .split('\n\n')
+    .filter((block) => block.trim().length > 0)
+    .map((block) => {
+      const lines = block.split('\n');
+      const event = lines.find((l) => l.startsWith('event:'))?.slice('event:'.length).trim() ?? '';
+      const dataText = lines
+        .filter((l) => l.startsWith('data:'))
+        .map((l) => l.slice('data:'.length).trim())
+        .join('\n');
+      return { event, data: (dataText ? JSON.parse(dataText) : {}) as Record<string, any> };
+    });
+}
+
+describe('support agent streaming', () => {
+  it('streams the reply as deltas that reassemble into the final payload', async () => {
+    state.geminiScript.push(streamReply([[{ text: 'Your calls ' }], [{ text: 'look strong.' }]]));
+    const res = await chatStream(tokenA(), 'How are my calls doing?');
+    expect(res.status).toBe(200);
+    expect(res.contentType).toContain('text/event-stream');
+    const events = sseEvents(res.raw);
+    expect(events.map((e) => e.event)).toEqual(['delta', 'delta', 'final', 'done']);
+    expect(events[0].data).toEqual({ text: 'Your calls ' });
+    expect(events[1].data).toEqual({ text: 'look strong.' });
+    expect(events[2].data).toMatchObject({
+      reply: 'Your calls look strong.',
+      pendingProposal: null,
+      simulationResult: null,
+      weeklyReview: null,
+    });
+  });
+
+  it('emits friendly status events while tools run, before the deltas', async () => {
+    state.geminiScript.push(
+      streamReply([
+        [{ functionCall: { name: 'analyze_call_quality', args: { startDate: '2026-11-01', endDate: '2026-11-30' } } }],
+      ]),
+      streamReply([[{ text: 'Digest read. ' }], [{ text: 'Two issues stand out.' }]]),
+    );
+    const res = await chatStream(tokenA(), 'Analyze my calls.');
+    expect(res.status).toBe(200);
+    const events = sseEvents(res.raw);
+    expect(events.map((e) => e.event)).toEqual(['status', 'delta', 'delta', 'final', 'done']);
+    expect(events[0].data).toEqual({ label: 'Analyzing your calls' });
+    const final = events.find((e) => e.event === 'final');
+    expect(final?.data.reply).toBe('Digest read. Two issues stand out.');
+    // The digest itself reached the model as a tool result on its next turn.
+    expect(toolResultsShownToModel().some((r) => typeof r?.totalCalls === 'number')).toBe(true);
+  });
+
+  it('surfaces a mid-stream failure as an error event with the honest message', async () => {
+    state.geminiScript.push(streamErrorReply([[{ text: 'Partial ans' }]]));
+    const res = await chatStream(tokenA(), 'How are my calls doing?');
+    expect(res.status).toBe(200);
+    const events = sseEvents(res.raw);
+    expect(events.map((e) => e.event)).toEqual(['delta', 'error']);
+    expect(events[0].data).toEqual({ text: 'Partial ans' });
+    expect(events[1].data.message).toContain('had trouble answering');
+    expect(events[1].data.code).toBe('MODEL_ERROR');
+  });
+
+  it('falls back to the plain call when the provider refuses streaming', async () => {
+    state.geminiScript.push(
+      statusReply(400),
+      callReply('get_booking_window', {}),
+      statusReply(400),
+      textReply('Answered without streaming.'),
+    );
+    const res = await chatStream(tokenA(), 'When can patients book?');
+    expect(res.status).toBe(200);
+    const events = sseEvents(res.raw);
+    expect(events.some((e) => e.event === 'delta')).toBe(false);
+    const final = events.find((e) => e.event === 'final');
+    expect(final?.data.reply).toBe('Answered without streaming.');
+    // Each of the two turns tried the stream first, then the plain call.
+    expect(fetchStub).toHaveBeenCalledTimes(4);
+  });
+
+  it('retries a 503 before the stream opens, then streams', async () => {
+    state.geminiScript.push(statusReply(503), streamReply([[{ text: 'Recovered.' }]]));
+    const res = await chatStream(tokenA(), 'Are you there?');
+    expect(res.status).toBe(200);
+    const events = sseEvents(res.raw);
+    expect(events.find((e) => e.event === 'final')?.data.reply).toBe('Recovered.');
+    expect(fetchStub).toHaveBeenCalledTimes(2);
+  });
+
+  it('answers a failure before streaming starts with the normal JSON error', async () => {
+    state.geminiScript.push(statusReply(500), statusReply(500));
+    const res = await chatStream(tokenA(), 'Hello?');
+    expect(res.status).toBe(502);
+    expect(res.contentType).toContain('application/json');
+    expect(res.raw).not.toContain('event:');
+    const body = JSON.parse(res.raw) as Record<string, any>;
+    expect(body.error?.code).toBe('MODEL_ERROR');
+    expect(body.error?.message).toContain('had trouble answering');
+  });
+
+  it('rejects unauthenticated stream requests', async () => {
+    const res = await realFetch(`${base}/api/support/chat/stream`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ messages: [{ role: 'user', text: 'hi' }] }),
+    });
+    expect(res.status).toBe(401);
   });
 });

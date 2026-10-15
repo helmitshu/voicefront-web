@@ -11,6 +11,7 @@ import {
   filePendingTicket,
   runPendingSimulation,
   runSupportChat,
+  runSupportChatStream,
 } from '../services/support-agent.service';
 import { DRILL_SCENARIOS } from '../services/adam-simulation.service';
 import { dismissWeeklyReview } from '../services/adam-knowledge.service';
@@ -68,6 +69,73 @@ supportRouter.post(
       pagePath: page,
     });
     res.json(result);
+  }),
+);
+
+/**
+ * The streamed twin of /chat (same auth, same rate limiter, same chat
+ * pipeline). Events, in order: `status` while tools run, `delta` as the
+ * reply is generated, one `final` carrying the exact payload /chat
+ * returns, then `done`. A failure before the first event is answered with
+ * the normal JSON error; a failure mid-stream arrives as an `error` event
+ * carrying the same honest message the JSON path would have given.
+ */
+supportRouter.post(
+  '/chat/stream',
+  asyncHandler(async (req, res) => {
+    const auth = getAuth(req);
+    const { messages, page } = ChatBodySchema.parse(req.body);
+    const user = await prisma.user.findUnique({
+      where: { id: auth.userId },
+      select: { email: true },
+    });
+    if (!user) throw new HttpError(401, 'Please sign in to continue.', 'UNAUTHENTICATED');
+
+    let started = false;
+    const send = (event: string, data: unknown) => {
+      if (!started) {
+        started = true;
+        res.status(200);
+        res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.flushHeaders();
+      }
+      try {
+        res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      } catch {
+        /* The client went away mid-stream; the turn simply ends. */
+      }
+    };
+
+    try {
+      const result = await runSupportChatStream(
+        {
+          tenantId: auth.tenantId,
+          userId: auth.userId,
+          userEmail: user.email,
+          userRole: auth.role,
+          messages,
+          pagePath: page,
+        },
+        {
+          status: (label) => send('status', { label }),
+          delta: (text) => send('delta', { text }),
+        },
+      );
+      send('final', result);
+      send('done', {});
+      res.end();
+    } catch (err) {
+      if (!started) throw err;
+      const message =
+        err instanceof HttpError
+          ? err.message
+          : 'The support assistant had trouble answering just now. Please try again.';
+      const code = err instanceof HttpError ? err.code : undefined;
+      send('error', { message, ...(code ? { code } : {}) });
+      res.end();
+    }
   }),
 );
 
