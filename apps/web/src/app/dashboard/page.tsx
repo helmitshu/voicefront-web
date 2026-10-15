@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { useAuth } from '@/lib/auth-context';
 import {
@@ -44,6 +44,50 @@ const TIME_FMT = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-
 /** Decorative waveform heights for the receptionist panel (px). */
 const WAVE_BARS = [26, 40, 30, 48, 36, 22, 44, 28, 38, 18, 42, 30, 46, 24, 34, 20, 40, 27];
 
+/** How often the home quietly re-checks stats and recent calls (ms). */
+const POLL_INTERVAL_MS = 30_000;
+
+/**
+ * Eases a displayed number toward its latest value, so a stat that changes
+ * on a background refresh counts across instead of snapping. The first real
+ * value (the initial load) lands instantly, and reduced-motion users always
+ * get the value instantly. Purely visual: the number rendered is a rounded
+ * step on the way to the real value, which it reaches within the tween.
+ */
+function useTweenedNumber(value: number): number {
+  const [display, setDisplay] = useState(value);
+  const displayRef = useRef(value);
+  const primedRef = useRef(false);
+  const frameRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    const from = displayRef.current;
+    if (from === value) return;
+    if (!primedRef.current || window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      primedRef.current = true;
+      displayRef.current = value;
+      setDisplay(value);
+      return;
+    }
+    const startedAt = performance.now();
+    const tick = (now: number) => {
+      const t = Math.min(1, (now - startedAt) / 600);
+      const eased = 1 - Math.pow(1 - t, 3);
+      const current = from + (value - from) * eased;
+      displayRef.current = current;
+      setDisplay(current);
+      frameRef.current = t < 1 ? requestAnimationFrame(tick) : null;
+    };
+    frameRef.current = requestAnimationFrame(tick);
+    return () => {
+      if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+    };
+  }, [value]);
+
+  return display;
+}
+
 export default function OverviewPage() {
   const { me } = useAuth();
   const [stats, setStats] = useState<CallStats | null>(null);
@@ -58,48 +102,117 @@ export default function OverviewPage() {
   const [settingsError, setSettingsError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
-  useEffect(() => {
-    let cancelled = false;
-    const describe = (err: unknown, fallback: string) =>
-      err instanceof ApiError ? err.message : fallback;
+  const describeError = useCallback(
+    (err: unknown, fallback: string) => (err instanceof ApiError ? err.message : fallback),
+    [],
+  );
 
-    CallsApi.stats()
-      .then((res) => {
-        if (cancelled) return;
-        setStatsError(null);
-        setStats(res.stats);
-        setUsage(res.usage);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setStatsError(describe(err, 'Could not load your call stats.'));
+  // Loaders shared by the first load and the background poll. A silent load
+  // (a poll) keeps the last good data on failure and never raises the
+  // per-section error states; a loud load (first load, manual retry) does.
+  const loadStats = useCallback(
+    (silent: boolean) =>
+      CallsApi.stats()
+        .then((res) => {
+          setStatsError(null);
+          setStats(res.stats);
+          setUsage(res.usage);
+        })
+        .catch((err: unknown) => {
+          if (!silent) setStatsError(describeError(err, 'Could not load your call stats.'));
+        }),
+    [describeError],
+  );
+
+  const loadRecent = useCallback(
+    (silent: boolean) =>
+      CallsApi.list({ page: 1, perPage: 5 })
+        .then((res) => {
+          setRecentError(null);
+          setRecent(res.calls);
+        })
+        .catch((err: unknown) => {
+          if (!silent) setRecentError(describeError(err, 'Could not load your recent calls.'));
+        }),
+    [describeError],
+  );
+
+  const loadSettings = useCallback(
+    () =>
+      AgentApi.get()
+        .then((res) => {
+          setSettingsError(null);
+          setInboundNumber(res.settings.inboundPhoneNumber);
+        })
+        .catch((err: unknown) => {
+          setSettingsError(describeError(err, 'Could not load your receptionist settings.'));
+        }),
+    [describeError],
+  );
+
+  // First load and manual retry: failures surface as per-section errors.
+  useEffect(() => {
+    void loadStats(false);
+    void loadRecent(false);
+    void loadSettings();
+  }, [reloadKey, loadStats, loadRecent, loadSettings]);
+
+  // Background refresh: while the tab is visible, re-check every 30 seconds
+  // so a call that just ended (or one in progress, once the API reports it)
+  // appears without a manual reload. The interval keeps running in hidden
+  // tabs but each tick no-ops there, and coming back to the tab refreshes
+  // right away. Poll failures stay silent by design.
+  useEffect(() => {
+    let inFlight = false;
+    const poll = () => {
+      if (document.visibilityState !== 'visible' || inFlight) return;
+      inFlight = true;
+      void Promise.allSettled([loadStats(true), loadRecent(true)]).finally(() => {
+        inFlight = false;
       });
-    CallsApi.list({ page: 1, perPage: 5 })
-      .then((res) => {
-        if (cancelled) return;
-        setRecentError(null);
-        setRecent(res.calls);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setRecentError(describe(err, 'Could not load your recent calls.'));
-      });
-    AgentApi.get()
-      .then((res) => {
-        if (cancelled) return;
-        setSettingsError(null);
-        setInboundNumber(res.settings.inboundPhoneNumber);
-      })
-      .catch((err: unknown) => {
-        if (!cancelled) setSettingsError(describe(err, 'Could not load your receptionist settings.'));
-      });
-    return () => {
-      cancelled = true;
     };
-  }, [reloadKey]);
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') poll();
+    };
+    const timer = window.setInterval(poll, POLL_INTERVAL_MS);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [loadStats, loadRecent]);
 
   const retry = () => setReloadKey((k) => k + 1);
   const statsPending = stats === null && statsError === null;
   const recentPending = recent === null && recentError === null;
   const settingsPending = inboundNumber === undefined && settingsError === null;
+
+  // A call counts as live only while the API reports it with no end time.
+  // Call rows are written when a call ends today, so in practice this stays
+  // empty until the API also writes the row when a call starts, at which
+  // point the panel and the table light up on their own. Nothing here
+  // guesses or simulates a call.
+  const liveCall = recent?.find((call) => call.endedAt === null) ?? null;
+
+  // Ticking clock for the on-call timer; it only runs while a call is live.
+  const [nowMs, setNowMs] = useState(() => Date.now());
+  useEffect(() => {
+    if (!liveCall) return;
+    setNowMs(Date.now());
+    const timer = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, [liveCall]);
+
+  const liveElapsedSeconds = liveCall
+    ? Math.max(0, Math.floor((nowMs - new Date(liveCall.startedAt).getTime()) / 1000))
+    : 0;
+
+  // KPI and usage values ease to their new number when a poll changes them.
+  const tweenedCalls7 = useTweenedNumber(stats?.callsLast7Days ?? 0);
+  const tweenedCalls30 = useTweenedNumber(stats?.callsLast30Days ?? 0);
+  const tweenedMinutes = useTweenedNumber(stats?.minutesLast30Days ?? 0);
+  const tweenedSpendCents = useTweenedNumber(stats?.costCentsLast30Days ?? 0);
+  const tweenedUsedMinutes = useTweenedNumber(usage?.usedMinutes ?? 0);
 
   if (statsPending && recentPending && settingsPending) {
     return (
@@ -171,7 +284,7 @@ export default function OverviewPage() {
         <div className="grid grid-cols-2 gap-2.5 sm:gap-4 lg:grid-cols-4">
           <StatCard
             label="Calls · last 7 days"
-            value={String(stats.callsLast7Days)}
+            value={String(Math.round(tweenedCalls7))}
             hint={stats.callsLast7Days === 0 ? 'No calls yet' : undefined}
             icon={
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4">
@@ -184,7 +297,7 @@ export default function OverviewPage() {
           />
           <StatCard
             label="Calls · last 30 days"
-            value={String(stats.callsLast30Days)}
+            value={String(Math.round(tweenedCalls30))}
             hint={stats.callsLast30Days === 0 ? 'No calls yet' : undefined}
             icon={
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4">
@@ -195,7 +308,7 @@ export default function OverviewPage() {
           />
           <StatCard
             label="Minutes handled · 30 days"
-            value={String(stats.minutesLast30Days)}
+            value={String(Math.round(tweenedMinutes))}
             sublabel={`${stats.forwardedLast30Days} calls transferred to your team`}
             hint={stats.minutesLast30Days === 0 ? 'No minutes yet' : undefined}
             icon={
@@ -207,7 +320,7 @@ export default function OverviewPage() {
           />
           <StatCard
             label="Spend · last 30 days"
-            value={formatCents(stats.costCentsLast30Days)}
+            value={formatCents(Math.round(tweenedSpendCents))}
             hint={stats.costCentsLast30Days === 0 ? 'No spend yet' : undefined}
             icon={
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-4 w-4">
@@ -221,8 +334,13 @@ export default function OverviewPage() {
 
       <div className="grid gap-4 lg:grid-cols-[1.55fr_1fr]">
         {/* Receptionist status: the demo's dark live panel, carrying the real
-            number and settings states instead of a staged live call. */}
-        <div className="relative overflow-hidden rounded-[18px] border border-shell-edge/15 bg-shell-grad p-5 text-shell-ink shadow-card sm:p-[22px]">
+            number and settings states. It shows an on-a-call state only while
+            the API reports a call with no end time, never a staged one. */}
+        <div
+          className={`relative overflow-hidden rounded-[18px] border bg-shell-grad p-5 text-shell-ink shadow-card transition-colors sm:p-[22px] ${
+            liveCall ? 'border-[rgba(94,234,212,0.45)]' : 'border-shell-edge/15'
+          }`}
+        >
           <div className="flex items-center justify-between gap-3">
             <h3 className="font-display text-[17px] font-semibold">Your receptionist</h3>
             <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.14em] text-shell-faint">
@@ -250,21 +368,28 @@ export default function OverviewPage() {
                   {formatPhone(inboundNumber)}
                 </p>
                 <span className="ml-auto rounded-full border border-[rgba(94,234,212,0.35)] bg-[rgba(20,184,166,0.12)] px-3 py-1 text-xs font-bold text-[#CFFCEF]">
-                  Live
+                  {liveCall ? 'On a call now' : 'Live'}
                 </span>
               </div>
+              {liveCall && (
+                <p role="status" className="mt-3 text-[13.5px] font-semibold leading-relaxed text-shell-ink">
+                  On a call now · {formatPhone(liveCall.callerNumber)} ·{' '}
+                  <span className="tabular-nums">{formatDuration(liveElapsedSeconds)}</span>
+                </p>
+              )}
               <div aria-hidden className="mt-5 flex h-[52px] items-center gap-[3px]">
                 {WAVE_BARS.map((height, i) => (
                   <span
                     key={i}
-                    className="logo-eq-bar w-[3px] rounded-full bg-[linear-gradient(180deg,#5EEAD4,#0EA5C6)]"
+                    className={`logo-eq-bar ${liveCall ? 'logo-eq-live' : ''} w-[3px] rounded-full bg-[linear-gradient(180deg,#5EEAD4,#0EA5C6)]`}
                     style={{ height: `${height}px`, animationDelay: `${i * 0.12}s` }}
                   />
                 ))}
               </div>
               <p className="mt-3 text-[13.5px] leading-relaxed text-shell-mut">
-                Your AI receptionist answers on this number around the clock. Every call is recorded and
-                summarized in your call history.
+                {liveCall
+                  ? 'Your receptionist is talking with a caller right now. The summary and recording land in your call history as soon as the call wraps up.'
+                  : 'Your AI receptionist answers on this number around the clock. Every call is recorded and summarized in your call history.'}
               </p>
               <div className="mt-4 flex flex-wrap gap-2.5">
                 <Link
@@ -303,7 +428,7 @@ export default function OverviewPage() {
           {usage ? (
             <div className="mt-4">
               <p className="font-display text-[26px] font-semibold leading-none tracking-tight text-ink">
-                {usage.usedMinutes}
+                {Math.round(tweenedUsedMinutes)}
                 <span className="text-base font-normal text-ink-muted"> / {usage.limitMinutes} min</span>
               </p>
               <div className="mt-4 grid grid-cols-[64px_1fr_44px] items-center gap-3">
@@ -444,17 +569,25 @@ export default function OverviewPage() {
                     </span>
                   </td>
                   <td className="block max-w-[420px] truncate px-3 py-1 text-sm text-ink-soft sm:table-cell sm:py-3.5">
-                    {call.summary ?? call.outcome ?? '—'}
+                    {call.endedAt === null ? 'Call in progress' : (call.summary ?? call.outcome ?? '—')}
                   </td>
                   <td className="block px-3 py-1 sm:table-cell sm:py-3.5">
-                    {call.appointmentBooked ? (
+                    {call.endedAt === null ? (
+                      <Badge tone="success" dot>
+                        On a call
+                      </Badge>
+                    ) : call.appointmentBooked ? (
                       <Badge tone="success">Booked</Badge>
                     ) : (
                       <CallStatusBadge status={call.status} />
                     )}
                   </td>
                   <td className="block px-3 py-1 text-sm tabular-nums text-ink-soft sm:table-cell sm:py-3.5">
-                    {formatDuration(call.durationSeconds)}
+                    {call.endedAt === null
+                      ? formatDuration(
+                          Math.max(0, Math.floor((nowMs - new Date(call.startedAt).getTime()) / 1000)),
+                        )
+                      : formatDuration(call.durationSeconds)}
                   </td>
                   <td className="block px-3 py-1 text-sm text-ink-muted sm:table-cell sm:py-3.5">
                     {TIME_FMT.format(new Date(call.startedAt))}
