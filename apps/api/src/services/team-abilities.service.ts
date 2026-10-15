@@ -532,6 +532,7 @@ export async function runRedTeam(params: { plan: string }): Promise<{ id: string
   if (!priya) throw new HttpError(500, 'Priya is not on the team roster.', 'ROSTER_ERROR');
   const parts = await callTeamModel({
     model: priya.modelConfig,
+    memberSlug: priya.slug,
     systemText: `${priya.personaPrompt}\n\n${VOICEFRONT_CONTEXT_PACK}`,
     contents: [
       {

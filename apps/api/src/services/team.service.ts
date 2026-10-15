@@ -283,6 +283,7 @@ async function refreshSummaryIfNeeded(threadId: string, member: MemberRow): Prom
   try {
     const parts = await callTeamModel({
       model: member.modelConfig,
+      memberSlug: member.slug,
       systemText:
         'You summarize a work conversation in at most 120 words: decisions made, facts stated, open questions. Plain text, no preamble.',
       contents: [
@@ -322,6 +323,7 @@ async function memberReply(params: {
   const window = params.history.slice(-HISTORY_WINDOW);
   const text = await runMemberConversation({
     model: params.member.modelConfig,
+    memberSlug: params.member.slug,
     systemText: memberSystem(params.member, summary ?? params.thread.contextSummary),
     contents: toContents(window, params.member.slug, names),
     functionDeclarations: geminiDeclarationsForMember(params.member.slug),
@@ -439,6 +441,7 @@ export async function startDiscussion(params: {
       contents.push({ role: 'user', parts: [{ text: extra }] });
       const text = await runMemberConversation({
         model: member.modelConfig,
+        memberSlug: member.slug,
         systemText: memberSystem(member),
         contents,
         functionDeclarations: geminiDeclarationsForMember(member.slug),
