@@ -64,6 +64,7 @@ import {
   computeLeakQuote,
   getPublicSession,
   publicChatAvailability,
+  renderPageReportLine,
   resolvePublicAgentKey,
   resolveVisitorContext,
   runPublicChat,
@@ -221,6 +222,30 @@ describe('validatePageAction', () => {
       type: 'prefill_demo',
       fields: { name: 'Jo Smith', email: 'jo@clinic.ca' },
     });
+  });
+
+  it('passes the business kind through in the form\u2019s own values', () => {
+    expect(validatePageAction('prefill_demo', { name: 'Jo Smith', businessKind: 'clinic' })).toEqual({
+      type: 'prefill_demo',
+      fields: { name: 'Jo Smith', businessKind: 'clinic' },
+    });
+    expect(validatePageAction('prefill_demo', { businessKind: 'contractor' })).toEqual({
+      type: 'prefill_demo',
+      fields: { businessKind: 'contractor' },
+    });
+    expect(validatePageAction('prefill_demo', { businessKind: 'other' })).toEqual({
+      type: 'prefill_demo',
+      fields: { businessKind: 'other' },
+    });
+  });
+
+  it('drops an invalid business kind, the field, not the whole action', () => {
+    expect(validatePageAction('prefill_demo', { name: 'Jo Smith', businessKind: 'dental' })).toEqual({
+      type: 'prefill_demo',
+      fields: { name: 'Jo Smith' },
+    });
+    expect(validatePageAction('prefill_demo', { businessKind: 'dental' })).toBeNull();
+    expect(validatePageAction('prefill_demo', { businessKind: 42 })).toBeNull();
   });
 
   it('drops unknown actions and malformed payloads', () => {
@@ -514,5 +539,126 @@ describe('proactive lines', () => {
     await expect(
       runPublicProactive({ session, trigger: 'form_stall', ctx: { ip: null } }),
     ).resolves.toEqual({ line: PROACTIVE_FALLBACK_LINES.form_stall });
+  });
+});
+
+describe('honest demo handoff', () => {
+  it('renders a page report as one labeled line, or nothing at all', () => {
+    expect(
+      renderPageReportLine({ action: 'start_demo', outcome: 'blocked', detail: 'The demo form is missing: phone.' }),
+    ).toBe(
+      'Page report (what the page itself says happened): the "start_demo" action ended "blocked". The page says: The demo form is missing: phone.',
+    );
+    expect(renderPageReportLine({ outcome: 'submitted' })).toBe(
+      'Page report (what the page itself says happened): ended "submitted".',
+    );
+    expect(renderPageReportLine({})).toBeNull();
+  });
+
+  it('pins the page-action truth rule in the system prompt', async () => {
+    const session = makeSession();
+    beginSessionTurn(session);
+    state.geminiScript.push(textReply('Happy to help.'));
+    await runPublicChat({
+      session,
+      messages: [{ role: 'user', text: 'Hi there.' }],
+      ctx: { ip: null },
+    });
+    const sentBody = state.geminiRequests[0]?.body ?? '';
+    expect(sentBody).toContain('PAGE ACTIONS: ONLY SAY WHAT THE PAGE TELLS YOU');
+    expect(sentBody).toContain(
+      'you must never say an action succeeded, failed, is running, or reached any state unless a page report in your context says so',
+    );
+    expect(sentBody).toContain('or anything like them about a page action whose outcome you have not been told');
+    expect(sentBody).toContain('ask the visitor in chat for the exact missing piece the report names');
+    expect(sentBody).toContain('Never fire start_demo again until you hold that piece');
+  });
+
+  it('pins the demo flow: five details first, then all three actions, then the truth', async () => {
+    const session = makeSession();
+    beginSessionTurn(session);
+    state.geminiScript.push(textReply('Let us set it up.'));
+    await runPublicChat({
+      session,
+      messages: [{ role: 'user', text: 'I want the demo.' }],
+      ctx: { ip: null },
+    });
+    const sentBody = state.geminiRequests[0]?.body ?? '';
+    expect(sentBody).toContain('THE DEMO FLOW (follow it exactly)');
+    expect(sentBody).toContain('collect five things in chat');
+    expect(sentBody).toContain('their name, email, phone, clinic website, and the kind of business');
+    expect(sentBody).toContain('fire all three in a single turn: prefill_demo with every field including businessKind, guide_to_section to the demo, and start_demo');
+    expect(sentBody).toContain("the visitor's own tap on Continue starts it");
+    // The old bare instruction is gone: readiness alone never fires start_demo.
+    expect(sentBody).not.toContain('When they say they are ready, use start_demo.');
+  });
+
+  it('ends the demo flow with the Canada line for a web-demo visitor', async () => {
+    const session = makeSession();
+    beginSessionTurn(session);
+    state.geminiScript.push(textReply('Let us set it up.'));
+    await runPublicChat({
+      session,
+      messages: [{ role: 'user', text: 'I want the demo.' }],
+      ctx: { ip: null },
+    });
+    const sentBody = state.geminiRequests[0]?.body ?? '';
+    expect(sentBody).toContain(
+      'Your clinic facts will be on screen for a quick check. Tap Continue there and Maya answers right in your browser.',
+    );
+    expect(sentBody).not.toContain('your phone rings for the demo');
+  });
+
+  it('ends the demo flow with the phone line for a US visitor', async () => {
+    const session = startPublicSession('203.0.113.30', { country: 'US', currency: 'USD', demoPath: 'phone' });
+    beginSessionTurn(session);
+    state.geminiScript.push(textReply('Let us set it up.'));
+    await runPublicChat({
+      session,
+      messages: [{ role: 'user', text: 'I want the demo.' }],
+      ctx: { ip: null },
+    });
+    const sentBody = state.geminiRequests[0]?.body ?? '';
+    expect(sentBody).toContain(
+      'Your clinic facts will be on screen for a quick check. Tap Continue there and your phone rings for the demo.',
+    );
+    expect(sentBody).not.toContain('Maya answers right in your browser');
+  });
+
+  it('renders a blocked page report into the model request', async () => {
+    const session = makeSession();
+    beginSessionTurn(session);
+    state.geminiScript.push(textReply('The form still needs your phone number.'));
+    await runPublicChat({
+      session,
+      messages: [{ role: 'user', text: 'It did not start.' }],
+      ctx: {
+        ip: null,
+        pageReport: { action: 'start_demo', outcome: 'blocked', detail: 'The demo form is missing: phone.' },
+      },
+    });
+    const sentBody = state.geminiRequests[0]?.body ?? '';
+    // The quotes arrive JSON-escaped on the wire; the rendered line itself
+    // is pinned unescaped by the renderPageReportLine test above.
+    expect(sentBody).toContain(
+      'Page report (what the page itself says happened): the \\"start_demo\\" action ended \\"blocked\\". The page says: The demo form is missing: phone.',
+    );
+  });
+
+  it('tells the model a page action is only requested, never done', async () => {
+    const session = makeSession();
+    beginSessionTurn(session);
+    state.geminiScript.push(
+      callReply('guide_to_section', { section: 'demo' }),
+      textReply('That is the demo form just below.'),
+    );
+    await runPublicChat({
+      session,
+      messages: [{ role: 'user', text: 'Show me the demo.' }],
+      ctx: { ip: null },
+    });
+    const secondRequest = state.geminiRequests[1]?.body ?? '';
+    expect(secondRequest).toContain('Sent to the page. You do not know the outcome');
+    expect(secondRequest).not.toContain('Done on the page for the visitor.');
   });
 });

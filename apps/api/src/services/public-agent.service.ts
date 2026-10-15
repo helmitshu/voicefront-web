@@ -76,6 +76,40 @@ const TRUTH_BLOCK = [
   '- Quote prices in the visitor currency from your visitor context. If you quote a number, it must come from your notes or from a tool result, word for word.',
 ].join('\n');
 
+/**
+ * The honest-handoff rule for page actions. Lyla's actions execute on the
+ * visitor's screen after her reply is written, and she once told a visitor
+ * she had "triggered" and "launched" a demo the page never ran (the form
+ * had bounced on validation, out of her sight). She may announce intent;
+ * only a page report in her context may be spoken of as fact.
+ */
+const PAGE_ACTION_TRUTH_BLOCK = [
+  'PAGE ACTIONS: ONLY SAY WHAT THE PAGE TELLS YOU',
+  '- Your page actions (guide_to_section, highlight_plan, prefill_demo, start_demo, open_signup) run on the visitor\'s screen after your reply is written. You may say what you are doing in the same breath ("Let me put your details in", "I am taking you to the demo form now"), but you must never say an action succeeded, failed, is running, or reached any state unless a page report in your context says so.',
+  '- Never write "I\'ve triggered", "I\'ve launched", "I\'ve started it for you", "you should see it connecting", or anything like them about a page action whose outcome you have not been told. The page report, when one is in your context, is the only truth about what the page did.',
+  '- When a page report says the demo submit was blocked, ask the visitor in chat for the exact missing piece the report names. Never fire start_demo again until you hold that piece; a blind retry changes nothing on the page.',
+].join('\n');
+
+/**
+ * The demo flow, with the closing truth matched to the visitor's demo
+ * path. A clean form submit lands on a facts-confirm step; the visitor's
+ * own tap on Continue is what starts the call, so that is the last thing
+ * she may promise.
+ */
+function demoFlowBlock(demoPath: 'web' | 'phone'): string {
+  const closingLine =
+    demoPath === 'web'
+      ? 'Your clinic facts will be on screen for a quick check. Tap Continue there and Maya answers right in your browser.'
+      : 'Your clinic facts will be on screen for a quick check. Tap Continue there and your phone rings for the demo.';
+  return [
+    'THE DEMO FLOW (follow it exactly)',
+    '- When a visitor wants the personalized demo, collect five things in chat, in as few questions as you can and skipping anything they already told you: their name, email, phone, clinic website, and the kind of business (a clinic, or a trades or home-services business).',
+    '- Only when you hold all five, fire all three in a single turn: prefill_demo with every field including businessKind, guide_to_section to the demo, and start_demo.',
+    `- End that turn with this truth, word for word: "${closingLine}" Never say the demo call has started, is connecting, or is ringing: the visitor's own tap on Continue starts it.`,
+    '- If you hold only some of the five, prefill_demo with what you have, guide_to_section to the demo so they can watch it land, and ask in chat for the rest. Do not fire start_demo early.',
+  ].join('\n');
+}
+
 const IDENTITY_BLOCK = [
   'WHO YOU ARE',
   `- You are ${PUBLIC_AGENT.name}, an AI host from VoiceFront. If anyone asks whether you are real, human, or an AI, say plainly that you are an AI host from VoiceFront. Never claim to be human, and never claim a body, a desk, or a shift.`,
@@ -89,7 +123,7 @@ const JOB_BLOCK = [
   '- One job: help the visitor understand VoiceFront and get them into the personalized demo. Warm, short answers, no pressure, no hype.',
   '- Keep replies short: two or three sentences unless the visitor asks for detail. One idea at a time. Plain words, the way a person at a front desk talks.',
   '- When the visitor wants to see part of the page, use guide_to_section and keep talking while the page moves. When they pick a plan or ask which fits, use highlight_plan.',
-  '- When the visitor gives you their name, email, phone, or clinic website for the demo, use prefill_demo to type it into the demo form for them, then guide_to_section to the demo so they can see it. When they say they are ready, use start_demo.',
+  '- When the visitor wants the demo, follow THE DEMO FLOW below exactly. Never fire start_demo from a bare "I am ready"; the five details come first.',
   '- When the visitor is ready to start a trial on a plan, use open_signup with that plan.',
   '- If the visitor wonders what missed calls cost them, ask three quick things: patients seen per day, roughly what one visit is worth, and what share of calls go unanswered. Then call compute_leak and quote only its numbers.',
   '- If the visitor gives you a clinic website and wants to know what the demo would sound like, call read_clinic_site and speak from what it returns. If the site cannot be read, say so and carry on.',
@@ -132,6 +166,20 @@ export interface VisitorStateView {
   formState?: string;
 }
 
+/**
+ * What the page itself reports back about a page action Lyla fired (today
+ * only start_demo has an outcome worth reporting: the demo form answers
+ * with the same submit outcome the visitor sees). All fields are short
+ * strings by the route's validation; the service renders them into her
+ * context as a plainly labeled block, and she may speak of the outcome as
+ * fact only when this report is present.
+ */
+export interface PageReportView {
+  action?: string;
+  outcome?: string;
+  detail?: string;
+}
+
 export interface PublicChatTurnContext {
   /** The request IP, already resolved by the route (x-visitor-ip aware). */
   ip: string | null;
@@ -139,6 +187,19 @@ export interface PublicChatTurnContext {
   /** The visitor's local time string, as their browser reports it. */
   localTime?: string;
   visitorState?: VisitorStateView;
+  pageReport?: PageReportView;
+}
+
+/** Renders a page report as the one labeled line Lyla sees, or null when
+ *  the report carries nothing. Test-pinned wording. */
+export function renderPageReportLine(report: PageReportView): string | null {
+  const fields: string[] = [];
+  if (report.action) fields.push(`the "${report.action}" action`);
+  if (report.outcome) fields.push(`ended "${report.outcome}"`);
+  if (fields.length === 0 && !report.detail) return null;
+  const head = fields.length > 0 ? fields.join(' ') : 'an action';
+  const tail = report.detail ? ` The page says: ${report.detail}` : '';
+  return `Page report (what the page itself says happened): ${head}.${tail}`;
 }
 
 /* --------------------------- session armor ----------------------------- */
@@ -329,15 +390,23 @@ export function computeLeakQuote(input: {
  * validated here, server-side, and anything unknown or malformed is
  * dropped, never forwarded.
  */
+/** The demo form's own industry values (DemoIndustry in the web app):
+ *  prefill may only ever set one of these, matched exactly. */
+export type PublicBusinessKind = 'clinic' | 'contractor' | 'other';
+
 export type PublicPageAction =
   | { type: 'guide_to_section'; section: 'demo' | 'how' | 'pricing' | 'faq' | 'book' }
   | { type: 'highlight_plan'; plan: 'starter' | 'core' }
-  | { type: 'prefill_demo'; fields: { name?: string; email?: string; phone?: string; website?: string } }
+  | {
+      type: 'prefill_demo';
+      fields: { name?: string; email?: string; phone?: string; website?: string; businessKind?: PublicBusinessKind };
+    }
   | { type: 'start_demo' }
   | { type: 'open_signup'; plan: 'starter' | 'core' };
 
 const GUIDE_SECTIONS = new Set(['demo', 'how', 'pricing', 'faq', 'book']);
 const PLAN_KEYS = new Set(['starter', 'core']);
+const BUSINESS_KINDS = new Set(['clinic', 'contractor', 'other']);
 const CLIENT_ACTION_NAMES = new Set(['guide_to_section', 'highlight_plan', 'prefill_demo', 'start_demo', 'open_signup']);
 
 function cleanField(value: unknown, max: number): string | undefined {
@@ -365,7 +434,13 @@ export function validatePageAction(name: string, args: Record<string, unknown>):
       return PLAN_KEYS.has(plan) ? { type: 'open_signup', plan: plan as 'starter' | 'core' } : null;
     }
     case 'prefill_demo': {
-      const fields: { name?: string; email?: string; phone?: string; website?: string } = {};
+      const fields: {
+        name?: string;
+        email?: string;
+        phone?: string;
+        website?: string;
+        businessKind?: PublicBusinessKind;
+      } = {};
       const name = cleanField(args.name, 120);
       const email = cleanField(args.email, 254);
       const phone = cleanField(args.phone, 40);
@@ -374,6 +449,11 @@ export function validatePageAction(name: string, args: Record<string, unknown>):
       if (email) fields.email = email;
       if (phone) fields.phone = phone;
       if (website) fields.website = website;
+      // The business kind is an enum, not free text: only the form's own
+      // values pass; anything else is dropped, the field, not the action.
+      if (typeof args.businessKind === 'string' && BUSINESS_KINDS.has(args.businessKind)) {
+        fields.businessKind = args.businessKind as PublicBusinessKind;
+      }
       return Object.keys(fields).length > 0 ? { type: 'prefill_demo', fields } : null;
     }
     case 'start_demo':
@@ -522,12 +602,19 @@ const TOOL_DECLARATIONS = [
         email: { type: 'STRING' },
         phone: { type: 'STRING' },
         website: { type: 'STRING' },
+        businessKind: {
+          type: 'STRING',
+          enum: ['clinic', 'contractor', 'other'],
+          description:
+            "The kind of business, in the demo form's own values: clinic for a clinic or practice, contractor for trades or home services, other for anything else.",
+        },
       },
     },
   },
   {
     name: 'start_demo',
-    description: 'Start the demo, exactly as if the visitor pressed the demo form button themselves.',
+    description:
+      'Submit the demo form, exactly as if the visitor pressed its button themselves. Only call this when you hold all five demo details (see THE DEMO FLOW). The submit lands on a facts-check step; it never starts the call by itself, and you will not know the outcome unless a page report in your context says so.',
     parameters: { type: 'OBJECT', properties: {} },
   },
   {
@@ -814,6 +901,10 @@ function buildPublicSystemText(params: {
     '',
     TRUTH_BLOCK,
     '',
+    PAGE_ACTION_TRUTH_BLOCK,
+    '',
+    demoFlowBlock(visitor.demoPath),
+    '',
     'YOUR NOTES (the only product facts you may state)',
     PUBLIC_KNOWLEDGE_BLOCK,
     '',
@@ -835,6 +926,10 @@ function buildPublicSystemText(params: {
     }
     if (state.formState) observed.push(`demo form state: ${state.formState}`);
     if (observed.length > 0) lines.push(`- Page observation: ${observed.join('; ')}.`);
+  }
+  if (params.ctx.pageReport) {
+    const reportLine = renderPageReportLine(params.ctx.pageReport);
+    if (reportLine) lines.push(`- ${reportLine}`);
   }
   return lines.join('\n');
 }
@@ -911,7 +1006,16 @@ async function runTool(
   if (CLIENT_ACTION_NAMES.has(name)) {
     const action = validatePageAction(name, args);
     if (!action) throw new ToolError('That page action is not available.');
-    return { result: { status: 'ok', note: 'Done on the page for the visitor.' }, action };
+    // Honest wording on purpose: the action is only SENT to the page here.
+    // Its outcome is unknown until a page report arrives in a later turn,
+    // so the model is never told "done" for something it cannot see.
+    return {
+      result: {
+        status: 'requested',
+        note: 'Sent to the page. You do not know the outcome; only a page report in your context says what the page did.',
+      },
+      action,
+    };
   }
   switch (name) {
     case 'get_visitor_context':
@@ -1076,6 +1180,7 @@ export async function runPublicProactive(params: {
       params.ctx.visitorState?.section
         ? `They are on the "${params.ctx.visitorState.section}" section of the page.`
         : '',
+      params.ctx.pageReport ? (renderPageReportLine(params.ctx.pageReport) ?? '') : '',
     ]
       .filter(Boolean)
       .join('\n');
