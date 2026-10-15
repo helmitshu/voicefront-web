@@ -250,11 +250,16 @@ vi.mock('../services/vapi.service', () => ({
 }));
 
 const detectIpCountry = vi.fn();
-vi.mock('../services/geo.service', () => ({
-  evaluateGate: vi.fn().mockResolvedValue({ callAllowed: true, ipCountry: 'CA', phone: { country: 'CA', isNanp: true } }),
-  clientIp: () => '203.0.113.9',
-  detectIpCountry: (...args: unknown[]) => detectIpCountry(...args),
-}));
+vi.mock('../services/geo.service', async () => {
+  const actual = await vi.importActual<typeof import('../services/geo.service')>('../services/geo.service');
+  return {
+    evaluateGate: vi.fn().mockResolvedValue({ callAllowed: true, ipCountry: 'CA', phone: { country: 'CA', isNanp: true } }),
+    clientIp: () => '203.0.113.9',
+    detectIpCountry: (...args: unknown[]) => detectIpCountry(...args),
+    // The real validator, so the geo route's x-visitor-ip contract stays honest.
+    parsePublicIp: actual.parsePublicIp,
+  };
+});
 
 vi.mock('../services/features.service', () => ({
   getTenantFeatures: vi.fn().mockResolvedValue([]),
