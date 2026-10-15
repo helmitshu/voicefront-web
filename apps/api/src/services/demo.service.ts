@@ -598,7 +598,28 @@ export async function getDemoAppointments(sessionId: string): Promise<DemoAppoin
     orderBy: { startsAt: 'asc' },
     select: { id: true, startsAt: true, timezone: true, customerName: true, reason: true, source: true },
   });
-  return rows.map(mapAppointment);
+  const views = rows.map(mapAppointment);
+  // The personalized demo books through the function-gated hold, which is
+  // server state of its own (a DemoHold row, never an Appointment). Surface
+  // the session's live hold as a voice booking so the on-screen calendar
+  // shows what Maya actually held, the same way the sales demo's bookings
+  // appear. A cancelled hold vanishes, like a cancelled booking would.
+  const hold = await prisma.demoHold.findFirst({
+    where: { demoSessionId: sessionId, status: { in: ['ACTIVE', 'CHANGED'] } },
+    orderBy: { updatedAt: 'desc' },
+    select: { id: true, time: true, service: true, patientName: true },
+  });
+  if (hold?.time) {
+    const service = hold.service?.trim() || 'appointment';
+    views.push({
+      id: `hold_${hold.id}`,
+      time: hold.time,
+      label: hold.patientName ? `${hold.patientName} — ${service}` : service,
+      kind: 'voice',
+    });
+    views.sort((a, b) => a.time.localeCompare(b.time));
+  }
+  return views;
 }
 
 /** Visitor blocks a slot from the UI so they can watch the agent refuse it. */
