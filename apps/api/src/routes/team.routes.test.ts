@@ -23,7 +23,18 @@ vi.hoisted(() => {
  *  - discuss runs two rounds (round 2 carries the agree/challenge
  *    instruction), closes with a SYSTEM auto summary, and leaves the
  *    Decision slot empty until setDecision records a CEO message;
- *  - work items list, create, and change status.
+ *  - work items list, create, and change status;
+ *  - human pacing: member replies are stored with a future visibleAt
+ *    and stay out of the thread view until it passes (the view names
+ *    who is pending instead); discuss replies stagger at least 4s
+ *    apart in order; owner, CEO and SYSTEM messages are immediate; a
+ *    failed model call leaves no message and no pending state;
+ *  - model hardening: transient 503s retry (bounded at 3 attempts,
+ *    with backoff) and can still land a reply, a persistent 503 ends
+ *    in the honest 502, non-transient failures never retry, and a
+ *    discuss isolates a member whose turns all fail, continuing with
+ *    the rest and telling the summary who could not answer; only a
+ *    round 1 where every member fails is a 502.
  */
 
 type Row = Record<string, any>;
@@ -236,6 +247,10 @@ vi.mock('../services/platform-admin.service', () => ({
 
 let geminiMode: 'ok' | 'fail' = 'ok';
 let geminiResponder: (systemText: string, contents: any[]) => string = () => 'Short member reply.';
+/** One-shot scripted responses, consumed in order before anything else. */
+let geminiScript: Array<'fail503'> = [];
+/** Persistent 503 for any call this predicate matches (member isolation). */
+let geminiFailFor: ((system: string, contents: any[]) => boolean) | null = null;
 const geminiRequests: Array<{ system: string; contents: any[] }> = [];
 
 const fetchMock = vi.fn(async (url: unknown, init?: { body?: string }) => {
@@ -244,6 +259,18 @@ const fetchMock = vi.fn(async (url: unknown, init?: { body?: string }) => {
     const body = JSON.parse(init?.body ?? '{}');
     const system = body.systemInstruction?.parts?.map((p: any) => p.text).join('\n') ?? '';
     geminiRequests.push({ system, contents: body.contents ?? [] });
+    const scripted = geminiScript.length > 0 ? geminiScript.shift() : null;
+    if (
+      scripted === 'fail503' ||
+      (geminiFailFor !== null && geminiFailFor(system, body.contents ?? []))
+    ) {
+      return {
+        ok: false,
+        status: 503,
+        text: async () => 'This model is currently experiencing high demand',
+        json: async () => ({}),
+      };
+    }
     if (geminiMode === 'fail') {
       return { ok: false, status: 500, text: async () => 'upstream down', json: async () => ({}) };
     }
@@ -305,6 +332,8 @@ beforeEach(() => {
   for (const table of Object.keys(db)) db[table] = [];
   geminiRequests.length = 0;
   geminiMode = 'ok';
+  geminiScript = [];
+  geminiFailFor = null;
   geminiResponder = () => 'Short member reply.';
   fetchMock.mockClear();
 });
@@ -434,6 +463,211 @@ describe('AI Team routes', () => {
     const stored = db.teamMessage.filter((m) => m.threadId === thread.id);
     expect(stored.some((m) => m.authorType === 'CEO')).toBe(true);
   });
+
+  it('human pacing: a DM reply is hidden until visibleAt, pending names the member', async () => {
+    const threadRes = await call('POST', '/api/admin/team/threads', { type: 'DM', memberSlug: 'omar' });
+    const threadId = threadRes.json.thread.id;
+
+    const res = await call('POST', `/api/admin/team/threads/${threadId}/messages`, {
+      body: 'How long to ship the fix?',
+    });
+    expect(res.status).toBe(201);
+
+    // Stored right away, carrying a pacing moment inside the clamp.
+    const stored = db.teamMessage.filter((m) => m.threadId === threadId);
+    expect(stored).toHaveLength(2);
+    const replyRow = stored.find((m) => m.authorType === 'MEMBER')!;
+    expect(replyRow.visibleAt).toBeInstanceOf(Date);
+    const delay = replyRow.visibleAt.getTime() - replyRow.createdAt.getTime();
+    expect(delay).toBeGreaterThanOrEqual(2_500);
+    expect(delay).toBeLessThanOrEqual(25_000);
+    // The owner message itself is never paced.
+    expect(stored.find((m) => m.authorType === 'OWNER')!.visibleAt ?? null).toBeNull();
+
+    // Before visibleAt: the reply is absent and the pending indicator
+    // names Omar and points at the reply's own visibleAt.
+    const before = await call('GET', `/api/admin/team/threads/${threadId}/messages`);
+    expect(before.json.messages.map((m: any) => m.authorType)).toEqual(['OWNER']);
+    expect(before.json.pending.memberSlugs).toEqual(['omar']);
+    expect(new Date(before.json.pending.nextVisibleAt).getTime()).toBe(replyRow.visibleAt.getTime());
+
+    // Once the moment passes, the reply appears and nothing is pending.
+    replyRow.visibleAt = new Date(Date.now() - 1_000);
+    const after = await call('GET', `/api/admin/team/threads/${threadId}/messages`);
+    expect(after.json.messages.map((m: any) => m.authorType)).toEqual(['OWNER', 'MEMBER']);
+    expect(after.json.pending.memberSlugs).toEqual([]);
+    expect(after.json.pending.nextVisibleAt).toBeNull();
+  });
+
+  it('human pacing: a group reply pends for the named member only', async () => {
+    const threadRes = await call('POST', '/api/admin/team/threads', { type: 'GROUP' });
+    const threadId = threadRes.json.thread.id;
+
+    await call('POST', `/api/admin/team/threads/${threadId}/messages`, {
+      body: '@layla what does the research say?',
+    });
+    const view = await call('GET', `/api/admin/team/threads/${threadId}/messages`);
+    expect(view.json.messages.map((m: any) => m.authorType)).toEqual(['OWNER']);
+    expect(view.json.pending.memberSlugs).toEqual(['layla']);
+  });
+
+  it('human pacing: discuss replies are staggered in order, the summary is immediate', async () => {
+    geminiResponder = (system) =>
+      system.includes('auto summary') ? 'Positions, agreements, open questions.' : 'A short position.';
+    const res = await call('POST', '/api/admin/team/discuss', {
+      topic: 'Should the demo call clinics back automatically?',
+      memberSlugs: ['omar', 'priya'],
+    });
+    expect(res.status).toBe(201);
+    const threadId = res.json.thread.id;
+
+    const stored = db.teamMessage.filter((m) => m.threadId === threadId);
+    const memberRows = stored.filter((m) => m.authorType === 'MEMBER');
+    expect(memberRows).toHaveLength(4);
+    const times = memberRows.map((m) => (m.visibleAt as Date).getTime());
+    for (const t of times) expect(t).toBeGreaterThan(Date.now());
+    for (let i = 1; i < times.length; i += 1) {
+      expect(times[i] - times[i - 1]).toBeGreaterThanOrEqual(4_000);
+    }
+    // The SYSTEM summary is never paced.
+    const summary = stored.find((m) => m.authorType === 'SYSTEM')!;
+    expect(summary.visibleAt ?? null).toBeNull();
+
+    // In the room, only the topic and the summary show; both members
+    // are named as still typing.
+    const view = await call('GET', `/api/admin/team/threads/${threadId}/messages`);
+    expect(view.json.messages.some((m: any) => m.authorType === 'MEMBER')).toBe(false);
+    expect([...view.json.pending.memberSlugs].sort()).toEqual(['omar', 'priya']);
+  });
+
+  it('human pacing: CEO channel messages are immediate and never pending', async () => {
+    const threadRes = await call('POST', '/api/admin/team/threads', { type: 'CEO' });
+    const threadId = threadRes.json.thread.id;
+
+    await call('POST', `/api/admin/team/threads/${threadId}/messages`, {
+      body: 'Cleo, decide the pricing page headline this week.',
+    });
+    await call('POST', `/api/admin/team/threads/${threadId}/messages`, {
+      body: 'Decided: keep the current headline.',
+      authorType: 'CEO',
+    });
+
+    const stored = db.teamMessage.filter((m) => m.threadId === threadId);
+    expect(stored).toHaveLength(2);
+    for (const row of stored) expect(row.visibleAt ?? null).toBeNull();
+
+    const view = await call('GET', `/api/admin/team/threads/${threadId}/messages`);
+    expect(view.json.messages).toHaveLength(2);
+    expect(view.json.pending.memberSlugs).toEqual([]);
+    expect(view.json.pending.nextVisibleAt).toBeNull();
+    // The channel still never touches the model.
+    expect(geminiRequests).toHaveLength(0);
+  });
+
+  it('human pacing: a failed model call leaves no message and no pending state', async () => {
+    geminiMode = 'fail';
+    const threadRes = await call('POST', '/api/admin/team/threads', { type: 'DM', memberSlug: 'priya' });
+    const threadId = threadRes.json.thread.id;
+    const res = await call('POST', `/api/admin/team/threads/${threadId}/messages`, {
+      body: 'Score this idea.',
+    });
+    expect(res.status).toBe(502);
+
+    const view = await call('GET', `/api/admin/team/threads/${threadId}/messages`);
+    expect(view.json.messages.map((m: any) => m.authorType)).toEqual(['OWNER']);
+    expect(view.json.pending.memberSlugs).toEqual([]);
+    expect(view.json.pending.nextVisibleAt).toBeNull();
+  });
+
+  it('retry: a 503 then a success still answers the DM', async () => {
+    geminiScript = ['fail503'];
+    const threadRes = await call('POST', '/api/admin/team/threads', { type: 'DM', memberSlug: 'omar' });
+    const threadId = threadRes.json.thread.id;
+
+    const res = await call('POST', `/api/admin/team/threads/${threadId}/messages`, {
+      body: 'Status on the fix?',
+    });
+    expect(res.status).toBe(201);
+    expect(res.json.reply.body).toBe('Short member reply.');
+    // Exactly two model calls: the 503 and the retry that landed.
+    expect(geminiRequests).toHaveLength(2);
+    expect(db.teamMessage.filter((m) => m.threadId === threadId)).toHaveLength(2);
+  }, 15_000);
+
+  it('retry: a persistent 503 ends in an honest 502 with no stored reply', async () => {
+    geminiScript = ['fail503', 'fail503', 'fail503', 'fail503'];
+    const threadRes = await call('POST', '/api/admin/team/threads', { type: 'DM', memberSlug: 'priya' });
+    const threadId = threadRes.json.thread.id;
+
+    const res = await call('POST', `/api/admin/team/threads/${threadId}/messages`, {
+      body: 'Score this idea.',
+    });
+    expect(res.status).toBe(502);
+    // Bounded: three attempts total, then it gives up honestly.
+    expect(geminiRequests).toHaveLength(3);
+    const stored = db.teamMessage.filter((m) => m.threadId === threadId);
+    expect(stored).toHaveLength(1);
+    expect(stored[0].authorType).toBe('OWNER');
+  }, 20_000);
+
+  it('retry: a non-transient failure (500) is not retried', async () => {
+    geminiMode = 'fail';
+    const threadRes = await call('POST', '/api/admin/team/threads', { type: 'DM', memberSlug: 'daniel' });
+    const threadId = threadRes.json.thread.id;
+
+    const res = await call('POST', `/api/admin/team/threads/${threadId}/messages`, {
+      body: 'Pipeline numbers?',
+    });
+    expect(res.status).toBe(502);
+    expect(geminiRequests).toHaveLength(1);
+  });
+
+  it('discuss isolation: one member failing every turn does not kill the discussion', async () => {
+    geminiResponder = (system) =>
+      system.includes('auto summary') ? 'Positions and open questions.' : 'A short position.';
+    // Priya's model is down hard: every one of her calls 503s, retries
+    // included. Omar's calls are untouched (her name is only in her own
+    // persona prompt, which is what the predicate keys on).
+    geminiFailFor = (system) => system.includes('Priya Nair');
+
+    const res = await call('POST', '/api/admin/team/discuss', {
+      topic: 'Should the demo call clinics back automatically?',
+      memberSlugs: ['omar', 'priya'],
+    });
+    expect(res.status).toBe(201);
+    expect(res.json.thread.decision).toBeNull();
+    const threadId = res.json.thread.id;
+
+    const stored = db.teamMessage.filter((m) => m.threadId === threadId);
+    const memberRows = stored.filter((m) => m.authorType === 'MEMBER');
+    // Omar answered both rounds; Priya simply has no message.
+    expect(memberRows).toHaveLength(2);
+    expect(memberRows.every((m) => m.authorSlug === 'omar')).toBe(true);
+    const summary = stored.find((m) => m.authorType === 'SYSTEM');
+    expect(summary?.label).toBe('AUTO_SUMMARY');
+
+    // The summary step was told, in its input, that Priya could not answer.
+    const summaryCall = geminiRequests.find((r) => r.system.includes('auto summary'));
+    expect(summaryCall).toBeDefined();
+    expect(JSON.stringify(summaryCall!.contents)).toContain('Priya Nair could not answer');
+  }, 30_000);
+
+  it('discuss isolation: every member failing round 1 is an honest 502', async () => {
+    geminiFailFor = () => true;
+    const res = await call('POST', '/api/admin/team/discuss', {
+      topic: 'Should the demo call clinics back automatically?',
+      memberSlugs: ['omar', 'priya'],
+    });
+    expect(res.status).toBe(502);
+
+    const discussThreads = db.teamThread.filter((t) => t.type === 'DISCUSS');
+    expect(discussThreads).toHaveLength(1);
+    const stored = db.teamMessage.filter((m) => m.threadId === discussThreads[0].id);
+    // Only the owner's topic is stored: no member turns, no summary.
+    expect(stored.map((m) => m.authorType)).toEqual(['OWNER']);
+    // Two members, three bounded attempts each, and round 2 never ran.
+    expect(geminiRequests).toHaveLength(6);
+  }, 30_000);
 
   it('work items: create, list, and move status', async () => {
     await call('GET', '/api/admin/team/members');

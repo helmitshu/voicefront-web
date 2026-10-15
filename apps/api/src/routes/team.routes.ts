@@ -7,7 +7,7 @@ import {
   createWorkItem,
   ensureTeamMembers,
   getOrCreateThread,
-  listMessages,
+  getThreadView,
   listThreads,
   listWorkItems,
   postMessage,
@@ -118,7 +118,10 @@ teamRouter.post(
 teamRouter.get(
   '/team/threads/:id/messages',
   asyncHandler(async (req, res) => {
-    res.json({ messages: await listMessages(req.params.id) });
+    // The paced view: member replies still inside their human-pacing
+    // window are held back, and `pending` names who is typing and when
+    // the next reply lands.
+    res.json(await getThreadView(req.params.id));
   }),
 );
 
