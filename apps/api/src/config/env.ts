@@ -113,6 +113,13 @@ const EnvSchema = z.object({
   TEAM_GEMINI_API_KEY_DANIEL: z.string().optional(),
   TEAM_GEMINI_API_KEY_LAYLA: z.string().optional(),
   /**
+   * Daily cap on SCHEDULED team ability runs (Phase 2a), counted per
+   * UTC day from the team_runs ledger. Bounds paid-key spend from the
+   * clock no matter how the schedules are tuned. Manual runs from the
+   * Team page are never capped.
+   */
+  TEAM_DAILY_RUN_CAP: z.coerce.number().int().positive().default(40),
+  /**
    * Lyla's own Gemini key (the public landing-page host), from her own
    * Google project on the same billing account, so public chat spend and
    * quota stay separate from the signed-in product. Optional for now:
