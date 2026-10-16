@@ -42,6 +42,12 @@ import { geminiDeclarationsForMember, invokeTeamTool } from './team-tools';
  *   costs that member that round, never the whole discussion, and the
  *   summary says who could not answer. Only a round 1 where every
  *   seated member fails is a 502.
+ * - A discussion is a conversation, not a one-shot debate (Phase
+ *   2a.1): an owner message in a DISCUSS thread starts a follow-up
+ *   round with the members seated in that thread (see
+ *   runDiscussionFollowUp). The round runs in the background like
+ *   every other reply, serialized per thread, and never regenerates
+ *   the formal summary or touches the Decision slot.
  * - A model failure never invents member text. Inside a background
  *   reply it stores nothing and is logged; a fabricated reply is worse
  *   than an honest absence.
@@ -464,8 +470,8 @@ export async function postGroupStatusLine(params: {
 /**
  * Reply work in flight, by thread id. Posting a message returns as
  * soon as the owner's message is stored; the reply work (a DM answer,
- * a channel mention with its handoffs, a standup round) runs in the
- * background and its replies land in the thread as they are generated,
+ * a channel mention with its handoffs, a standup round, a discussion
+ * follow-up round) runs in the background and its replies land in the thread as they are generated,
  * where the room's polling and the pending indicator pick them up.
  * The same in-process shape discussions already use. Runs for one
  * thread are chained onto each other, so two quick owner messages get
@@ -553,6 +559,117 @@ async function runGroupReplies(thread: ThreadRow, body: string): Promise<void> {
   }
 }
 
+/* --------------------- discussion follow-up rounds --------------------- */
+
+/**
+ * A follow-up round (Phase 2a.1): the owner keeps talking in a
+ * discussion thread after the formal debate has ended, and the room
+ * answers back. One round runs per owner message.
+ *
+ * Seating is derived from the thread itself, because TeamThread
+ * stores no participant list: the seated set is the members who have
+ * already authored messages here, in the order they first spoke. A
+ * thread where nobody has spoken yet (the debate never produced a
+ * member turn) seats the whole team.
+ *
+ * Each seated member answers the owner's latest message once,
+ * sequentially, each seeing the full history including the answers
+ * before theirs, paced off the previous reply. Member-to-member
+ * handoffs work exactly like the channel (a reply naming another
+ * member earns that member one extra reply), bounded by
+ * MAX_HANDOFF_HOPS hops per chain and MAX_GROUP_MEMBER_MESSAGES
+ * member messages per round. Both caps are per round, so they reset
+ * with every new owner message: each owner message starts a fresh
+ * round with a fresh budget. That reset is deliberate, it is what
+ * keeps an early round's traffic from strangling a later one.
+ *
+ * Deliberately NOT a second debate: a follow-up round never
+ * regenerates the formal auto summary and never touches the Decision
+ * slot. The summary written by runDiscussion stays the discussion's
+ * summary; follow-up rounds are conversation, not a new verdict.
+ *
+ * Failure is isolated per member, like everywhere else in the room:
+ * one member's failure costs that member their turn, and only a
+ * round where nobody could answer leaves the honest SYSTEM note.
+ */
+async function runDiscussionFollowUp(thread: ThreadRow): Promise<void> {
+  // If the formal debate is still running on this thread, wait for
+  // it to settle before answering: two rounds never run at once on
+  // one thread. (scheduleThreadReply has already serialized this run
+  // behind any earlier reply work, follow-up rounds included.)
+  await awaitDiscussion(thread.id);
+  const members = await ensureTeamMembers();
+  const history = (await listMessages(thread.id)) as MessageRow[];
+  const seatedSlugs: string[] = [];
+  for (const message of history) {
+    if (
+      message.authorType === 'MEMBER' &&
+      message.authorSlug &&
+      !seatedSlugs.includes(message.authorSlug)
+    ) {
+      seatedSlugs.push(message.authorSlug);
+    }
+  }
+  const seated = seatedSlugs
+    .map((slug) => members.find((member) => member.slug === slug))
+    .filter((member): member is MemberRow => Boolean(member));
+  const speakers = seated.length > 0 ? seated : members;
+
+  let stored = 0;
+  let notBefore: Date | null = null;
+  for (const member of speakers) {
+    if (stored >= MAX_GROUP_MEMBER_MESSAGES) break;
+    let current: MessageRow;
+    try {
+      const fresh = (await listMessages(thread.id)) as MessageRow[];
+      current = await memberReply({ thread, member, history: fresh, notBefore });
+    } catch (err) {
+      console.warn(
+        `[team] Follow-up reply failed for ${member.slug} (thread ${thread.id}): ${err instanceof Error ? err.message : String(err)}`,
+      );
+      continue;
+    }
+    stored += 1;
+    notBefore = current.visibleAt;
+    // Handoff chain off this answer, under the channel's rules: each
+    // reply naming another member earns that member one extra reply,
+    // up to the hop cap, and every extra reply spends from the same
+    // per-round message budget. A failed handoff ends the chain
+    // quietly; the answers already given stand.
+    let hops = 0;
+    while (hops < MAX_HANDOFF_HOPS && stored < MAX_GROUP_MEMBER_MESSAGES) {
+      const next = mentionedMember(current.body, members, current.authorSlug);
+      if (!next) break;
+      hops += 1;
+      try {
+        const fresh = (await listMessages(thread.id)) as MessageRow[];
+        current = await memberReply({
+          thread,
+          member: next,
+          history: fresh,
+          notBefore: current.visibleAt,
+        });
+        stored += 1;
+        notBefore = current.visibleAt;
+      } catch (err) {
+        console.warn(
+          `[team] Follow-up handoff failed for ${next.slug} (thread ${thread.id}): ${err instanceof Error ? err.message : String(err)}`,
+        );
+        break;
+      }
+    }
+  }
+  if (stored === 0) {
+    // Nobody could speak: say so in the thread, like a failed debate
+    // or standup does, rather than failing silently in a log.
+    await storeMessage({
+      threadId: thread.id,
+      authorType: 'SYSTEM',
+      body: 'No team member could answer just now. Please try again.',
+    });
+  }
+}
+
 export async function postMessage(
   threadId: string,
   params: { body: string; authorType?: 'OWNER' | 'CEO' },
@@ -592,8 +709,17 @@ export async function postMessage(
     return { message };
   }
 
-  // DISCUSS threads collect owner messages without auto-replies; the
-  // debate itself runs through startDiscussion.
+  if (thread.type === 'DISCUSS') {
+    // The owner is talking back inside a discussion: start a
+    // follow-up round (Phase 2a.1). It runs in the background like
+    // every other reply, serialized per thread by scheduleThreadReply,
+    // and the round itself waits for a still-running debate to
+    // settle, so a message posted mid-debate is never dropped and
+    // never answered concurrently with the debate.
+    scheduleThreadReply(threadId, () => runDiscussionFollowUp(thread));
+    return { message };
+  }
+
   return { message };
 }
 
