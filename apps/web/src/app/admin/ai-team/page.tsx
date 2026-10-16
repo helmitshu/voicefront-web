@@ -27,16 +27,23 @@ type PaneMode = 'thread' | 'new-discuss';
 
 const EMPTY_PENDING: TeamPending = { memberSlugs: [], nextVisibleAt: null, active: false };
 
-const WORK_STATUS_LABEL: Record<WorkItemStatus, string> = {
+const WORK_STATUS_LABEL: Record<WorkItemStatus | 'ASSIGNED' | 'BLOCKED', string> = {
   QUEUED: 'Queued',
+  ASSIGNED: 'Assigned',
   IN_PROGRESS: 'In progress',
   DONE: 'Done',
+  BLOCKED: 'Blocked',
 };
 
-const WORK_STATUS_TONE: Record<WorkItemStatus, 'neutral' | 'signal' | 'success'> = {
+const WORK_STATUS_TONE: Record<
+  WorkItemStatus | 'ASSIGNED' | 'BLOCKED',
+  'neutral' | 'signal' | 'success'
+> = {
   QUEUED: 'neutral',
+  ASSIGNED: 'signal',
   IN_PROGRESS: 'signal',
   DONE: 'success',
+  BLOCKED: 'neutral',
 };
 
 function errMessage(err: unknown, fallback: string): string {
@@ -114,6 +121,15 @@ export default function AdminAiTeamPage() {
   );
 
   const typingSlugs = useMemo(() => new Set(pending.memberSlugs), [pending]);
+
+  /** A DM reply in flight: the reply work is running (pending.active)
+   *  but the reply itself is not stored yet, so no member slug is
+   *  pending. In a DM the typist is known, it is the thread's member,
+   *  so the typing row can name them during the wait. */
+  const inFlightSlug =
+    pending.active && pending.memberSlugs.length === 0 && selectedThread?.type === 'DM'
+      ? (selectedThread.memberSlug ?? null)
+      : null;
 
   /** Members seated in the open discussion: anyone who has spoken, plus
    *  anyone currently typing. The thread payload carries no participant
@@ -295,17 +311,30 @@ export default function AdminAiTeamPage() {
     if (!body || !selectedThreadId || sending) return;
     setSending(true);
     setSendError(null);
+    // The composer clears the moment he hits send: posting returns as
+    // soon as the message is stored, and the member reply runs in the
+    // background. The busy state ends with the post response, not
+    // with the reply.
+    setComposer('');
     try {
-      await TeamApi.sendMessage(selectedThreadId, body);
-      setComposer('');
-      // The owner message is visible immediately; a member reply now
-      // arrives at human pace, so refresh the view and let the pending
-      // indicator (and its poll) carry it in when it lands.
+      const result = await TeamApi.sendMessage(selectedThreadId, body);
+      // His message renders immediately, from the post response.
+      if (result?.message) {
+        const stored = result.message;
+        setMessages((prev) =>
+          prev === null || prev.some((m) => m.id === stored.id) ? prev : [...prev, stored],
+        );
+      }
+      // Resync the paced view; the pending indicator (and its poll)
+      // carries the background reply in when it lands.
       await refreshThread(selectedThreadId, true);
       void loadThreads().catch(() => undefined);
       void loadActivity();
     } catch (err) {
-      const message = errMessage(err, 'That message could not be sent. No reply was generated.');
+      // A failed post restores his text into the composer, with the
+      // error shown. The text is never silently eaten.
+      setComposer(body);
+      const message = errMessage(err, 'That message could not be sent.');
       setSendError(message);
       toast(message, 'error');
       // Reload from the server so we only ever show real, stored messages.
@@ -989,7 +1018,33 @@ export default function AdminAiTeamPage() {
                       })}
                     </ul>
                   )}
-                  {pending.active && pending.memberSlugs.length === 0 && (
+                  {inFlightSlug &&
+                    (() => {
+                      const member = memberBySlug.get(inFlightSlug);
+                      return (
+                        <p className="mt-4 flex items-center gap-2 text-sm text-ink-muted">
+                          {member && (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img
+                              src={member.avatarPath}
+                              alt=""
+                              className="h-6 w-6 rounded-full object-cover ring-1 ring-line"
+                            />
+                          )}
+                          {memberName(inFlightSlug)} is typing
+                          <span className="flex items-center gap-1" aria-hidden="true">
+                            {[0, 1, 2].map((i) => (
+                              <span
+                                key={i}
+                                className="h-1.5 w-1.5 animate-bounce rounded-full bg-ink-muted"
+                                style={{ animationDelay: `${i * 0.18}s` }}
+                              />
+                            ))}
+                          </span>
+                        </p>
+                      );
+                    })()}
+                  {pending.active && pending.memberSlugs.length === 0 && !inFlightSlug && (
                     <div className="mt-4 flex items-center gap-2.5 text-sm text-ink-muted">
                       {seatedMembers.length > 0 && (
                         <span className="flex shrink-0 -space-x-1.5">
@@ -1234,8 +1289,10 @@ export default function AdminAiTeamPage() {
                       aria-label={`Status for ${item.title}`}
                     >
                       <option value="QUEUED">Queued</option>
+                      <option value="ASSIGNED">Assigned</option>
                       <option value="IN_PROGRESS">In progress</option>
                       <option value="DONE">Done</option>
+                      <option value="BLOCKED">Blocked</option>
                     </Select>
                   </div>
                 </li>
@@ -1249,7 +1306,7 @@ export default function AdminAiTeamPage() {
         <Card>
           <CardHeader
             title="Abilities"
-            description="One-click runs. Results land as drafts or work items, ready for review."
+            description="One-click runs, and most now run on their own schedule too. Results land as drafts or work items, ready for review."
           />
           {abilityResult && (
             <p className="mb-4 whitespace-pre-wrap rounded-xl border border-line bg-paper px-4 py-3 text-sm leading-relaxed text-ink">
@@ -1257,58 +1314,79 @@ export default function AdminAiTeamPage() {
             </p>
           )}
           <div className="flex flex-wrap gap-2.5">
-            <Button
-              variant="secondary"
-              loading={abilityBusy === 'call-scoring'}
-              onClick={() =>
-                void runAbility('call-scoring', async () => {
-                  const r = await TeamApi.abilityCallScoring();
-                  return `Call scoring: scored ${r.scored}, passed ${r.passed}, failed ${r.failed}, drafts created ${r.draftsCreated}.`;
-                })
-              }
-            >
-              Score recent calls
-            </Button>
-            <Button
-              variant="secondary"
-              loading={abilityBusy === 'leak-radar'}
-              onClick={() =>
-                void runAbility('leak-radar', async () => {
-                  const r = await TeamApi.abilityLeakRadar();
-                  const lines = r.leaks.map((l) => `${l.title}: ${l.detail}`).join('\n');
-                  return `Leak radar: ${r.leaks.length} leak(s) found, ${r.workItemsCreated} work item(s) created.${lines ? `\n${lines}` : ''}`;
-                })
-              }
-            >
-              Run leak radar
-            </Button>
-            <Button
-              variant="secondary"
-              loading={abilityBusy === 'uptime'}
-              onClick={() =>
-                void runAbility('uptime', async () => {
-                  const r = await TeamApi.abilityUptime();
-                  const lines = r.checks
-                    .map((c) => `${c.name}: ${c.ok ? 'OK' : 'FAILED'} (${c.status ?? 'no status'}) ${c.evidence}`)
-                    .join('\n');
-                  return `Uptime check complete.${r.workItemCreated ? ' A work item was created for a failure.' : ''}${lines ? `\n${lines}` : ''}`;
-                })
-              }
-            >
-              Check uptime
-            </Button>
-            <Button
-              variant="secondary"
-              loading={abilityBusy === 'board-pack'}
-              onClick={() =>
-                void runAbility('board-pack', async () => {
-                  const r = await TeamApi.abilityBoardPack();
-                  return `Board pack drafted: “${r.draft.title}” by ${memberName(r.draft.memberSlug)}. See the Drafts view.`;
-                })
-              }
-            >
-              Board pack
-            </Button>
+            <div className="flex flex-col gap-1">
+              <Button
+                variant="secondary"
+                loading={abilityBusy === 'call-scoring'}
+                onClick={() =>
+                  void runAbility('call-scoring', async () => {
+                    const r = await TeamApi.abilityCallScoring();
+                    return `Call scoring: scored ${r.scored}, passed ${r.passed}, failed ${r.failed}, drafts created ${r.draftsCreated}.`;
+                  })
+                }
+              >
+                Score recent calls
+              </Button>
+              <p className="max-w-56 text-xs leading-snug text-ink-muted">
+                Runs on its own nightly, 1 AM Pacific (2 AM in summer). Only weak calls become
+                drafts.
+              </p>
+            </div>
+            <div className="flex flex-col gap-1">
+              <Button
+                variant="secondary"
+                loading={abilityBusy === 'leak-radar'}
+                onClick={() =>
+                  void runAbility('leak-radar', async () => {
+                    const r = await TeamApi.abilityLeakRadar();
+                    const lines = r.leaks.map((l) => `${l.title}: ${l.detail}`).join('\n');
+                    return `Leak radar: ${r.leaks.length} leak(s) found, ${r.workItemsCreated} work item(s) created.${lines ? `\n${lines}` : ''}`;
+                  })
+                }
+              >
+                Run leak radar
+              </Button>
+              <p className="max-w-56 text-xs leading-snug text-ink-muted">
+                Runs on its own daily, 5 AM Pacific (6 AM in summer).
+              </p>
+            </div>
+            <div className="flex flex-col gap-1">
+              <Button
+                variant="secondary"
+                loading={abilityBusy === 'uptime'}
+                onClick={() =>
+                  void runAbility('uptime', async () => {
+                    const r = await TeamApi.abilityUptime();
+                    const lines = r.checks
+                      .map((c) => `${c.name}: ${c.ok ? 'OK' : 'FAILED'} (${c.status ?? 'no status'}) ${c.evidence}`)
+                      .join('\n');
+                    return `Uptime check complete.${r.workItemCreated ? ' A work item was created for a failure.' : ''}${lines ? `\n${lines}` : ''}`;
+                  })
+                }
+              >
+                Check uptime
+              </Button>
+              <p className="max-w-56 text-xs leading-snug text-ink-muted">
+                Runs on its own every hour.
+              </p>
+            </div>
+            <div className="flex flex-col gap-1">
+              <Button
+                variant="secondary"
+                loading={abilityBusy === 'board-pack'}
+                onClick={() =>
+                  void runAbility('board-pack', async () => {
+                    const r = await TeamApi.abilityBoardPack();
+                    return `Board pack drafted: “${r.draft.title}” by ${memberName(r.draft.memberSlug)}. See the Drafts view.`;
+                  })
+                }
+              >
+                Board pack
+              </Button>
+              <p className="max-w-56 text-xs leading-snug text-ink-muted">
+                Runs on its own Mondays, 8 AM Pacific (9 AM in summer).
+              </p>
+            </div>
           </div>
 
           <div className="mt-6 grid grid-cols-1 gap-5 lg:grid-cols-2">
