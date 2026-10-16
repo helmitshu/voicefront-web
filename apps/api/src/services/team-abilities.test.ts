@@ -26,7 +26,7 @@ const prismaMock: Record<string, any> = vi.hoisted(() => ({
 
 vi.mock('../lib/prisma', () => ({ prisma: prismaMock }));
 
-import { computeLeakRadar, scoreCallTranscript } from './team-abilities.service';
+import { computeLeakRadar, runCallScoring, scoreCallTranscript } from './team-abilities.service';
 
 const HOUR = 60 * 60 * 1000;
 
@@ -76,6 +76,64 @@ describe('scoreCallTranscript', () => {
     // The doubled-goodbye bug: the last two lines are both farewells.
     expect(byKey.cleanGoodbye.pass).toBe(false);
     expect(byKey.cleanGoodbye.provingLine).toContain('Goodbye, take care.');
+  });
+});
+
+describe('runCallScoring signal triage (Phase 2a)', () => {
+  // Scores exactly 4, 3, 3, 2 against the checklist, by construction.
+  const THREE_NO_GREETING = [
+    'AI: Hello, how can I help you today?',
+    'User: My number is 604 555 0134.',
+    'AI: Let me read that back: 604 555 0134. Is that correct?',
+    'User: Yes it is.',
+    'AI: You are booked for a cleaning on Tuesday at 10 in the morning.',
+    'AI: Thanks for calling. Have a great day.',
+  ].join('\n');
+  const THREE_NO_READBACK = [
+    'AI: Thank you for calling Bayview Dental Studio, this is Maya. How can I help you?',
+    'User: I need a cleaning. My number is 604 555 0134.',
+    'AI: Of course. You are booked for a cleaning on Tuesday at 10 in the morning.',
+    'AI: Have a great day.',
+  ].join('\n');
+  const TWO = [
+    'AI: Hello, how can I help you?',
+    'User: Book me a cleaning, my number is 604 555 0134.',
+    'AI: You are booked for Tuesday at 10 in the morning.',
+    'AI: Have a great day.',
+  ].join('\n');
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    const startedAt = new Date();
+    prismaMock.callLog.findMany.mockResolvedValue([
+      { id: 'call_4', startedAt, transcript: PASSING_TRANSCRIPT, tenant: { companyName: 'Bayview Dental Studio' } },
+      { id: 'call_3a', startedAt, transcript: THREE_NO_GREETING, tenant: { companyName: 'Bayview Dental Studio' } },
+      { id: 'call_3b', startedAt, transcript: THREE_NO_READBACK, tenant: { companyName: 'Bayview Dental Studio' } },
+      { id: 'call_2', startedAt, transcript: TWO, tenant: { companyName: 'Bayview Dental Studio' } },
+    ]);
+  });
+
+  it('scores every call but files a draft only for the call scoring 2 or lower', async () => {
+    const result = await runCallScoring();
+
+    expect(result.scored).toBe(4);
+    expect(result.passed).toBe(1);
+    expect(result.failed).toBe(3);
+    // Triage: of the 3 failing calls, only the 2/4 becomes a draft.
+    expect(result.draftsCreated).toBe(1);
+    expect(prismaMock.teamDraft.create).toHaveBeenCalledOnce();
+    expect(prismaMock.teamDraft.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ kind: 'SCORECARD', title: expect.stringContaining('(2/4)') }),
+      }),
+    );
+    // The failure museum still takes every failing call.
+    expect(prismaMock.failureCase.create).toHaveBeenCalledTimes(3);
+    // The rest is counted in the run summary, not filed.
+    expect(result.averageScore).toBe(3);
+    expect(result.worstScore).toBe(2);
+    expect(result.summary).toContain('average 3/4');
+    expect(result.summary).toContain('worst 2/4');
   });
 });
 

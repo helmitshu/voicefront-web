@@ -71,6 +71,23 @@ class TransientModelError extends Error {
   }
 }
 
+/**
+ * Marker for a call whose transient retries ran out (the last failure
+ * was a 429 or a 503). Internal: callTeamModel converts it to the
+ * honest 502, after giving the shared-key fallback its chance when the
+ * failed call ran on a member's own key. Never escapes this module.
+ */
+class TransientExhaustedError extends Error {
+  constructor(readonly status: number | null) {
+    super(`Transient Gemini failures exhausted retries (last status ${status ?? 'none'})`);
+  }
+}
+
+/** The shared paid Gemini key, when configured. */
+function sharedApiKey(): string | undefined {
+  return (env.GEMINI_API_KEY ?? '').trim() || undefined;
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
@@ -97,9 +114,18 @@ function memberApiKey(memberSlug: string): string | undefined {
  * (The discuss auto summary passes the first answering member's slug,
  * so it runs on that member's chain.) Undefined when nothing in the
  * chain is configured.
+ *
+ * Run-scoped override (Phase 2a): scheduled ability runs pass
+ * `useSharedKey`, and the call runs on the shared paid GEMINI_API_KEY
+ * even when the member has a free-tier key of their own, so the clock
+ * never drains a member's small free pool. Interactive member chat
+ * never sets it and keeps the per-member chain above.
  */
-export function teamModelApiKey(memberSlug?: string): string | undefined {
-  if (memberSlug) {
+export function teamModelApiKey(
+  memberSlug?: string,
+  opts?: { useSharedKey?: boolean },
+): string | undefined {
+  if (memberSlug && !opts?.useSharedKey) {
     const own = memberApiKey(memberSlug);
     if (own) return own;
   }
@@ -118,6 +144,12 @@ type CallTeamModelParams = {
    * which run on the shared key.
    */
   memberSlug?: string;
+  /**
+   * Run-scoped override: when true, this call runs on the shared paid
+   * GEMINI_API_KEY regardless of the member's own key. Set by
+   * scheduled ability runs (Phase 2a); never by interactive chat.
+   */
+  useSharedKey?: boolean;
 };
 
 /** A single attempt, bounded by timeoutMs. Throws TransientModelError for 429/503. */
@@ -178,21 +210,19 @@ async function attemptTeamModelOnce(
 }
 
 /**
- * One logical model call. Returns the candidate parts or throws
- * HttpError 502/503. Transient responses are retried inside the one
- * overall timeout, but by status: a 503 retries with backoff, while a
- * 429 gets a single retry after QUOTA_RETRY_PAUSE_MS (and only when
- * that pause still leaves time for the attempt). Both policies share
- * one cap: MAX_MODEL_ATTEMPTS attempts in total, however the statuses
- * mix; anything else fails on the first attempt. When the retries run
- * out, the failure is the same honest 502 as before.
+ * One logical model call on one key, under the transient retry
+ * contract: retries happen inside one overall timeout, but by status:
+ * a 503 retries with backoff, while a 429 gets a single retry after
+ * QUOTA_RETRY_PAUSE_MS (and only when that pause still leaves time for
+ * the attempt). Both policies share one cap: MAX_MODEL_ATTEMPTS
+ * attempts in total, however the statuses mix; anything else fails on
+ * the first attempt. Throws TransientExhaustedError when the transient
+ * retries run out; non-transient failures throw their HttpError.
  */
-export async function callTeamModel(params: CallTeamModelParams): Promise<TeamGeminiPart[]> {
-  const apiKey = teamModelApiKey(params.memberSlug);
-  if (!apiKey) {
-    console.warn('[team] GEMINI_API_KEY is not configured; team replies are unavailable.');
-    throw new HttpError(503, 'The team is unavailable right now (model not configured).', 'MODEL_NOT_CONFIGURED');
-  }
+async function callWithRetries(
+  params: CallTeamModelParams,
+  apiKey: string,
+): Promise<TeamGeminiPart[]> {
   const deadline = Date.now() + (params.timeoutMs ?? MODEL_TIMEOUT_MS);
   let lastTransientStatus: number | null = null;
   let attempts = 0;
@@ -227,9 +257,66 @@ export async function callTeamModel(params: CallTeamModelParams): Promise<TeamGe
     }
   }
   console.warn(
-    `[team] Gemini still unavailable after retries (last status ${lastTransientStatus ?? 'none'}); giving up.`,
+    `[team] Gemini still unavailable after retries (last status ${lastTransientStatus ?? 'none'}); giving up on this key.`,
   );
-  throw new HttpError(502, 'The team member could not answer just now. Please try again.', 'MODEL_ERROR');
+  throw new TransientExhaustedError(lastTransientStatus);
+}
+
+/**
+ * One logical model call. Returns the candidate parts or throws
+ * HttpError 502/503.
+ *
+ * Reliability fallback (Phase 2a): an interactive call made for a
+ * member runs first on that member's own key under the retry contract
+ * above. If the member key's pool is what failed (the retries end in a
+ * 429 or a 503), the call is retried once on the shared paid key, when
+ * one is set and it is not the key that just failed. One member's
+ * drained free-tier pool should not silence them while the paid key
+ * has room. The fallback firing is logged in one line naming the
+ * member; key values are never logged. If the fallback also fails,
+ * the failure is the same honest 502 as before, and no reply is ever
+ * invented. Calls already on the shared key (no member, a member with
+ * no key of their own, or a scheduled run's useSharedKey override)
+ * have nothing to fall back to and skip this entirely, and a
+ * non-transient failure (a 400, say) never triggers it: the shared key
+ * would fail the same way.
+ */
+export async function callTeamModel(params: CallTeamModelParams): Promise<TeamGeminiPart[]> {
+  const apiKey = teamModelApiKey(params.memberSlug, { useSharedKey: params.useSharedKey });
+  if (!apiKey) {
+    console.warn('[team] GEMINI_API_KEY is not configured; team replies are unavailable.');
+    throw new HttpError(503, 'The team is unavailable right now (model not configured).', 'MODEL_NOT_CONFIGURED');
+  }
+  try {
+    return await callWithRetries(params, apiKey);
+  } catch (err) {
+    if (!(err instanceof TransientExhaustedError)) throw err;
+    const memberOwnKey =
+      params.memberSlug && !params.useSharedKey ? memberApiKey(params.memberSlug) : undefined;
+    const shared = sharedApiKey();
+    if (!memberOwnKey || !shared || shared === apiKey) {
+      throw new HttpError(
+        502,
+        'The team member could not answer just now. Please try again.',
+        'MODEL_ERROR',
+      );
+    }
+    console.warn(
+      `[team] Member ${params.memberSlug} could not answer on their own key (last status ${err.status ?? 'none'}); retried on the shared fallback key.`,
+    );
+    try {
+      return await callWithRetries(params, shared);
+    } catch (fallbackErr) {
+      if (fallbackErr instanceof TransientExhaustedError) {
+        throw new HttpError(
+          502,
+          'The team member could not answer just now. Please try again.',
+          'MODEL_ERROR',
+        );
+      }
+      throw fallbackErr;
+    }
+  }
 }
 
 export function partsToText(parts: TeamGeminiPart[]): string {
@@ -254,6 +341,8 @@ export async function runMemberConversation(params: {
   maxToolRounds?: number;
   /** The member holding this conversation; selects their key chain. */
   memberSlug?: string;
+  /** Run-scoped override: run every round on the shared paid key. */
+  useSharedKey?: boolean;
 }): Promise<string> {
   const maxRounds = params.maxToolRounds ?? 3;
   const contents: TeamGeminiContent[] = [...params.contents];
@@ -264,6 +353,7 @@ export async function runMemberConversation(params: {
       contents,
       functionDeclarations: params.functionDeclarations,
       memberSlug: params.memberSlug,
+      useSharedKey: params.useSharedKey,
     });
     const calls = parts.filter((part) => part.functionCall?.name);
     if (calls.length === 0) {

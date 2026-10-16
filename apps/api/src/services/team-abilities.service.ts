@@ -123,16 +123,28 @@ export function scoreCallTranscript(transcript: string, companyName?: string): C
   return { checks, passed: passedCount === checks.length, passedCount };
 }
 
+/** A call scoring at or below this (of 4) earns a scorecard draft. */
+export const SCORECARD_DRAFT_MAX_SCORE = 2;
+
 /**
- * Run call scoring over recent calls with stored transcripts. Failing
- * calls get a Priya scorecard draft and a failure-museum case (deduped
- * by call), so the bug becomes a permanent regression case.
+ * Run call scoring over recent calls with stored transcripts. Every
+ * examined call is scored, and every failing call still files a
+ * failure-museum case (deduped by call), so the bug becomes a
+ * permanent regression case. Scorecard DRAFTS are triaged (Phase 2a
+ * signal discipline): only a call scoring SCORECARD_DRAFT_MAX_SCORE or
+ * lower becomes a draft in Priya's pile. The rest are counted in the
+ * run summary (count, average, worst call), which is what the runs
+ * ledger and the founder read. One click burst no longer files a draft
+ * for every imperfect call.
  */
 export async function runCallScoring(params: { limit?: number } = {}): Promise<{
   scored: number;
   passed: number;
   failed: number;
   draftsCreated: number;
+  averageScore: number;
+  worstScore: number | null;
+  summary: string;
 }> {
   const limit = Math.min(Math.max(params.limit ?? 20, 1), 100);
   const calls = await prisma.callLog.findMany({
@@ -148,8 +160,12 @@ export async function runCallScoring(params: { limit?: number } = {}): Promise<{
   });
   let passed = 0;
   let draftsCreated = 0;
+  let scoreTotal = 0;
+  let worstScore: number | null = null;
   for (const call of calls) {
     const score = scoreCallTranscript(call.transcript ?? '', call.tenant.companyName);
+    scoreTotal += score.passedCount;
+    worstScore = worstScore === null ? score.passedCount : Math.min(worstScore, score.passedCount);
     if (score.passed) {
       passed++;
       continue;
@@ -177,17 +193,33 @@ export async function runCallScoring(params: { limit?: number } = {}): Promise<{
         },
       });
     }
-    await prisma.teamDraft.create({
-      data: {
-        memberSlug: 'priya',
-        kind: 'SCORECARD',
-        title: `Scorecard: ${call.tenant.companyName} call ${call.id.slice(0, 8)} (${score.passedCount}/4)`,
-        body,
-      },
-    });
-    draftsCreated++;
+    if (score.passedCount <= SCORECARD_DRAFT_MAX_SCORE) {
+      await prisma.teamDraft.create({
+        data: {
+          memberSlug: 'priya',
+          kind: 'SCORECARD',
+          title: `Scorecard: ${call.tenant.companyName} call ${call.id.slice(0, 8)} (${score.passedCount}/4)`,
+          body,
+        },
+      });
+      draftsCreated++;
+    }
   }
-  return { scored: calls.length, passed, failed: calls.length - passed, draftsCreated };
+  const scored = calls.length;
+  const averageScore = scored > 0 ? Math.round((scoreTotal / scored) * 10) / 10 : 0;
+  const summary =
+    scored === 0
+      ? 'Call scoring: no calls with transcripts to score.'
+      : `Call scoring: ${scored} scored, average ${averageScore}/4, worst ${worstScore}/4, ${draftsCreated} scorecard draft(s) filed (only calls scoring ${SCORECARD_DRAFT_MAX_SCORE} or lower become drafts).`;
+  return {
+    scored,
+    passed,
+    failed: scored - passed,
+    draftsCreated,
+    averageScore,
+    worstScore,
+    summary,
+  };
 }
 
 export async function listFailureCases(limit = 50) {
@@ -308,7 +340,7 @@ export async function runLeakRadar(): Promise<{ leaks: Leak[]; workItemsCreated:
   let workItemsCreated = 0;
   for (const leak of leaks) {
     const open = await prisma.workItem.findFirst({
-      where: { title: leak.title, status: { in: ['QUEUED', 'IN_PROGRESS'] } },
+      where: { title: leak.title, status: { in: ['QUEUED', 'ASSIGNED', 'IN_PROGRESS'] } },
     });
     if (open) continue;
     await prisma.workItem.create({
@@ -488,7 +520,7 @@ export async function buildBoardPack(): Promise<{ id: string; title: string }> {
       }),
       prisma.demoLead.count({ where: { createdAt: { gte: weekAgo } } }),
       prisma.callLog.count({ where: { startedAt: { gte: weekAgo } } }),
-      prisma.workItem.count({ where: { status: { in: ['QUEUED', 'IN_PROGRESS'] } } }),
+      prisma.workItem.count({ where: { status: { in: ['QUEUED', 'ASSIGNED', 'IN_PROGRESS'] } } }),
       prisma.callLog.findMany({
         where: { transcript: { not: null }, startedAt: { gte: weekAgo } },
         orderBy: { startedAt: 'desc' },

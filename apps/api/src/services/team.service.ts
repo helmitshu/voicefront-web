@@ -21,7 +21,17 @@ import { geminiDeclarationsForMember, invokeTeamTool } from './team-tools';
  *   the shared VoiceFront context pack, and the thread history (trimmed,
  *   with a rolling summary when the thread grows long). One Gemini call
  *   answers, with the member's tier-allowed tools available to it.
- * - The group channel answers only when the owner @names a member.
+ *   DM and group replies run in the BACKGROUND: posting returns as
+ *   soon as the owner's message is stored, and the reply lands in the
+ *   thread as it is generated (see scheduleThreadReply). A failed
+ *   background reply stores no fabricated reply and is logged.
+ * - The group channel (Phase 2a, the floor): an owner message naming a
+ *   member gets that member's reply, and if their reply @names another
+ *   member, that member answers too, bounded at 2 member-to-member
+ *   hops and 8 member messages per owner message. An owner message
+ *   naming nobody is a standup: every member answers once, in team
+ *   order, each seeing the replies before theirs, and standup replies
+ *   never chain into handoffs.
  * - The CEO thread is a mailbox, not a model: messages are stored, no
  *   Gemini call is ever made for it. Cleo reads and answers it from
  *   Muse at human rhythm.
@@ -32,8 +42,9 @@ import { geminiDeclarationsForMember, invokeTeamTool } from './team-tools';
  *   costs that member that round, never the whole discussion, and the
  *   summary says who could not answer. Only a round 1 where every
  *   seated member fails is a 502.
- * - A model failure throws an honest 502. A fabricated reply is worse
- *   than an error, so nothing here invents member text.
+ * - A model failure never invents member text. Inside a background
+ *   reply it stores nothing and is logged; a fabricated reply is worse
+ *   than an honest absence.
  * - Member replies are paced like people: each is stored with a
  *   visibleAt moment (see pacedVisibleAt) and thread reads hold it
  *   back until then, naming who is still typing via a pending
@@ -139,7 +150,7 @@ export type ThreadPending = {
   memberSlugs: string[];
   /** When the next hidden reply lands, or null when nothing is pending. */
   nextVisibleAt: Date | null;
-  /** A discussion debate is still running for this thread. */
+  /** Background work is running for this thread: a discussion debate, or a DM / channel reply on its way. */
   active: boolean;
 };
 
@@ -165,7 +176,14 @@ export async function getThreadView(
     waiting.length > 0
       ? new Date(Math.min(...waiting.map((m) => (m.visibleAt as Date).getTime())))
       : null;
-  return { messages, pending: { memberSlugs, nextVisibleAt, active: discussionActive(threadId) } };
+  return {
+    messages,
+    pending: {
+      memberSlugs,
+      nextVisibleAt,
+      active: discussionActive(threadId) || replyActive(threadId),
+    },
+  };
 }
 
 type MessageRow = {
@@ -342,22 +360,203 @@ async function memberReply(params: {
 
 /* ------------------------------ posting --------------------------------- */
 
-function mentionedMember(body: string, members: MemberRow[]): MemberRow | null {
+function mentionedMember(
+  body: string,
+  members: MemberRow[],
+  excludeSlug?: string | null,
+): MemberRow | null {
   const mentions = [...body.matchAll(/@([a-zA-Z]+)/g)].map((m) => m[1].toLowerCase());
   for (const mention of mentions) {
     const hit = members.find(
       (member) =>
-        member.slug === mention || member.name.toLowerCase().split(' ')[0] === mention,
+        member.slug !== excludeSlug &&
+        (member.slug === mention || member.name.toLowerCase().split(' ')[0] === mention),
     );
     if (hit) return hit;
   }
   return null;
 }
 
+/** Member-to-member handoffs allowed per owner message in the channel. */
+const MAX_HANDOFF_HOPS = 2;
+/** Hard ceiling on member messages one owner message can produce. */
+const MAX_GROUP_MEMBER_MESSAGES = 8;
+
+/**
+ * The named member answers; if their reply @names another member, that
+ * member answers too (a handoff), and so on, bounded by
+ * MAX_HANDOFF_HOPS hops and MAX_GROUP_MEMBER_MESSAGES messages. A
+ * handoff whose model call fails ends the chain quietly: the replies
+ * already given stand, and nothing is fabricated to fill the gap.
+ * The first member's own failure propagates to the background runner,
+ * which logs it and stores nothing.
+ */
+async function groupReplyWithHandoffs(params: {
+  thread: { id: string; contextSummary: string | null };
+  members: MemberRow[];
+  first: MemberRow;
+  history: MessageRow[];
+}): Promise<MessageRow[]> {
+  const replies: MessageRow[] = [];
+  let current = await memberReply({
+    thread: params.thread,
+    member: params.first,
+    history: params.history,
+  });
+  replies.push(current);
+  let hops = 0;
+  while (hops < MAX_HANDOFF_HOPS && replies.length < MAX_GROUP_MEMBER_MESSAGES) {
+    const next = mentionedMember(current.body, params.members, current.authorSlug);
+    if (!next) break;
+    hops += 1;
+    try {
+      const history = (await listMessages(params.thread.id)) as MessageRow[];
+      current = await memberReply({
+        thread: params.thread,
+        member: next,
+        history,
+        notBefore: current.visibleAt,
+      });
+      replies.push(current);
+    } catch (err) {
+      console.warn(
+        `[team] Handoff reply failed for ${next.slug} (thread ${params.thread.id}): ${err instanceof Error ? err.message : String(err)}`,
+      );
+      break;
+    }
+  }
+  return replies;
+}
+
+/**
+ * A templated status line in the team channel (Phase 2a): the
+ * coordinator reporting queue work as the member doing it ("Picked
+ * up: ...", "Done: ..."), or as SYSTEM when no member owns the line
+ * (the daily digest is ready). Status lines carry the STATUS label and
+ * are never paced. They are templates on purpose: they report state,
+ * they are not faked conversation, and no model writes them.
+ */
+export async function postGroupStatusLine(params: {
+  memberSlug?: string | null;
+  body: string;
+}): Promise<MessageRow> {
+  const thread = await getOrCreateThread({ type: 'GROUP' });
+  if (params.memberSlug) {
+    await getMember(params.memberSlug); // validates the slug is a real member
+    return storeMessage({
+      threadId: thread.id,
+      authorType: 'MEMBER',
+      authorSlug: params.memberSlug,
+      label: 'STATUS',
+      body: params.body,
+    });
+  }
+  return storeMessage({
+    threadId: thread.id,
+    authorType: 'SYSTEM',
+    label: 'STATUS',
+    body: params.body,
+  });
+}
+
+/* ------------------------- background replies --------------------------- */
+
+/**
+ * Reply work in flight, by thread id. Posting a message returns as
+ * soon as the owner's message is stored; the reply work (a DM answer,
+ * a channel mention with its handoffs, a standup round) runs in the
+ * background and its replies land in the thread as they are generated,
+ * where the room's polling and the pending indicator pick them up.
+ * The same in-process shape discussions already use. Runs for one
+ * thread are chained onto each other, so two quick owner messages get
+ * their replies in order, and the registry holds the tail of the
+ * chain, which is what replyActive and the test seam await. A failure
+ * inside a run stores no fabricated reply and is logged here; a
+ * restart mid-reply simply ends the run.
+ */
+const runningReplies = new Map<string, Promise<void>>();
+
+/** Whether DM / channel reply work is in flight for a thread. */
+export function replyActive(threadId: string): boolean {
+  return runningReplies.has(threadId);
+}
+
+/** Settles when the background reply chain for a thread ends. Test seam. */
+export async function awaitReply(threadId: string): Promise<void> {
+  const run = runningReplies.get(threadId);
+  if (run) await run.catch(() => undefined);
+}
+
+function scheduleThreadReply(threadId: string, run: () => Promise<void>): void {
+  const previous = runningReplies.get(threadId) ?? Promise.resolve();
+  const tracked = previous.then(run).catch((err) => {
+    console.warn(
+      `[team] Background reply failed (thread ${threadId}): ${err instanceof Error ? err.message : String(err)}`,
+    );
+  });
+  runningReplies.set(threadId, tracked);
+  void tracked.finally(() => {
+    if (runningReplies.get(threadId) === tracked) runningReplies.delete(threadId);
+  });
+}
+
+type ThreadRow = {
+  id: string;
+  type: string;
+  memberSlug: string | null;
+  contextSummary: string | null;
+};
+
+async function runDmReply(thread: ThreadRow): Promise<void> {
+  if (!thread.memberSlug) throw new HttpError(500, 'DM thread has no member.', 'THREAD_BROKEN');
+  const member = await getMember(thread.memberSlug);
+  const history = (await listMessages(thread.id)) as MessageRow[];
+  await memberReply({ thread, member, history });
+}
+
+async function runGroupReplies(thread: ThreadRow, body: string): Promise<void> {
+  const members = await ensureTeamMembers();
+  const target = mentionedMember(body, members);
+  if (target) {
+    const history = (await listMessages(thread.id)) as MessageRow[];
+    await groupReplyWithHandoffs({ thread, members, first: target, history });
+    return;
+  }
+  // Standup rule (Phase 2a): no member named, so the whole room
+  // answers, one at a time in team order, each seeing the history
+  // including the replies before theirs, paced off the previous
+  // reply so they land in order. Failure is isolated per member:
+  // one member's model failure never blocks the others. Standup
+  // replies are terminal: they never trigger handoffs.
+  const replies: MessageRow[] = [];
+  let notBefore: Date | null = null;
+  for (const member of members) {
+    try {
+      const history = (await listMessages(thread.id)) as MessageRow[];
+      const reply = await memberReply({ thread, member, history, notBefore });
+      replies.push(reply);
+      notBefore = reply.visibleAt;
+    } catch (err) {
+      console.warn(
+        `[team] Standup reply failed for ${member.slug} (thread ${thread.id}): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+  if (replies.length === 0) {
+    // Nobody could speak: say so in the thread, like a failed
+    // discussion does, rather than failing silently in a log.
+    await storeMessage({
+      threadId: thread.id,
+      authorType: 'SYSTEM',
+      body: 'No team member could answer just now. Please try again.',
+    });
+  }
+}
+
 export async function postMessage(
   threadId: string,
   params: { body: string; authorType?: 'OWNER' | 'CEO' },
-): Promise<{ message: MessageRow; reply?: MessageRow }> {
+): Promise<{ message: MessageRow }> {
   const body = params.body?.trim();
   if (!body) throw new HttpError(400, 'A message needs a body.', 'BAD_REQUEST');
   const thread = await getThread(threadId);
@@ -382,19 +581,15 @@ export async function postMessage(
 
   if (thread.type === 'DM') {
     if (!thread.memberSlug) throw new HttpError(500, 'DM thread has no member.', 'THREAD_BROKEN');
-    const member = await getMember(thread.memberSlug);
-    const history = (await listMessages(threadId)) as MessageRow[];
-    const reply = await memberReply({ thread, member, history });
-    return { message, reply };
+    // The reply runs in the background; the post returns now.
+    scheduleThreadReply(threadId, () => runDmReply(thread));
+    return { message };
   }
 
   if (thread.type === 'GROUP') {
-    const members = await ensureTeamMembers();
-    const target = mentionedMember(body, members);
-    if (!target) return { message };
-    const history = (await listMessages(threadId)) as MessageRow[];
-    const reply = await memberReply({ thread, member: target, history });
-    return { message, reply };
+    // Mention, handoffs, or the standup round: all background work.
+    scheduleThreadReply(threadId, () => runGroupReplies(thread, body));
+    return { message };
   }
 
   // DISCUSS threads collect owner messages without auto-replies; the
@@ -639,7 +834,7 @@ export async function createWorkItem(params: {
   });
 }
 
-const WORK_ITEM_STATUSES = ['QUEUED', 'IN_PROGRESS', 'DONE'] as const;
+const WORK_ITEM_STATUSES = ['QUEUED', 'ASSIGNED', 'IN_PROGRESS', 'DONE', 'BLOCKED'] as const;
 
 export async function updateWorkItemStatus(id: string, status: string) {
   if (!(WORK_ITEM_STATUSES as readonly string[]).includes(status)) {

@@ -156,6 +156,33 @@ describe('team model client: per-member key resolution', () => {
     });
     expect(calls).toHaveLength(0);
   });
+
+  it('Phase 2a: a run-scoped shared-key override runs on the paid shared key, not the member key', async () => {
+    const gemini = await loadGemini({ shared: SHARED_KEY, omar: OMAR_KEY });
+
+    // The pure resolution: override wins over the member's own key.
+    expect(gemini.teamModelApiKey('omar', { useSharedKey: true })).toBe(SHARED_KEY);
+    expect(gemini.teamModelApiKey('omar')).toBe(OMAR_KEY);
+
+    // Through a real call: the fetch carries the shared key.
+    const calls = stubFetch(() => 200);
+    await gemini.callTeamModel({ ...PARAMS, memberSlug: 'omar', useSharedKey: true });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].apiKey).toBe(SHARED_KEY);
+
+    // And through a member conversation (every round on the shared key).
+    const convoCalls = stubFetch(() => 200);
+    const text = await gemini.runMemberConversation({
+      model: 'gemini-3.8-flash',
+      memberSlug: 'omar',
+      useSharedKey: true,
+      systemText: 'You are Omar Haddad.',
+      contents: [{ role: 'user', parts: [{ text: 'Work this item.' }] }],
+      executeTool: async () => ({}),
+    });
+    expect(text).toBe('A reply.');
+    expect(convoCalls[0].apiKey).toBe(SHARED_KEY);
+  });
 });
 
 describe('team model client: quota-aware retry', () => {
@@ -260,5 +287,92 @@ describe('team model client: quota-aware retry', () => {
     expect(calls).toHaveLength(3);
 
     await rejected;
+  });
+});
+
+describe('team model client: shared-key fallback (Phase 2a)', () => {
+  /** A fetch stub whose status depends on which key the call ran on. */
+  function stubFetchByKey(handler: (apiKey: string | undefined) => number) {
+    const calls: FetchCall[] = [];
+    const mock = vi.fn(async (url: unknown, init?: { headers?: Record<string, string> }) => {
+      const apiKey = init?.headers?.['x-goog-api-key'];
+      calls.push({ url: String(url), apiKey });
+      const status = handler(apiKey);
+      if (status === 200) {
+        return {
+          ok: true,
+          status,
+          json: async () => ({ candidates: [{ content: { parts: [{ text: 'A reply.' }] } }] }),
+          text: async () => '',
+        };
+      }
+      return { ok: false, status, json: async () => ({}), text: async () => `status ${status}` };
+    });
+    vi.stubGlobal('fetch', mock);
+    return calls;
+  }
+
+  it("member key pool exhausted (429): retried once on the shared key, the reply lands, the fallback is logged without key values", async () => {
+    vi.useFakeTimers();
+    const gemini = await loadGemini({ shared: SHARED_KEY, omar: OMAR_KEY });
+    const calls = stubFetchByKey((key) => (key === OMAR_KEY ? 429 : 200));
+    const warn = vi.mocked(console.warn);
+
+    const promise = gemini.callTeamModel({ ...PARAMS, memberSlug: 'omar' });
+    await flushMicrotasks();
+    expect(calls.map((c) => c.apiKey)).toEqual([OMAR_KEY]);
+
+    // The member key's own contract runs first: one 10s-pause retry,
+    // which also 429s. Only then does the fallback fire.
+    await vi.advanceTimersByTimeAsync(10_000);
+    await flushMicrotasks();
+    await expect(promise).resolves.toEqual([{ text: 'A reply.' }]);
+    expect(calls.map((c) => c.apiKey)).toEqual([OMAR_KEY, OMAR_KEY, SHARED_KEY]);
+
+    const fallbackLines = warn.mock.calls
+      .map((args) => args.join(' '))
+      .filter((line) => line.includes('fallback'));
+    expect(fallbackLines).toHaveLength(1);
+    expect(fallbackLines[0]).toContain('omar');
+    expect(fallbackLines[0]).not.toContain(OMAR_KEY);
+    expect(fallbackLines[0]).not.toContain(SHARED_KEY);
+    vi.useRealTimers();
+  });
+
+  it('member key and shared key both exhausted: the honest 502 after both contracts run out', async () => {
+    vi.useFakeTimers();
+    const gemini = await loadGemini({ shared: SHARED_KEY, omar: OMAR_KEY });
+    const calls = stubFetchByKey(() => 429);
+
+    const promise = gemini.callTeamModel({ ...PARAMS, memberSlug: 'omar' });
+    const rejected = expect(promise).rejects.toMatchObject({ status: 502, code: 'MODEL_ERROR' });
+    await flushMicrotasks();
+    expect(calls.map((c) => c.apiKey)).toEqual([OMAR_KEY]);
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    await flushMicrotasks();
+    // Member key exhausted after its two attempts; the fallback pass
+    // has started on the shared key.
+    expect(calls.map((c) => c.apiKey)).toEqual([OMAR_KEY, OMAR_KEY, SHARED_KEY]);
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    await flushMicrotasks();
+    expect(calls.map((c) => c.apiKey)).toEqual([OMAR_KEY, OMAR_KEY, SHARED_KEY, SHARED_KEY]);
+    await rejected;
+    vi.useRealTimers();
+  });
+
+  it('member key healthy: the fallback is never touched and no fallback line is logged', async () => {
+    vi.useRealTimers();
+    const gemini = await loadGemini({ shared: SHARED_KEY, omar: OMAR_KEY });
+    const calls = stubFetchByKey(() => 200);
+    const warn = vi.mocked(console.warn);
+
+    await gemini.callTeamModel({ ...PARAMS, memberSlug: 'omar' });
+
+    expect(calls.map((c) => c.apiKey)).toEqual([OMAR_KEY]);
+    expect(
+      warn.mock.calls.map((args) => args.join(' ')).some((line) => line.includes('fallback')),
+    ).toBe(false);
   });
 });
