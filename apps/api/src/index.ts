@@ -6,6 +6,7 @@ import { initSentry, captureError } from './lib/sentry';
 import { startReminderJob } from './jobs/reminder.job';
 import { startReactivationJob } from './jobs/reactivation.job';
 import { startAdamWeeklyReviewJob } from './jobs/adam-weekly-review.job';
+import { startTeamAbilitiesJob } from './jobs/team-abilities.job';
 import { startDispatchJob } from './jobs/dispatch.job';
 import { startRetentionJob } from './jobs/retention.job';
 
@@ -19,6 +20,7 @@ const server = app.listen(env.PORT, () => {
   startReminderJob();
   startReactivationJob();
   startAdamWeeklyReviewJob();
+  startTeamAbilitiesJob();
   startDispatchJob();
   startRetentionJob();
 });
