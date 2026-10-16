@@ -962,7 +962,7 @@ function DemoSummaryStage({
   return (
     <div className="animate-fade-up px-5 py-6">
       <div className="rounded-2xl border border-line/70 bg-white p-5 shadow-sm">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-signal-deep">Call summary</p>
           <span className="rounded-full bg-clinic-soft px-2 py-0.5 text-[10px] font-semibold text-[#0b8a74]">
             Auto-generated
@@ -1107,8 +1107,8 @@ function DemoStagePanel({
   }[stage];
 
   return (
-    <div className="flex flex-col overflow-hidden rounded-3xl border border-white/10 bg-white shadow-lift">
-      <div className="flex items-center justify-between border-b border-line/60 bg-paper/70 px-5 py-3.5">
+    <div className="flex min-w-0 flex-col overflow-hidden rounded-3xl border border-white/10 bg-white shadow-lift">
+      <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-line/60 bg-paper/70 px-5 py-3.5">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-muted">{header.eyebrow}</p>
           <p className="mt-0.5 text-[13px] font-semibold text-ink">{header.title}</p>
@@ -1188,7 +1188,7 @@ function DemoStagePanel({
                         type="button"
                         onClick={() => onBlock(time)}
                         disabled={blocking === time}
-                        className={`group relative flex flex-1 items-center justify-between rounded-xl border border-dashed px-3.5 py-2 text-[13px] transition-colors ${
+                        className={`group relative flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-2 rounded-xl border border-dashed px-3.5 py-2 text-[13px] transition-colors ${
                           guideBlock
                             ? 'animate-highlight border-signal/50 text-ink-muted hover:border-signal hover:text-ink'
                             : 'border-line text-ink-muted/60 hover:border-ink-muted/40 hover:text-ink-muted'
@@ -1215,22 +1215,22 @@ function DemoStagePanel({
                       </button>
                     ) : appt.kind === 'voice' ? (
                       <span
-                        className={`flex flex-1 animate-pop-in items-center justify-between rounded-xl bg-gradient-to-r from-signal to-signal-deep px-3.5 py-2 text-[13px] font-semibold text-white shadow-pop ${
+                        className={`flex min-w-0 flex-1 animate-pop-in flex-wrap items-center justify-between gap-2 rounded-xl bg-gradient-to-r from-signal to-signal-deep px-3.5 py-2 text-[13px] font-semibold text-white shadow-pop ${
                           flashTime === time ? 'animate-flash-green' : ''
                         }`}
                       >
                         {appt.label}
-                        <span className="rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
+                        <span className="shrink-0 rounded-full bg-white/20 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
                           {flashTime === time ? 'Just booked ✓' : 'Voice agent'}
                         </span>
                       </span>
                     ) : appt.kind === 'blocked' ? (
-                      <span className="flex flex-1 items-center justify-between rounded-xl bg-construction-soft px-3.5 py-2 text-[13px] font-medium text-[#9a6a1d] ring-1 ring-inset ring-construction/20">
+                      <span className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-2 rounded-xl bg-construction-soft px-3.5 py-2 text-[13px] font-medium text-[#9a6a1d] ring-1 ring-inset ring-construction/20">
                         {appt.label}
-                        <span className="text-[10px] font-semibold uppercase tracking-wide">Blocked</span>
+                        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wide">Blocked</span>
                       </span>
                     ) : (
-                      <span className="flex-1 rounded-xl bg-paper px-3.5 py-2 text-[13px] text-ink-muted ring-1 ring-inset ring-ink/5">
+                      <span className="min-w-0 flex-1 rounded-xl bg-paper px-3.5 py-2 text-[13px] text-ink-muted ring-1 ring-inset ring-ink/5">
                         {appt.label}
                       </span>
                     )}
@@ -1779,8 +1779,8 @@ export function InteractiveDemo() {
   return (
     <div key="web" className="grid animate-fade-up items-stretch gap-5 lg:grid-cols-2">
       {/* ------------------------------ call console ------------------------------ */}
-      <div className="flex flex-col overflow-hidden rounded-3xl border border-white/10 bg-white shadow-lift">
-        <div className="flex items-center justify-between border-b border-line/60 bg-paper/70 px-5 py-3.5">
+      <div className="flex min-w-0 flex-col overflow-hidden rounded-3xl border border-white/10 bg-white shadow-lift">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 border-b border-line/60 bg-paper/70 px-5 py-3.5">
           <p className="text-xs font-semibold uppercase tracking-[0.12em] text-ink-muted">Live demo call</p>
           {live ? (
             <span className="flex items-center gap-2 text-xs font-semibold text-signal-deep">
@@ -1897,8 +1897,8 @@ export function InteractiveDemo() {
       />
 
       {/* ----------------------------- guided scenarios ---------------------------- */}
-      <div className="lg:col-span-2">
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="min-w-0 lg:col-span-2">
+        <div className="grid grid-cols-2 items-start gap-3 lg:grid-cols-4">
           {(maya ? MAYA_SCENARIOS : DEMO_SCENARIOS).map((s, i) => {
             // Scenarios map 1:1 to the first four stages; the last card ("recap")
             // stays lit through both summary and close.

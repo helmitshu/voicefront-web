@@ -238,7 +238,7 @@ export function HeroSection() {
         className="pointer-events-none absolute inset-0 [background-image:linear-gradient(rgba(255,255,255,0.03)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.03)_1px,transparent_1px)] [background-size:60px_60px] [mask-image:radial-gradient(75%_70%_at_50%_22%,black,transparent)]"
       />
       <div className="relative mx-auto grid max-w-6xl items-start gap-16 lg:grid-cols-[1.05fr_0.95fr]">
-        <div className="lg:pt-8">
+        <div className="min-w-0 lg:pt-8">
           <Reveal>
             <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/[0.06] px-3.5 py-1.5 text-[13px] font-medium text-white/85 backdrop-blur">
               <span className="relative flex h-1.5 w-1.5">
@@ -275,7 +275,7 @@ export function HeroSection() {
             </div>
           </Reveal>
         </div>
-        <Reveal delay={200} className="relative isolate">
+        <Reveal delay={200} className="relative isolate min-w-0">
           {/* The live personalized demo is the hero's main event: the prospect
               hears Maya answer as their own clinic, not a scripted mock. */}
           <div
@@ -1117,7 +1117,10 @@ export function SiteFooter() {
     },
   ];
   return (
-    <footer className="border-t border-line/60 bg-surface/40 px-6 pb-10 pt-14">
+    // pb-32 is Lyla clearance: her pill is fixed at the bottom-right, and the
+    // tall footer padding is the scroll room that lets the last footer content
+    // (and the last card above it) be scrolled fully clear of the pill.
+    <footer className="border-t border-line/60 bg-surface/40 px-6 pb-32 pt-14">
       <div className="mx-auto max-w-6xl">
         <div className="grid gap-10 sm:grid-cols-2 lg:grid-cols-[1.4fr_1fr_1fr_1fr]">
           <div className="max-w-xs">
