@@ -275,15 +275,20 @@ html[data-theme='deepteal'] .theme-root {
   }
 }
 
-/* Subtle scrollbars that match the palette (WebKit). */
+/* Subtle scrollbars that match the palette (WebKit). The thumb color comes
+   from the active theme's ink token, so the dark themes get a muted dark
+   thumb instead of a pale bar, and light themes get the inverse. The
+   transparent border (with background-clip) keeps the thumb slim without
+   painting a light halo around it. */
 *::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 *::-webkit-scrollbar-thumb {
-  background: #d2d6de;
+  background: rgb(var(--vf-ink) / 0.32);
   border-radius: 8px;
-  border: 2px solid #f7f8fa;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
 *::-webkit-scrollbar-track {
   background: transparent;
@@ -463,4 +468,226 @@ html[data-calm='true'] .bg-wave-1,
 html[data-calm='true'] .bg-wave-2,
 html[data-calm='true'] .bg-wave-3 {
   animation: none !important;
+}
+
+/* --------------------------- Lyla motion system ---------------------------- */
+/* The landing host's choreography, all transform / opacity / box-shadow so
+   every piece stays GPU-composited: a guided scroll dimmed by a cutout
+   overlay, a spotlight settle on arrival, her pill's idle float and ring,
+   her typing dots, message and proactive-bubble entrances, the chat
+   panel's open/close transition, and scroll reveals for marketing
+   sections. The JS halves (LylaWidget, ScrollReveal) gate themselves on
+   the same signals this block stills: prefers-reduced-motion and the
+   calm-mode attribute. */
+
+/* The guiding dim: a fixed cutout whose giant shadow darkens the whole
+   page except the hole over Lyla's target. JS positions the hole every
+   animation frame while the guided scroll runs, then fades it out. */
+.lyla-guide-overlay {
+  position: fixed;
+  z-index: 30;
+  pointer-events: none;
+  border-radius: 18px;
+  box-shadow: 0 0 0 9999px rgba(5, 26, 20, 0.46);
+  transition: opacity 320ms ease;
+}
+
+/* The arrival spotlight: a soft teal ring, a breath of scale, and a
+   shadow pulse over about 2.4 seconds, then it settles away. */
+@keyframes lyla-spotlight {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(13, 148, 136, 0);
+  }
+  18% {
+    transform: scale(1.01);
+    box-shadow:
+      0 0 0 3px rgba(13, 148, 136, 0.55),
+      0 24px 60px -18px rgba(6, 40, 32, 0.45);
+  }
+  45% {
+    transform: scale(1.01);
+    box-shadow:
+      0 0 0 6px rgba(13, 148, 136, 0.22),
+      0 24px 60px -18px rgba(6, 40, 32, 0.35);
+  }
+  70% {
+    transform: scale(1.01);
+    box-shadow:
+      0 0 0 3px rgba(13, 148, 136, 0.4),
+      0 24px 60px -18px rgba(6, 40, 32, 0.4);
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 rgba(13, 148, 136, 0);
+  }
+}
+.lyla-spotlight {
+  position: relative;
+  z-index: 6;
+  animation: lyla-spotlight 2.4s ease-in-out both;
+}
+
+/* Her minimized pill: a very slow, few-pixel idle float. */
+@keyframes lyla-float {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(-3px);
+  }
+}
+.lyla-avatar-float {
+  animation: lyla-float 5.5s ease-in-out infinite;
+}
+
+/* A soft ring pulse while she is guiding, streaming, or has just spoken
+   first: her avatar quietly asks for the eye, never shouts. */
+@keyframes lyla-ring-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(13, 148, 136, 0.45);
+  }
+  70% {
+    box-shadow: 0 0 0 9px rgba(13, 148, 136, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(13, 148, 136, 0);
+  }
+}
+.lyla-avatar-ring {
+  border-radius: 9999px;
+  animation: lyla-ring-pulse 1.8s ease-out infinite;
+}
+
+/* Her typing dots: three small lifts, staggered by inline delay. */
+@keyframes lyla-dot-bounce {
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+    opacity: 0.45;
+  }
+  30% {
+    transform: translateY(-3px);
+    opacity: 1;
+  }
+}
+.lyla-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 9999px;
+  background: rgb(var(--vf-ink-muted));
+  animation: lyla-dot-bounce 1.2s ease-in-out infinite;
+}
+
+/* Chat messages arrive with a small fade-slide. Only the mounting
+   message animates; the list's existing bubbles keep their nodes. */
+@keyframes lyla-msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.lyla-msg {
+  animation: lyla-msg-in 320ms cubic-bezier(0.22, 0.9, 0.3, 1) both;
+}
+
+/* A proactive line lands as a card that slides up and fades in. */
+@keyframes lyla-bubble-in {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.lyla-bubble-in {
+  animation: lyla-bubble-in 380ms cubic-bezier(0.22, 0.9, 0.3, 1) both;
+}
+
+/* Her panel breathes in and out instead of snapping. The widget keeps
+   the panel mounted for the length of the close transition, flagged
+   with data-shown="false" while it settles away. */
+.lyla-panel {
+  transform-origin: bottom right;
+  transition:
+    opacity 260ms ease,
+    transform 280ms cubic-bezier(0.22, 0.9, 0.3, 1);
+}
+.lyla-panel[data-shown='false'] {
+  opacity: 0;
+  transform: translateY(12px) scale(0.97);
+  pointer-events: none;
+}
+
+/* Marketing sections reveal as they approach: fade up, small travel.
+   ScrollReveal adds the pre-state only to below-the-fold sections it
+   has observed (never to first-paint content), so no-JS and print
+   always render the page fully. */
+.vf-reveal-pre {
+  opacity: 0;
+  transform: translateY(16px);
+}
+.vf-reveal-in {
+  opacity: 1;
+  transform: translateY(0);
+  transition:
+    opacity 700ms ease,
+    transform 700ms cubic-bezier(0.22, 0.9, 0.3, 1);
+}
+@media print {
+  .vf-reveal-pre {
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}
+
+/* Reduced motion stills the whole Lyla system; the JS halves also check
+   the query (and calm mode) and simply take the instant path. */
+@media (prefers-reduced-motion: reduce) {
+  .lyla-avatar-float,
+  .lyla-avatar-ring,
+  .lyla-dot,
+  .lyla-msg,
+  .lyla-bubble-in,
+  .lyla-spotlight {
+    animation: none !important;
+  }
+  .lyla-panel {
+    transition: none !important;
+  }
+  .vf-reveal-pre,
+  .vf-reveal-in {
+    opacity: 1 !important;
+    transform: none !important;
+    transition: none !important;
+  }
+}
+
+/* Calm mode mirrors the stilling, the same contract as the rest of the
+   app: a user who asked for calm in Settings gets it on the marketing
+   pages too. */
+html[data-calm='true'] .lyla-avatar-float,
+html[data-calm='true'] .lyla-avatar-ring,
+html[data-calm='true'] .lyla-dot,
+html[data-calm='true'] .lyla-msg,
+html[data-calm='true'] .lyla-bubble-in,
+html[data-calm='true'] .lyla-spotlight {
+  animation: none !important;
+}
+html[data-calm='true'] .lyla-panel {
+  transition: none !important;
+}
+html[data-calm='true'] .vf-reveal-pre,
+html[data-calm='true'] .vf-reveal-in {
+  opacity: 1 !important;
+  transform: none !important;
+  transition: none !important;
 }
