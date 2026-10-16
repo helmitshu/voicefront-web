@@ -214,6 +214,9 @@ html[data-theme='deepteal'] .theme-root {
     /* Buttery anchor navigation, offset clear of the fixed header. */
     scroll-behavior: smooth;
     scroll-padding-top: 7rem;
+    /* Anchor and guided scrolls also land clear of Lyla's fixed pill at the
+       bottom-right; the footer carries the matching scroll room (pb-32). */
+    scroll-padding-bottom: 8rem;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
