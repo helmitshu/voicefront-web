@@ -36,6 +36,18 @@ vi.hoisted(() => {
  *  - discuss runs two rounds (round 2 carries the agree/challenge
  *    instruction), closes with a SYSTEM auto summary, and leaves the
  *    Decision slot empty until setDecision records a CEO message;
+ *  - discuss follow-up rounds (Phase 2a.1): an owner message in a
+ *    discussion is answered in the background by the members seated
+ *    in that thread (the seating is derived from who has authored
+ *    there, in first-spoke order; a thread where no member has ever
+ *    authored seats the whole team), one answer each, with
+ *    channel-style handoffs bounded per round (2 hops, 8 member
+ *    messages) and the caps resetting on every new owner message; a
+ *    message posted mid-debate chains after the debate settles;
+ *    follow-ups never regenerate the summary or touch the Decision
+ *    slot; a round where everyone fails leaves the honest SYSTEM
+ *    note and no fabricated replies; the post returns before the
+ *    round completes;
  *  - work items list, create, and change status across the full
  *    lifecycle (QUEUED, ASSIGNED, IN_PROGRESS, DONE, BLOCKED);
  *  - human pacing: member replies are stored with a near-future
@@ -893,6 +905,234 @@ describe('AI Team routes', () => {
     // the shared-key fallback pass of three more (every key is failing
     // here), and round 2 never ran.
     expect(geminiRequests).toHaveLength(12);
+  }, 60_000);
+
+  it('discuss follow-up: after the debate, the owner talks back and the seated members answer', async () => {
+    geminiResponder = (system) =>
+      system.includes('auto summary') ? 'Positions, agreements, open questions.' : 'A short position.';
+    const res = await call('POST', '/api/admin/team/discuss', {
+      topic: 'Should the demo call clinics back automatically?',
+      memberSlugs: ['daniel', 'omar'],
+    });
+    expect(res.status).toBe(201);
+    const threadId = res.json.thread.id;
+    await awaitDiscussion(threadId);
+
+    const before = db.teamMessage.filter((m) => m.threadId === threadId);
+    // The seating derivation, mirrored from the stored thread: the
+    // members who have spoken here, in the order they first spoke.
+    const seatedOrder: string[] = [];
+    for (const m of before) {
+      if (m.authorType === 'MEMBER' && m.authorSlug && !seatedOrder.includes(m.authorSlug)) {
+        seatedOrder.push(m.authorSlug);
+      }
+    }
+    expect(seatedOrder).toHaveLength(2);
+
+    const post = await call('POST', `/api/admin/team/threads/${threadId}/messages`, {
+      body: 'And what about clinics that never pick up the first call?',
+    });
+    expect(post.status).toBe(201);
+    expect(post.json.reply).toBeUndefined();
+    await awaitReply(threadId);
+
+    const after = db.teamMessage.filter((m) => m.threadId === threadId);
+    const ownerIndex = after.findIndex(
+      (m) => m.authorType === 'OWNER' && m.body.startsWith('And what about'),
+    );
+    const roundReplies = after.slice(ownerIndex + 1).filter((m) => m.authorType === 'MEMBER');
+    // Exactly one answer per seated member, in thread order. Priya
+    // and Layla never spoke in this thread, so they are not seated
+    // and do not answer.
+    expect(roundReplies.map((m) => m.authorSlug)).toEqual(seatedOrder);
+    // A follow-up round is conversation, not a new verdict: the
+    // formal summary is not regenerated and the Decision slot is
+    // untouched.
+    expect(after.filter((m) => m.label === 'AUTO_SUMMARY')).toHaveLength(1);
+    expect(db.teamThread.find((t) => t.id === threadId)?.decision).toBeNull();
+  });
+
+  it('discuss follow-up: the per-round caps bind, and the next owner message resets them', async () => {
+    // Every member's reply names the next member, so handoff chains
+    // keep spending the round's message budget until the cap cuts in.
+    geminiResponder = (system) => {
+      if (system.includes('auto summary')) return 'Positions and open questions.';
+      if (system.includes('Omar Haddad')) return '@priya your take.';
+      if (system.includes('Priya Nair')) return '@daniel your take.';
+      if (system.includes('Daniel Osei')) return '@layla your take.';
+      if (system.includes('Layla Mansour')) return '@omar your take.';
+      return 'Noted.';
+    };
+    const res = await call('POST', '/api/admin/team/discuss', {
+      topic: 'Where does the first clinic stall?',
+    });
+    expect(res.status).toBe(201);
+    const threadId = res.json.thread.id;
+    await awaitDiscussion(threadId);
+
+    const memberCount = () =>
+      db.teamMessage.filter((m) => m.threadId === threadId && m.authorType === 'MEMBER').length;
+    const baseline = memberCount();
+    expect(baseline).toBe(8); // 4 members x 2 debate rounds
+
+    await call('POST', `/api/admin/team/threads/${threadId}/messages`, {
+      body: 'Keep going, all of you.',
+    });
+    await awaitReply(threadId);
+    // The round's budget is 8 member messages: base answers plus
+    // handoffs spend it down and the round stops there, one seated
+    // member never gets a base turn.
+    expect(memberCount() - baseline).toBe(8);
+
+    await call('POST', `/api/admin/team/threads/${threadId}/messages`, {
+      body: 'One more round.',
+    });
+    await awaitReply(threadId);
+    // The founder's rule: a fresh owner message starts a fresh round
+    // with a fresh budget, so the room answers fully again instead
+    // of staying capped by the earlier round's traffic.
+    expect(memberCount() - baseline).toBe(16);
+  }, 30_000);
+
+  it('discuss follow-up: an owner message posted mid-debate is answered after the debate settles', async () => {
+    geminiResponder = (system) =>
+      system.includes('auto summary') ? 'Positions and open questions.' : 'A short position.';
+    geminiGate = new Promise<void>((resolve) => {
+      releaseGeminiGate = resolve;
+    });
+    const res = await call('POST', '/api/admin/team/discuss', {
+      topic: 'Should the demo call clinics back automatically?',
+      memberSlugs: ['omar', 'priya'],
+    });
+    expect(res.status).toBe(201);
+    const threadId = res.json.thread.id;
+
+    // The debate is gated mid-flight; the owner's follow-up still
+    // posts instantly and is stored, never dropped.
+    const post = await call('POST', `/api/admin/team/threads/${threadId}/messages`, {
+      body: 'One more angle: what about weekends?',
+    });
+    expect(post.status).toBe(201);
+    expect(
+      db.teamMessage.filter((m) => m.threadId === threadId && m.authorType === 'OWNER'),
+    ).toHaveLength(2);
+
+    releaseGeminiGate!();
+    geminiGate = null;
+    await awaitDiscussion(threadId);
+    await awaitReply(threadId);
+
+    const stored = db.teamMessage.filter((m) => m.threadId === threadId);
+    const summaryIndex = stored.findIndex((m) => m.label === 'AUTO_SUMMARY');
+    expect(summaryIndex).toBeGreaterThanOrEqual(0);
+    // The debate ran whole: its four member turns all land before
+    // the summary, nothing interleaved with them.
+    const debateMembers = stored.slice(0, summaryIndex).filter((m) => m.authorType === 'MEMBER');
+    expect(debateMembers).toHaveLength(4);
+    // The follow-up round ran after the debate settled: one answer
+    // per seated member, stored after the summary.
+    const roundReplies = stored.slice(summaryIndex + 1).filter((m) => m.authorType === 'MEMBER');
+    expect(roundReplies.map((m) => m.authorSlug).sort()).toEqual(['omar', 'priya']);
+  }, 15_000);
+
+  it('discuss follow-up: every member failing leaves the honest note and no fake replies', async () => {
+    geminiResponder = (system) =>
+      system.includes('auto summary') ? 'Positions and open questions.' : 'A short position.';
+    const res = await call('POST', '/api/admin/team/discuss', {
+      topic: 'Should the demo call clinics back automatically?',
+      memberSlugs: ['omar', 'priya'],
+    });
+    const threadId = res.json.thread.id;
+    await awaitDiscussion(threadId);
+    const baseline = db.teamMessage.filter((m) => m.threadId === threadId).length;
+
+    geminiFailFor = () => true;
+    const post = await call('POST', `/api/admin/team/threads/${threadId}/messages`, {
+      body: 'Are you still there?',
+    });
+    expect(post.status).toBe(201);
+    await awaitReply(threadId);
+
+    const after = db.teamMessage.filter((m) => m.threadId === threadId);
+    const newRows = after.slice(baseline);
+    // The owner's message, then one honest SYSTEM note. No member
+    // reply was fabricated out of the failures.
+    expect(newRows.map((m) => m.authorType)).toEqual(['OWNER', 'SYSTEM']);
+    expect(newRows[1].body).toContain('could answer just now');
+    expect(newRows[1].label ?? null).toBeNull();
+  }, 60_000);
+
+  it('discuss follow-up: the post returns before the round completes (the model is gated)', async () => {
+    geminiResponder = (system) =>
+      system.includes('auto summary') ? 'Positions and open questions.' : 'A short position.';
+    const res = await call('POST', '/api/admin/team/discuss', {
+      topic: 'Should the demo call clinics back automatically?',
+      memberSlugs: ['omar', 'priya'],
+    });
+    const threadId = res.json.thread.id;
+    await awaitDiscussion(threadId);
+
+    geminiGate = new Promise<void>((resolve) => {
+      releaseGeminiGate = resolve;
+    });
+    const postPromise = call('POST', `/api/admin/team/threads/${threadId}/messages`, {
+      body: 'Final word, each of you?',
+    });
+    const outcome = await Promise.race([
+      postPromise.then(() => 'returned'),
+      new Promise((resolve) => setTimeout(() => resolve('still waiting'), 1_000)),
+    ]);
+    // The model has answered nothing (it cannot, it is gated), yet
+    // the post already returned with the message stored.
+    expect(outcome).toBe('returned');
+    const post = await postPromise;
+    expect(post.status).toBe(201);
+    // While the round is in flight the thread says so, through the
+    // same pending signal the typing UI already reads.
+    const view = await call('GET', `/api/admin/team/threads/${threadId}/messages`);
+    expect(view.json.pending.active).toBe(true);
+
+    releaseGeminiGate!();
+    geminiGate = null;
+    await awaitReply(threadId);
+    const stored = db.teamMessage.filter((m) => m.threadId === threadId);
+    const ownerIndex = stored.findIndex(
+      (m) => m.authorType === 'OWNER' && m.body.startsWith('Final word'),
+    );
+    const roundReplies = stored.slice(ownerIndex + 1).filter((m) => m.authorType === 'MEMBER');
+    expect(roundReplies.map((m) => m.authorSlug).sort()).toEqual(['omar', 'priya']);
+  }, 15_000);
+
+  it('discuss follow-up: a thread where nobody ever spoke seats the whole team', async () => {
+    // The debate dies at the door: every member fails round 1, so no
+    // member has ever authored a message in this thread.
+    geminiFailFor = () => true;
+    const res = await call('POST', '/api/admin/team/discuss', {
+      topic: 'Should the demo call clinics back automatically?',
+      memberSlugs: ['omar', 'priya'],
+    });
+    expect(res.status).toBe(201);
+    const threadId = res.json.thread.id;
+    await awaitDiscussion(threadId);
+    expect(
+      db.teamMessage.filter((m) => m.threadId === threadId && m.authorType === 'MEMBER'),
+    ).toHaveLength(0);
+
+    geminiFailFor = null;
+    const post = await call('POST', `/api/admin/team/threads/${threadId}/messages`, {
+      body: 'Trying again: where does the first clinic stall?',
+    });
+    expect(post.status).toBe(201);
+    await awaitReply(threadId);
+    const stored = db.teamMessage.filter((m) => m.threadId === threadId);
+    const ownerIndex = stored.findIndex(
+      (m) => m.authorType === 'OWNER' && m.body.startsWith('Trying again'),
+    );
+    const roundReplies = stored.slice(ownerIndex + 1).filter((m) => m.authorType === 'MEMBER');
+    // With no authorship to derive seating from, the whole team is
+    // seated, in team order, including the two members the debate
+    // itself never seated.
+    expect(roundReplies.map((m) => m.authorSlug)).toEqual(['omar', 'priya', 'daniel', 'layla']);
   }, 60_000);
 
   it('work items: create, list, and move status', async () => {
