@@ -21,14 +21,23 @@ vi.hoisted(() => {
  * Pinned behaviour:
  *  - founder gate: no token -> 401, signed-in non-admin -> 403;
  *  - members seed from the roster on first read;
- *  - a DM stores the owner message and the member's reply;
- *  - a Gemini failure is an honest 502 and stores NO fabricated reply;
- *  - the group channel answers only the @named member;
+ *  - posting is instant (Phase 2a): a DM or channel post returns the
+ *    stored owner message as soon as it is stored, and the reply work
+ *    runs in the background (the suite awaits it through awaitReply);
+ *    the post provably returns while the member model is still gated;
+ *  - a failed background reply stores NO fabricated reply, and the
+ *    thread's in-flight signal (pending.active) clears;
+ *  - the group channel floor (Phase 2a): a message naming nobody is a
+ *    standup and every member answers once, failure-isolated, and
+ *    standup replies never chain; a @named member answers alone, and
+ *    if their reply @names another member that member answers too
+ *    (handoffs), bounded at 2 hops per owner message;
  *  - the CEO channel stores messages and NEVER calls the model;
  *  - discuss runs two rounds (round 2 carries the agree/challenge
  *    instruction), closes with a SYSTEM auto summary, and leaves the
  *    Decision slot empty until setDecision records a CEO message;
- *  - work items list, create, and change status;
+ *  - work items list, create, and change status across the full
+ *    lifecycle (QUEUED, ASSIGNED, IN_PROGRESS, DONE, BLOCKED);
  *  - human pacing: member replies are stored with a near-future
  *    visibleAt (a breath, never more than about two seconds) and stay
  *    out of the thread view until it passes (the view names who is
@@ -38,13 +47,16 @@ vi.hoisted(() => {
  *    the topic while the debate runs in the background (the suite
  *    awaits it through awaitDiscussion); both rounds answer in
  *    parallel from a shared snapshot per round;
- *  - model hardening: transient 503s retry (bounded at 3 attempts,
- *    with backoff) and can still land a reply, a persistent 503 ends
- *    in the honest 502, non-transient failures never retry, and a
- *    discuss isolates a member whose turns all fail, continuing with
- *    the rest and telling the summary who could not answer; a round 1
- *    where every member fails leaves an honest SYSTEM note in the
- *    thread instead of a failed start;
+ *  - model hardening: transient 503s retry (bounded at 3 attempts per
+ *    key, with backoff) and can still land a reply; when a member's own
+ *    key is exhausted the interactive call is retried once on the
+ *    shared key (the fallback is pinned in team-gemini.test.ts), and
+ *    only when both keys fail does the reply honestly not land;
+ *    non-transient failures never retry, and a discuss isolates a
+ *    member whose turns all fail, continuing with the rest and
+ *    telling the summary who could not answer; a round 1 where every
+ *    member fails leaves an honest SYSTEM note in the thread instead
+ *    of a failed start;
  *  - discuss summary key: the auto summary runs on the first answering
  *    member's own key (seen on the fetch stub's x-goog-api-key header),
  *    not the shared chain, and falls back to the shared key when that
@@ -64,6 +76,7 @@ const { db, fakePrisma } = vi.hoisted(() => {
     teamNote: [],
     failureCase: [],
     teamPageWatch: [],
+    teamRun: [],
     callLog: [],
     demoLead: [],
     demoCall: [],
@@ -265,12 +278,19 @@ let geminiResponder: (systemText: string, contents: any[]) => string = () => 'Sh
 let geminiScript: Array<'fail503'> = [];
 /** Persistent 503 for any call this predicate matches (member isolation). */
 let geminiFailFor: ((system: string, contents: any[]) => boolean) | null = null;
+/**
+ * A gate the Gemini stub waits behind, for the deferred-model test:
+ * while it is set, no model call completes until it is released.
+ */
+let geminiGate: Promise<void> | null = null;
+let releaseGeminiGate: (() => void) | null = null;
 const geminiRequests: Array<{ system: string; contents: any[]; apiKey: string | undefined }> = [];
 
 const fetchMock = vi.fn(
   async (url: unknown, init?: { body?: string; headers?: Record<string, string> }) => {
     const u = String(url);
     if (u.includes('generativelanguage.googleapis.com')) {
+      if (geminiGate) await geminiGate;
       const body = JSON.parse(init?.body ?? '{}');
       const system = body.systemInstruction?.parts?.map((p: any) => p.text).join('\n') ?? '';
       geminiRequests.push({
@@ -311,7 +331,7 @@ vi.stubGlobal('fetch', fetchMock);
 
 import { teamRouter } from './team.routes';
 import { errorHandler } from '../middleware/error';
-import { awaitDiscussion } from '../services/team.service';
+import { awaitDiscussion, awaitReply } from '../services/team.service';
 
 let server: Server;
 let base = '';
@@ -355,6 +375,8 @@ beforeEach(() => {
   geminiMode = 'ok';
   geminiScript = [];
   geminiFailFor = null;
+  geminiGate = null;
+  releaseGeminiGate = null;
   geminiResponder = () => 'Short member reply.';
   fetchMock.mockClear();
 });
@@ -377,7 +399,7 @@ describe('AI Team routes', () => {
     expect(db.teamMember).toHaveLength(4);
   });
 
-  it('runs a DM: owner message stored, member reply stored and returned', async () => {
+  it('runs a DM: the post returns the stored message, the reply lands in the background', async () => {
     const threadRes = await call('POST', '/api/admin/team/threads', { type: 'DM', memberSlug: 'omar' });
     expect(threadRes.status).toBe(201);
     const threadId = threadRes.json.thread.id;
@@ -387,44 +409,151 @@ describe('AI Team routes', () => {
     });
     expect(res.status).toBe(201);
     expect(res.json.message.authorType).toBe('OWNER');
-    expect(res.json.reply.authorType).toBe('MEMBER');
-    expect(res.json.reply.authorSlug).toBe('omar');
-    expect(res.json.reply.body).toBe('Short member reply.');
+    // Posting no longer waits for the reply: none comes back with it.
+    expect(res.json.reply).toBeUndefined();
+
+    await awaitReply(threadId);
+    const stored = db.teamMessage.filter((m) => m.threadId === threadId);
+    expect(stored).toHaveLength(2);
+    const reply = stored.find((m) => m.authorType === 'MEMBER')!;
+    expect(reply.authorSlug).toBe('omar');
+    expect(reply.body).toBe('Short member reply.');
     expect(geminiRequests).toHaveLength(1);
     // The persona and the hard rules ride in the system prompt.
     expect(geminiRequests[0].system).toContain('Omar Haddad');
     expect(geminiRequests[0].system).toContain('one idea per message');
   });
 
-  it('surfaces a Gemini failure as 502 and stores no fabricated reply', async () => {
+  it('a failed background reply stores no fabricated reply, and the post itself still succeeds', async () => {
     geminiMode = 'fail';
     const threadRes = await call('POST', '/api/admin/team/threads', { type: 'DM', memberSlug: 'priya' });
     const threadId = threadRes.json.thread.id;
     const res = await call('POST', `/api/admin/team/threads/${threadId}/messages`, {
       body: 'Score this idea.',
     });
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(201);
+    await awaitReply(threadId);
     const stored = db.teamMessage.filter((m) => m.threadId === threadId);
     expect(stored).toHaveLength(1);
     expect(stored[0].authorType).toBe('OWNER');
+    // The in-flight signal cleared with the failed run.
+    const view = await call('GET', `/api/admin/team/threads/${threadId}/messages`);
+    expect(view.json.pending.active).toBe(false);
   });
 
-  it('group channel: silence without a mention, the named member answers', async () => {
+  it('the post provably returns before the reply: the model is gated, the post still lands', async () => {
     const threadRes = await call('POST', '/api/admin/team/threads', { type: 'GROUP' });
     const threadId = threadRes.json.thread.id;
 
-    const quiet = await call('POST', `/api/admin/team/threads/${threadId}/messages`, {
+    geminiGate = new Promise<void>((resolve) => {
+      releaseGeminiGate = resolve;
+    });
+    const postPromise = call('POST', `/api/admin/team/threads/${threadId}/messages`, {
+      body: '@omar are you there?',
+    });
+    const outcome = await Promise.race([
+      postPromise.then(() => 'returned'),
+      new Promise((resolve) => setTimeout(() => resolve('still waiting'), 1_000)),
+    ]);
+    // The model has not answered anything (it cannot, it is gated),
+    // yet the post already returned with the message stored.
+    expect(outcome).toBe('returned');
+    const res = await postPromise;
+    expect(res.status).toBe(201);
+    expect(db.teamMessage.filter((m) => m.threadId === threadId)).toHaveLength(1);
+    // While the reply is in flight the thread says so.
+    const view = await call('GET', `/api/admin/team/threads/${threadId}/messages`);
+    expect(view.json.pending.active).toBe(true);
+
+    releaseGeminiGate!();
+    geminiGate = null;
+    await awaitReply(threadId);
+    const stored = db.teamMessage.filter((m) => m.threadId === threadId);
+    expect(stored).toHaveLength(2);
+    expect(stored[1].authorSlug).toBe('omar');
+  }, 15_000);
+
+  it('group channel: no mention is a standup, every member answers once; a mention wakes one', async () => {
+    const threadRes = await call('POST', '/api/admin/team/threads', { type: 'GROUP' });
+    const threadId = threadRes.json.thread.id;
+
+    const standup = await call('POST', `/api/admin/team/threads/${threadId}/messages`, {
       body: 'Morning all, pipeline looks thin.',
     });
-    expect(quiet.status).toBe(201);
-    expect(quiet.json.reply).toBeUndefined();
-    expect(geminiRequests).toHaveLength(0);
+    expect(standup.status).toBe(201);
+    expect(standup.json.reply).toBeUndefined();
+    await awaitReply(threadId);
+    const afterStandup = db.teamMessage.filter((m) => m.threadId === threadId);
+    const standupReplies = afterStandup.filter((m) => m.authorType === 'MEMBER');
+    expect(standupReplies.map((m) => m.authorSlug)).toEqual(['omar', 'priya', 'daniel', 'layla']);
+    expect(geminiRequests).toHaveLength(4);
 
     const named = await call('POST', `/api/admin/team/threads/${threadId}/messages`, {
       body: '@daniel what do the demo numbers say?',
     });
-    expect(named.json.reply.authorSlug).toBe('daniel');
-    expect(geminiRequests).toHaveLength(1);
+    expect(named.status).toBe(201);
+    await awaitReply(threadId);
+    const afterNamed = db.teamMessage.filter((m) => m.threadId === threadId);
+    expect(afterNamed.filter((m) => m.authorType === 'MEMBER')).toHaveLength(5);
+    expect(afterNamed[afterNamed.length - 1].authorSlug).toBe('daniel');
+    expect(geminiRequests).toHaveLength(5);
+  });
+
+  it('group standup: one member failing does not block the others', async () => {
+    geminiFailFor = (system) => system.includes('Priya Nair');
+    const threadRes = await call('POST', '/api/admin/team/threads', { type: 'GROUP' });
+    const threadId = threadRes.json.thread.id;
+
+    await call('POST', `/api/admin/team/threads/${threadId}/messages`, {
+      body: 'Standup, everyone.',
+    });
+    await awaitReply(threadId);
+    const replies = db.teamMessage.filter(
+      (m) => m.threadId === threadId && m.authorType === 'MEMBER',
+    );
+    expect(replies.map((m) => m.authorSlug)).toEqual(['omar', 'daniel', 'layla']);
+  }, 30_000);
+
+  it('group handoffs: a reply naming the next member hands off, and the chain stops at two hops', async () => {
+    geminiResponder = (system) => {
+      if (system.includes('Omar Haddad')) return '@priya over to you.';
+      if (system.includes('Priya Nair')) return '@daniel your turn.';
+      if (system.includes('Daniel Osei')) return '@layla wrap it up.';
+      return 'Done.';
+    };
+    const threadRes = await call('POST', '/api/admin/team/threads', { type: 'GROUP' });
+    const threadId = threadRes.json.thread.id;
+
+    await call('POST', `/api/admin/team/threads/${threadId}/messages`, {
+      body: '@omar kick this off.',
+    });
+    await awaitReply(threadId);
+    const replies = db.teamMessage.filter(
+      (m) => m.threadId === threadId && m.authorType === 'MEMBER',
+    );
+    // Omar (the mention), Priya (hop 1), Daniel (hop 2). Daniel naming
+    // Layla would be hop 3: the cap cuts it, Layla never answers.
+    expect(replies.map((m) => m.authorSlug)).toEqual(['omar', 'priya', 'daniel']);
+    expect(geminiRequests).toHaveLength(3);
+  });
+
+  it('group standup replies never chain into handoffs', async () => {
+    geminiResponder = (system) =>
+      system.includes('Omar Haddad') ? '@priya look at this.' : 'Noted.';
+    const threadRes = await call('POST', '/api/admin/team/threads', { type: 'GROUP' });
+    const threadId = threadRes.json.thread.id;
+
+    await call('POST', `/api/admin/team/threads/${threadId}/messages`, {
+      body: 'Quick standup.',
+    });
+    await awaitReply(threadId);
+    const replies = db.teamMessage.filter(
+      (m) => m.threadId === threadId && m.authorType === 'MEMBER',
+    );
+    // Exactly the four standup replies: Omar naming Priya did not earn
+    // her a second turn.
+    expect(replies).toHaveLength(4);
+    expect(replies.filter((m) => m.authorSlug === 'priya')).toHaveLength(1);
   });
 
   it('CEO channel stores messages and never calls the model', async () => {
@@ -499,6 +628,7 @@ describe('AI Team routes', () => {
       body: 'How long to ship the fix?',
     });
     expect(res.status).toBe(201);
+    await awaitReply(threadId);
 
     // Stored right away, carrying a pacing moment inside the clamp.
     const stored = db.teamMessage.filter((m) => m.threadId === threadId);
@@ -533,6 +663,7 @@ describe('AI Team routes', () => {
     await call('POST', `/api/admin/team/threads/${threadId}/messages`, {
       body: '@layla what does the research say?',
     });
+    await awaitReply(threadId);
     const view = await call('GET', `/api/admin/team/threads/${threadId}/messages`);
     expect(view.json.messages.map((m: any) => m.authorType)).toEqual(['OWNER']);
     expect(view.json.pending.memberSlugs).toEqual(['layla']);
@@ -603,7 +734,9 @@ describe('AI Team routes', () => {
     const res = await call('POST', `/api/admin/team/threads/${threadId}/messages`, {
       body: 'Score this idea.',
     });
-    expect(res.status).toBe(502);
+    // The post lands; the background reply is what fails.
+    expect(res.status).toBe(201);
+    await awaitReply(threadId);
 
     const view = await call('GET', `/api/admin/team/threads/${threadId}/messages`);
     expect(view.json.messages.map((m: any) => m.authorType)).toEqual(['OWNER']);
@@ -620,27 +753,31 @@ describe('AI Team routes', () => {
       body: 'Status on the fix?',
     });
     expect(res.status).toBe(201);
-    expect(res.json.reply.body).toBe('Short member reply.');
+    await awaitReply(threadId);
+    const stored = db.teamMessage.filter((m) => m.threadId === threadId);
+    expect(stored).toHaveLength(2);
+    expect(stored[1].body).toBe('Short member reply.');
     // Exactly two model calls: the 503 and the retry that landed.
     expect(geminiRequests).toHaveLength(2);
-    expect(db.teamMessage.filter((m) => m.threadId === threadId)).toHaveLength(2);
   }, 15_000);
 
-  it('retry: a persistent 503 ends in an honest 502 with no stored reply', async () => {
-    geminiScript = ['fail503', 'fail503', 'fail503', 'fail503'];
+  it('retry: a persistent 503 on both keys stores no reply after the bounded attempts and the fallback pass', async () => {
+    geminiFailFor = () => true;
     const threadRes = await call('POST', '/api/admin/team/threads', { type: 'DM', memberSlug: 'priya' });
     const threadId = threadRes.json.thread.id;
 
     const res = await call('POST', `/api/admin/team/threads/${threadId}/messages`, {
       body: 'Score this idea.',
     });
-    expect(res.status).toBe(502);
-    // Bounded: three attempts total, then it gives up honestly.
-    expect(geminiRequests).toHaveLength(3);
+    expect(res.status).toBe(201);
+    await awaitReply(threadId);
+    // Bounded: three attempts on Priya's own key, then the shared-key
+    // fallback pass of three more, then it gives up honestly.
+    expect(geminiRequests).toHaveLength(6);
     const stored = db.teamMessage.filter((m) => m.threadId === threadId);
     expect(stored).toHaveLength(1);
     expect(stored[0].authorType).toBe('OWNER');
-  }, 20_000);
+  }, 30_000);
 
   it('retry: a non-transient failure (500) is not retried', async () => {
     geminiMode = 'fail';
@@ -650,8 +787,10 @@ describe('AI Team routes', () => {
     const res = await call('POST', `/api/admin/team/threads/${threadId}/messages`, {
       body: 'Pipeline numbers?',
     });
-    expect(res.status).toBe(502);
+    expect(res.status).toBe(201);
+    await awaitReply(threadId);
     expect(geminiRequests).toHaveLength(1);
+    expect(db.teamMessage.filter((m) => m.threadId === threadId)).toHaveLength(1);
   });
 
   it('discuss isolation: one member failing every turn does not kill the discussion', async () => {
@@ -750,9 +889,11 @@ describe('AI Team routes', () => {
     expect(stored.map((m) => m.authorType)).toEqual(['OWNER', 'SYSTEM']);
     expect(stored[1].body).toContain('could answer just now');
     expect(stored[1].label ?? null).toBeNull();
-    // Two members, three bounded attempts each, and round 2 never ran.
-    expect(geminiRequests).toHaveLength(6);
-  }, 30_000);
+    // Two members, three bounded attempts each on their own key plus
+    // the shared-key fallback pass of three more (every key is failing
+    // here), and round 2 never ran.
+    expect(geminiRequests).toHaveLength(12);
+  }, 60_000);
 
   it('work items: create, list, and move status', async () => {
     await call('GET', '/api/admin/team/members');
@@ -770,6 +911,16 @@ describe('AI Team routes', () => {
       status: 'IN_PROGRESS',
     });
     expect(moved.json.workItem.status).toBe('IN_PROGRESS');
+
+    // The Phase 2a lifecycle values move through the same endpoint.
+    const assigned = await call('PATCH', `/api/admin/team/work-items/${created.json.workItem.id}`, {
+      status: 'ASSIGNED',
+    });
+    expect(assigned.json.workItem.status).toBe('ASSIGNED');
+    const blocked = await call('PATCH', `/api/admin/team/work-items/${created.json.workItem.id}`, {
+      status: 'BLOCKED',
+    });
+    expect(blocked.json.workItem.status).toBe('BLOCKED');
 
     const junk = await call('PATCH', `/api/admin/team/work-items/${created.json.workItem.id}`, {
       status: 'WHATEVER',

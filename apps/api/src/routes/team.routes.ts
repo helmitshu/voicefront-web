@@ -26,6 +26,7 @@ import {
   runRedTeam,
   runUptimeCheck,
 } from '../services/team-abilities.service';
+import { trackTeamRun, unwrapRun } from '../services/team-runs.service';
 
 /**
  * The AI Team room's API. Mounted inside adminRouter (which already
@@ -69,7 +70,7 @@ const workItemSchema = z.object({
 });
 
 const workItemStatusSchema = z.object({
-  status: z.enum(['QUEUED', 'IN_PROGRESS', 'DONE']),
+  status: z.enum(['QUEUED', 'ASSIGNED', 'IN_PROGRESS', 'DONE', 'BLOCKED']),
 });
 
 const invokeSchema = z.object({
@@ -246,26 +247,68 @@ teamRouter.get(
 );
 
 /* ------------------------------- abilities ------------------------------- */
+/* Every manual run is written to the runs ledger as MANUAL (and to the
+ * tool log) by trackTeamRun; the response shape is unchanged. */
 
 teamRouter.post(
   '/team/abilities/call-scoring',
   asyncHandler(async (req, res) => {
     const limit = typeof req.body?.limit === 'number' ? req.body.limit : undefined;
-    res.json(await runCallScoring({ limit }));
+    const { result } = unwrapRun(
+      await trackTeamRun({
+        ability: 'call-scoring',
+        memberSlug: 'priya',
+        trigger: 'MANUAL',
+        fn: async () => {
+          const result = await runCallScoring({ limit });
+          return { result, summary: result.summary };
+        },
+      }),
+    );
+    res.json(result);
   }),
 );
 
 teamRouter.post(
   '/team/abilities/leak-radar',
   asyncHandler(async (_req, res) => {
-    res.json(await runLeakRadar());
+    const { result } = unwrapRun(
+      await trackTeamRun({
+        ability: 'leak-radar',
+        memberSlug: 'daniel',
+        trigger: 'MANUAL',
+        fn: async () => {
+          const result = await runLeakRadar();
+          return {
+            result,
+            summary: `Leak radar: ${result.leaks.length} leak(s) found, ${result.workItemsCreated} work item(s) created.`,
+          };
+        },
+      }),
+    );
+    res.json(result);
   }),
 );
 
 teamRouter.post(
   '/team/abilities/uptime',
   asyncHandler(async (_req, res) => {
-    res.json(await runUptimeCheck());
+    const { result } = unwrapRun(
+      await trackTeamRun({
+        ability: 'uptime',
+        memberSlug: 'omar',
+        trigger: 'MANUAL',
+        fn: async () => {
+          const result = await runUptimeCheck();
+          const failing = result.checks.filter((check) => !check.ok).length;
+          return {
+            result,
+            summary: `Uptime: ${result.checks.length - failing}/${result.checks.length} targets OK${result.workItemCreated ? ', failure filed as a work item' : ''}.`,
+          };
+        },
+      }),
+    );
+    res.json(result);
   }),
 );
 
@@ -273,7 +316,17 @@ teamRouter.post(
   '/team/abilities/red-team',
   asyncHandler(async (req, res) => {
     const plan = typeof req.body?.plan === 'string' ? req.body.plan : '';
-    const draft = await runRedTeam({ plan });
+    const { result: draft } = unwrapRun(
+      await trackTeamRun({
+        ability: 'red-team',
+        memberSlug: 'priya',
+        trigger: 'MANUAL',
+        fn: async () => {
+          const result = await runRedTeam({ plan });
+          return { result, summary: `Pre-mortem drafted: ${result.title}.` };
+        },
+      }),
+    );
     res.status(201).json({ draft });
   }),
 );
@@ -281,11 +334,21 @@ teamRouter.post(
 teamRouter.post(
   '/team/abilities/dossier',
   asyncHandler(async (req, res) => {
-    const draft = await buildClinicDossier({
-      leadId: typeof req.body?.leadId === 'string' ? req.body.leadId : undefined,
-      websiteUrl: typeof req.body?.websiteUrl === 'string' ? req.body.websiteUrl : undefined,
-      businessName: typeof req.body?.businessName === 'string' ? req.body.businessName : undefined,
-    });
+    const { result: draft } = unwrapRun(
+      await trackTeamRun({
+        ability: 'dossier',
+        memberSlug: 'layla',
+        trigger: 'MANUAL',
+        fn: async () => {
+          const result = await buildClinicDossier({
+            leadId: typeof req.body?.leadId === 'string' ? req.body.leadId : undefined,
+            websiteUrl: typeof req.body?.websiteUrl === 'string' ? req.body.websiteUrl : undefined,
+            businessName: typeof req.body?.businessName === 'string' ? req.body.businessName : undefined,
+          });
+          return { result, summary: `Clinic dossier drafted: ${result.title}.` };
+        },
+      }),
+    );
     res.status(201).json({ draft });
   }),
 );
@@ -293,7 +356,17 @@ teamRouter.post(
 teamRouter.post(
   '/team/abilities/board-pack',
   asyncHandler(async (_req, res) => {
-    const draft = await buildBoardPack();
+    const { result: draft } = unwrapRun(
+      await trackTeamRun({
+        ability: 'board-pack',
+        memberSlug: 'layla',
+        trigger: 'MANUAL',
+        fn: async () => {
+          const result = await buildBoardPack();
+          return { result, summary: `Board pack drafted: ${result.title}.` };
+        },
+      }),
+    );
     res.status(201).json({ draft });
   }),
 );
