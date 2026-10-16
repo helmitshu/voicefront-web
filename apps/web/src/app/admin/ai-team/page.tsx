@@ -66,6 +66,11 @@ export default function AdminAiTeamPage() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [openingSlug, setOpeningSlug] = useState<string | null>(null);
+  /** Mobile only: the conversation is full-screen (Messenger style) unless
+   *  the founder taps back, which brings the nav chrome back into view. */
+  const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  /** Mobile only: the discussion details sheet (topic, seated, decision). */
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   const [discussTopic, setDiscussTopic] = useState('');
   const [discussSeats, setDiscussSeats] = useState<Set<string>>(new Set());
@@ -109,6 +114,26 @@ export default function AdminAiTeamPage() {
   );
 
   const typingSlugs = useMemo(() => new Set(pending.memberSlugs), [pending]);
+
+  /** Members seated in the open discussion: anyone who has spoken, plus
+   *  anyone currently typing. The thread payload carries no participant
+   *  list, so this derived set is the only seated set the client can know. */
+  const seatedMembers = useMemo(
+    () =>
+      (members ?? []).filter(
+        (m) =>
+          (messages ?? []).some(
+            (msg) => msg.authorType === 'MEMBER' && msg.authorSlug === m.slug,
+          ) || typingSlugs.has(m.slug),
+      ),
+    [members, messages, typingSlugs],
+  );
+
+  /** Mobile Messenger mode: a thread is open and the nav chrome is tucked
+   *  away, so the conversation (slim bar, thread, composer) gets the whole
+   *  screen. Inert at lg, where the two-pane layout rules. */
+  const mobileThreadMode =
+    view === 'chat' && paneMode === 'thread' && !!selectedThread && !mobileNavOpen;
 
   const loadThreads = useCallback(async () => {
     const { threads: rows } = await TeamApi.threads();
@@ -228,6 +253,8 @@ export default function AdminAiTeamPage() {
       setSelectedThreadId(thread.id);
       setPending(EMPTY_PENDING);
       setSendError(null);
+      setMobileNavOpen(false);
+      setDetailsOpen(false);
       void refreshThread(thread.id);
     },
     [refreshThread],
@@ -381,6 +408,52 @@ export default function AdminAiTeamPage() {
     }
   }
 
+  /** The decision block's inner content, shared by the desktop in-flow
+   *  block and the mobile details sheet so both read and record through
+   *  the same state and handler. */
+  function renderDecisionContent() {
+    if (!selectedThread) return null;
+    return (
+      <>
+        <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">Decision</p>
+        {selectedThread.decision ? (
+          <>
+            <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-ink">
+              {selectedThread.decision}
+            </p>
+            {selectedThread.decisionAt && (
+              <p className="mt-1 text-xs text-ink-muted">
+                Recorded {formatDateTime(selectedThread.decisionAt)}
+              </p>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="mt-1 text-sm text-ink-muted">
+              No decision yet. Only Cleo can record one.
+            </p>
+            <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+              <input
+                value={decisionDraft}
+                onChange={(e) => setDecisionDraft(e.target.value)}
+                placeholder="Record Cleo's decision"
+                className="w-full rounded-lg border border-line bg-paper px-3 py-2 text-sm text-ink placeholder:text-ink-muted/70"
+              />
+              <button
+                type="button"
+                onClick={() => void handleRecordDecision()}
+                disabled={!decisionDraft.trim() || decisionBusy}
+                className="shrink-0 rounded-lg bg-ink px-3 py-2 text-sm font-medium text-paper transition hover:opacity-90 disabled:opacity-50"
+              >
+                {decisionBusy ? 'Recording…' : 'Record decision'}
+              </button>
+            </div>
+          </>
+        )}
+      </>
+    );
+  }
+
   function threadLabel(thread: TeamThread): string {
     if (thread.type === 'DM') return memberName(thread.memberSlug);
     if (thread.type === 'GROUP') return 'Team channel';
@@ -437,7 +510,9 @@ export default function AdminAiTeamPage() {
 
   return (
     <div className="flex animate-fade-up flex-col gap-5">
-      <div className="flex flex-wrap items-end justify-between gap-3">
+      <div
+        className={`flex flex-wrap items-end justify-between gap-3 ${mobileThreadMode ? 'hidden lg:flex' : ''}`}
+      >
         <div>
           <h2 className="font-display text-[26px] font-semibold tracking-tight text-ink">AI Team</h2>
           <p className="mt-1 max-w-2xl text-sm text-ink-muted">
@@ -449,7 +524,9 @@ export default function AdminAiTeamPage() {
 
       {/* View tabs: the chat is the room; everything else lives behind these.
           One scrollable row on phones, wrapping only on wide screens. */}
-      <div className="flex gap-2 overflow-x-auto pb-1 lg:flex-wrap lg:overflow-visible [&>*]:shrink-0">
+      <div
+        className={`${mobileThreadMode ? 'hidden lg:flex' : 'flex'} gap-2 overflow-x-auto pb-1 lg:flex-wrap lg:overflow-visible [&>*]:shrink-0`}
+      >
         {tabs.map((tab) => (
           <Button
             key={tab.key}
@@ -465,7 +542,9 @@ export default function AdminAiTeamPage() {
       {view === 'chat' && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-[300px_minmax(0,1fr)]">
           {/* Rail: channels, then people. On phones it becomes a top strip. */}
-          <div className="flex gap-2 overflow-x-auto pb-1 lg:sticky lg:top-4 lg:max-h-[calc(100vh-8rem)] lg:flex-col lg:gap-1 lg:self-start lg:overflow-y-auto lg:rounded-[18px] lg:border lg:border-line lg:bg-card lg:p-3 lg:pb-3 lg:shadow-card">
+          <div
+            className={`${mobileThreadMode ? 'hidden lg:flex' : 'flex'} gap-2 overflow-x-auto pb-1 lg:sticky lg:top-4 lg:max-h-[calc(100vh-8rem)] lg:flex-col lg:gap-1 lg:self-start lg:overflow-y-auto lg:rounded-[18px] lg:border lg:border-line lg:bg-card lg:p-3 lg:pb-3 lg:shadow-card`}
+          >
             <p className="hidden px-2 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-wider text-ink-muted lg:block">
               Channels
             </p>
@@ -593,7 +672,11 @@ export default function AdminAiTeamPage() {
           {/* Main pane: one conversation at a time. */}
           <Card
             padded={false}
-            className="flex h-[calc(100dvh-17rem)] min-h-[380px] flex-col overflow-hidden lg:h-auto lg:min-h-[560px]"
+            className={`flex flex-col overflow-hidden ${
+              mobileThreadMode
+                ? 'h-[calc(100dvh-11rem)] lg:h-auto lg:min-h-[560px]'
+                : 'h-[calc(100dvh-17rem)] min-h-[380px] lg:h-auto lg:min-h-[560px]'
+            } ${paneMode === 'thread' && selectedThread && mobileNavOpen ? 'hidden lg:flex' : ''}`}
           >
             {paneMode === 'new-discuss' ? (
               <div className="flex flex-1 flex-col p-6">
@@ -644,7 +727,13 @@ export default function AdminAiTeamPage() {
                   <Button loading={discussBusy} onClick={() => void handleDiscuss()}>
                     Start discussion
                   </Button>
-                  <Button variant="secondary" onClick={() => setPaneMode('thread')}>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setPaneMode('thread');
+                      setMobileNavOpen(false);
+                    }}
+                  >
                     Back to chat
                   </Button>
                 </div>
@@ -658,7 +747,108 @@ export default function AdminAiTeamPage() {
               </div>
             ) : (
               <>
-                <div className="border-b border-line/60 px-6 py-4">
+                {/* Mobile top bar, Messenger style: back, who is here, the
+                    topic as a one-line title, and (for discussions) the
+                    details action. Desktop keeps the full header below. */}
+                <div className="flex items-center gap-2.5 border-b border-line/60 px-3 py-2.5 lg:hidden">
+                  <button
+                    type="button"
+                    onClick={() => setMobileNavOpen(true)}
+                    aria-label="Back to conversations"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-paper hover:text-ink"
+                  >
+                    <svg
+                      viewBox="0 0 20 20"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      className="h-5 w-5"
+                      aria-hidden
+                    >
+                      <path d="M12.5 4 6.5 10l6 6" strokeLinecap="round" strokeLinejoin="round" />
+                    </svg>
+                  </button>
+                  {selectedThread.type === 'GROUP' && (
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-signal-soft text-sm font-semibold text-signal-deep">
+                      #
+                    </span>
+                  )}
+                  {selectedThread.type === 'CEO' && (
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-ink text-sm font-semibold text-paper">
+                      C
+                    </span>
+                  )}
+                  {selectedThread.type === 'DM' &&
+                    memberBySlug.get(selectedThread.memberSlug ?? '') && (
+                      /* eslint-disable-next-line @next/next/no-img-element */
+                      <img
+                        src={memberBySlug.get(selectedThread.memberSlug ?? '')!.avatarPath}
+                        alt=""
+                        className="h-9 w-9 shrink-0 rounded-full object-cover ring-1 ring-line"
+                      />
+                    )}
+                  {selectedThread.type === 'DISCUSS' &&
+                    (seatedMembers.length > 0 ? (
+                      <span className="flex shrink-0 -space-x-2">
+                        {seatedMembers.slice(0, 4).map((m) => (
+                          /* eslint-disable-next-line @next/next/no-img-element */
+                          <img
+                            key={m.slug}
+                            src={m.avatarPath}
+                            alt=""
+                            className="h-8 w-8 rounded-full object-cover ring-2 ring-card"
+                          />
+                        ))}
+                      </span>
+                    ) : (
+                      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-paper text-sm font-semibold text-ink ring-1 ring-line">
+                        §
+                      </span>
+                    ))}
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[15px] font-semibold leading-tight text-ink">
+                      {selectedThread.type === 'DISCUSS'
+                        ? (selectedThread.topic ?? 'Discussion')
+                        : threadLabel(selectedThread)}
+                    </p>
+                    <p className="truncate text-xs text-ink-muted">
+                      {selectedThread.type === 'DISCUSS'
+                        ? 'Team discussion'
+                        : selectedThread.type === 'GROUP'
+                          ? typingSlugs.size > 0
+                            ? `${memberName(pending.memberSlugs[0])} is typing…`
+                            : 'Everyone in one channel'
+                          : selectedThread.type === 'CEO'
+                            ? 'Replies are not instant'
+                            : (memberBySlug.get(selectedThread.memberSlug ?? '')?.statusLine ??
+                              memberBySlug.get(selectedThread.memberSlug ?? '')?.role ??
+                              'Direct message')}
+                    </p>
+                  </div>
+                  {selectedThread.type === 'DISCUSS' && (
+                    <button
+                      type="button"
+                      onClick={() => setDetailsOpen(true)}
+                      aria-label="Discussion details and decision"
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-paper hover:text-ink"
+                    >
+                      <svg
+                        viewBox="0 0 20 20"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.7"
+                        className="h-5 w-5"
+                        aria-hidden
+                      >
+                        <circle cx="10" cy="10" r="7.5" />
+                        <path d="M10 9.4V14" strokeLinecap="round" />
+                        <circle cx="10" cy="6.1" r="0.5" fill="currentColor" stroke="none" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
+
+                <div className="hidden border-b border-line/60 px-6 py-4 lg:block">
                   <div className="flex flex-wrap items-center gap-3">
                     {selectedThread.type === 'DM' &&
                       memberBySlug.get(selectedThread.memberSlug ?? '') && (
@@ -698,38 +888,31 @@ export default function AdminAiTeamPage() {
                       <span className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
                         Seated
                       </span>
-                      {members
-                        .filter(
-                          (m) =>
-                            (messages ?? []).some(
-                              (msg) => msg.authorType === 'MEMBER' && msg.authorSlug === m.slug,
-                            ) || typingSlugs.has(m.slug),
-                        )
-                        .map((m) => (
-                          <span
-                            key={m.slug}
-                            className="flex items-center gap-1.5 rounded-full bg-paper py-1 pl-1 pr-2.5 ring-1 ring-line"
-                          >
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                              src={m.avatarPath}
-                              alt=""
-                              className="h-5 w-5 rounded-full object-cover"
-                            />
-                            <span className="text-xs font-medium text-ink">
-                              {m.name.split(' ')[0]}
-                            </span>
-                            {typingSlugs.has(m.slug) && (
-                              <span className="text-xs text-ink-muted">typing…</span>
-                            )}
+                      {seatedMembers.map((m) => (
+                        <span
+                          key={m.slug}
+                          className="flex items-center gap-1.5 rounded-full bg-paper py-1 pl-1 pr-2.5 ring-1 ring-line"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img
+                            src={m.avatarPath}
+                            alt=""
+                            className="h-5 w-5 rounded-full object-cover"
+                          />
+                          <span className="text-xs font-medium text-ink">
+                            {m.name.split(' ')[0]}
                           </span>
-                        ))}
+                          {typingSlugs.has(m.slug) && (
+                            <span className="text-xs text-ink-muted">typing…</span>
+                          )}
+                        </span>
+                      ))}
                     </div>
                   )}
                 </div>
 
                 {selectedThread.type === 'DISCUSS' && selectedThread.topic && (
-                  <div className="border-b border-line/60 bg-paper/60 px-6 py-3.5">
+                  <div className="hidden border-b border-line/60 bg-paper/60 px-6 py-3.5 lg:block">
                     <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
                       Topic
                     </p>
@@ -740,48 +923,12 @@ export default function AdminAiTeamPage() {
                 )}
 
                 {selectedThread.type === 'DISCUSS' && (
-                  <div className="border-b border-line/60 bg-paper/60 px-6 py-4">
-                    <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
-                      Decision
-                    </p>
-                    {selectedThread.decision ? (
-                      <>
-                        <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-ink">
-                          {selectedThread.decision}
-                        </p>
-                        {selectedThread.decisionAt && (
-                          <p className="mt-1 text-xs text-ink-muted">
-                            Recorded {formatDateTime(selectedThread.decisionAt)}
-                          </p>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <p className="mt-1 text-sm text-ink-muted">
-                          No decision yet. Only Cleo can record one.
-                        </p>
-                        <div className="mt-2 flex flex-col gap-2 sm:flex-row">
-                          <input
-                            value={decisionDraft}
-                            onChange={(e) => setDecisionDraft(e.target.value)}
-                            placeholder="Record Cleo's decision"
-                            className="w-full rounded-lg border border-line bg-paper px-3 py-2 text-sm text-ink placeholder:text-ink-muted/70"
-                          />
-                          <button
-                            type="button"
-                            onClick={() => void handleRecordDecision()}
-                            disabled={!decisionDraft.trim() || decisionBusy}
-                            className="shrink-0 rounded-lg bg-ink px-3 py-2 text-sm font-medium text-paper transition hover:opacity-90 disabled:opacity-50"
-                          >
-                            {decisionBusy ? 'Recording…' : 'Record decision'}
-                          </button>
-                        </div>
-                      </>
-                    )}
+                  <div className="hidden border-b border-line/60 bg-paper/60 px-6 py-4 lg:block">
+                    {renderDecisionContent()}
                   </div>
                 )}
 
-                <div className="flex-1 overflow-y-auto px-6 py-5">
+                <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 lg:px-6 lg:py-5">
                   {messages === null ? (
                     <div className="flex h-40 items-center justify-center">
                       <Spinner className="h-5 w-5 text-signal" />
@@ -843,9 +990,23 @@ export default function AdminAiTeamPage() {
                     </ul>
                   )}
                   {pending.active && pending.memberSlugs.length === 0 && (
-                    <p className="mt-4 flex items-center gap-2 text-sm text-ink-muted">
-                      <Spinner className="h-4 w-4 text-signal" /> The team is gathering…
-                    </p>
+                    <div className="mt-4 flex items-center gap-2.5 text-sm text-ink-muted">
+                      {seatedMembers.length > 0 && (
+                        <span className="flex shrink-0 -space-x-1.5">
+                          {seatedMembers.slice(0, 4).map((m) => (
+                            /* eslint-disable-next-line @next/next/no-img-element */
+                            <img
+                              key={m.slug}
+                              src={m.avatarPath}
+                              alt=""
+                              className="h-6 w-6 rounded-full object-cover ring-2 ring-card"
+                            />
+                          ))}
+                        </span>
+                      )}
+                      <Spinner className="h-4 w-4 shrink-0 text-signal" />
+                      <span>The team is gathering…</span>
+                    </div>
                   )}
                   {pending.memberSlugs.map((slug) => {
                     const member = memberBySlug.get(slug);
@@ -880,7 +1041,93 @@ export default function AdminAiTeamPage() {
                   <div ref={messagesEndRef} />
                 </div>
 
-                <div className="border-t border-line/60 px-6 py-4">
+                {/* Mobile details sheet: the topic, the seated members, and
+                    the decision live behind the top-bar info action, so the
+                    chat flow stays clean. Desktop keeps them in flow. */}
+                {detailsOpen && selectedThread.type === 'DISCUSS' && (
+                  <div
+                    className="fixed inset-0 z-50 lg:hidden"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-label="Discussion details"
+                  >
+                    <button
+                      type="button"
+                      aria-label="Close details"
+                      onClick={() => setDetailsOpen(false)}
+                      className="absolute inset-0 h-full w-full bg-black/50"
+                    />
+                    <div className="absolute inset-x-0 bottom-0 max-h-[85dvh] overflow-y-auto rounded-t-3xl bg-card p-5 pb-8 shadow-card">
+                      <div className="flex items-center justify-between gap-3">
+                        <h4 className="font-display text-[16px] font-semibold tracking-tight text-ink">
+                          Discussion details
+                        </h4>
+                        <button
+                          type="button"
+                          onClick={() => setDetailsOpen(false)}
+                          aria-label="Close details"
+                          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-ink-muted transition-colors hover:bg-paper hover:text-ink"
+                        >
+                          <svg
+                            viewBox="0 0 20 20"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.7"
+                            className="h-5 w-5"
+                            aria-hidden
+                          >
+                            <path d="M5 5l10 10M15 5L5 15" strokeLinecap="round" />
+                          </svg>
+                        </button>
+                      </div>
+                      {selectedThread.topic && (
+                        <div className="mt-4">
+                          <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                            Topic
+                          </p>
+                          <p className="mt-1 whitespace-pre-wrap text-sm leading-relaxed text-ink">
+                            {selectedThread.topic}
+                          </p>
+                        </div>
+                      )}
+                      <div className="mt-4">
+                        <p className="text-xs font-semibold uppercase tracking-wide text-ink-muted">
+                          Seated
+                        </p>
+                        {seatedMembers.length > 0 ? (
+                          <div className="mt-2 flex flex-wrap gap-2">
+                            {seatedMembers.map((m) => (
+                              <span
+                                key={m.slug}
+                                className="flex items-center gap-1.5 rounded-full bg-paper py-1 pl-1 pr-2.5 ring-1 ring-line"
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={m.avatarPath}
+                                  alt=""
+                                  className="h-5 w-5 rounded-full object-cover"
+                                />
+                                <span className="text-xs font-medium text-ink">
+                                  {m.name.split(' ')[0]}
+                                </span>
+                                {typingSlugs.has(m.slug) && (
+                                  <span className="text-xs text-ink-muted">typing…</span>
+                                )}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="mt-1 text-sm text-ink-muted">No one has spoken yet.</p>
+                        )}
+                      </div>
+                      <div className="mt-5 border-t border-line/60 pt-4">
+                        {renderDecisionContent()}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                <div className="border-t border-line/60 px-4 py-3 lg:px-6 lg:py-4">
                   {sendError && (
                     <p
                       role="alert"
@@ -912,7 +1159,7 @@ export default function AdminAiTeamPage() {
                       Send
                     </Button>
                   </div>
-                  <p className="mt-2 text-xs text-ink-muted">
+                  <p className="mt-2 hidden text-xs text-ink-muted sm:block">
                     Enter to send, Shift+Enter for a new line.
                   </p>
                 </div>
