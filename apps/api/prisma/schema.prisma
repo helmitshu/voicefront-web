@@ -1083,11 +1083,16 @@ enum TeamAuthorType {
   SYSTEM
 }
 
-/// Lifecycle of a filed work item for the AI team.
+/// Lifecycle of a filed work item for the AI team. Phase 2a made it a
+/// real lifecycle: a coordinator assigns queued items (ASSIGNED), works
+/// them (IN_PROGRESS), closes them (DONE), or parks them with a reason
+/// in the detail when the work could not be done (BLOCKED).
 enum WorkItemStatus {
   QUEUED
+  ASSIGNED
   IN_PROGRESS
   DONE
+  BLOCKED
 }
 
 /// Kind of draft a team member produced for owner review.
@@ -1102,6 +1107,7 @@ enum TeamDraftKind {
   DOSSIER
   BOARD_PACK
   CONTENT
+  DAILY_DIGEST
   OTHER
 }
 
@@ -1176,11 +1182,55 @@ model WorkItem {
   ownerSlug      String         @map("owner_slug")
   status         WorkItemStatus @default(QUEUED)
   sourceThreadId String?        @map("source_thread_id")
+  // The TeamDraft the coordinator produced when it worked this item
+  // (Phase 2a). A plain draft id, no foreign key, same as the other
+  // traceability ids on the team tables.
+  draftId        String?        @map("draft_id")
+  // When the coordinator last nudged about this item in the channel;
+  // caps the nudge at one per day for an item stuck IN_PROGRESS.
+  lastNudgeAt    DateTime?      @map("last_nudge_at")
   createdAt      DateTime       @default(now()) @map("created_at")
   updatedAt      DateTime       @updatedAt @map("updated_at")
 
   @@index([status, createdAt(sort: Desc)])
   @@map("work_items")
+}
+
+/// What started an ability run: a person pressing the button, or the
+/// clock (Phase 2a scheduled runs).
+enum TeamRunTrigger {
+  MANUAL
+  SCHEDULED
+}
+
+/// Outcome of one ability run in the runs ledger.
+enum TeamRunStatus {
+  RUNNING
+  DONE
+  FAILED
+}
+
+/// The runs ledger (Phase 2a): one row per ability run, manual or
+/// scheduled. The daily cap on scheduled runs is counted from these
+/// rows, and the daily digest is composed from them. `ability` is the
+/// ability slug ('leak-radar', 'call-scoring', 'coordinator', ...);
+/// `memberSlug` is the member the run belongs to, null for system runs
+/// like the digest and the coordinator itself.
+model TeamRun {
+  id         String         @id @default(cuid())
+  ability    String
+  memberSlug String?        @map("member_slug")
+  trigger    TeamRunTrigger
+  status     TeamRunStatus  @default(RUNNING)
+  summary    String?        @db.Text
+  startedAt  DateTime       @default(now()) @map("started_at")
+  finishedAt DateTime?      @map("finished_at")
+  createdAt  DateTime       @default(now()) @map("created_at")
+  updatedAt  DateTime       @updatedAt @map("updated_at")
+
+  @@index([trigger, startedAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+  @@map("team_runs")
 }
 
 /// A draft artifact a team member produced for owner review (an email, a
