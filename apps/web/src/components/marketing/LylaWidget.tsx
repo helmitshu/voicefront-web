@@ -569,6 +569,12 @@ const MAX_PROACTIVE_PER_SESSION = 2;
 const WELCOME_DELAY_MS = 5000;
 const WELCOME_START_KEY = 'lyla-welcome-started-at';
 const WELCOME_DONE_KEY = 'lyla-welcome-done';
+/** She is not sitting in the corner when a session starts: the pill
+ *  only settles in once her first proactive card has resolved (or a
+ *  panel visit has ended). Once settled, this sessionStorage flag
+ *  keeps her present from load on the session's later pages; a new
+ *  session starts hidden again. */
+const REVEALED_KEY = 'lyla-revealed';
 
 interface BehaviorState {
   section: string | null;
@@ -637,6 +643,11 @@ export function LylaWidget() {
   const [sessionPhase, setSessionPhase] = useState<SessionPhase>('idle');
   const [turnsExhausted, setTurnsExhausted] = useState(false);
   const [proactiveNote, setProactiveNote] = useState<{ trigger: ProactiveTrigger; line: string } | null>(null);
+  /** Whether she has introduced herself this session. False at a
+   *  session's first load (nothing of her is on screen until her
+   *  first card arrives); the mount effect below restores it from
+   *  sessionStorage on later pages of the session. */
+  const [revealed, setRevealed] = useState(false);
   /** True while one of her guided page moves is running. */
   const [guiding, setGuiding] = useState(false);
   /** The panel's mount machine: it stays mounted for the length of its
@@ -676,6 +687,29 @@ export function LylaWidget() {
   sendingRef.current = sending;
   messagesRef.current = messages;
   proactiveNoteRef.current = proactiveNote;
+
+  /* Her arrival: she starts off screen and settles into the corner
+     only once she has introduced herself, when her first proactive
+     card resolves or a panel visit ends. The settled state is kept in
+     sessionStorage, so later pages of the session show the pill from
+     load (fading in on the mount effect below) while a new session
+     starts hidden again. */
+  const settleRevealed = useCallback(() => {
+    setRevealed(true);
+    try {
+      window.sessionStorage.setItem(REVEALED_KEY, '1');
+    } catch {
+      /* Storage unavailable: she still settles for this page view. */
+    }
+  }, []);
+
+  useEffect(() => {
+    try {
+      if (window.sessionStorage.getItem(REVEALED_KEY)) setRevealed(true);
+    } catch {
+      /* Storage unavailable: this page view starts unrevealed. */
+    }
+  }, []);
 
   /* Panel mount machine: mount first, paint the closed state, then
      transition in; on close, transition out and unmount only once the
@@ -927,7 +961,10 @@ export function LylaWidget() {
     setProactiveNote(null);
     proactiveDismissalsRef.current += 1;
     if (proactiveDismissalsRef.current >= 2) proactiveMutedRef.current = true;
-  }, []);
+    // The card has resolved: if it was her first, she now settles
+    // into the corner as the session's resting entry point.
+    settleRevealed();
+  }, [settleRevealed]);
 
   const openFromProactive = useCallback(() => {
     if (proactiveNote) {
@@ -966,6 +1003,16 @@ export function LylaWidget() {
   useEffect(() => {
     if (open) markWelcomeDone();
   }, [open, markWelcomeDone]);
+
+  // A card clicked through resolves when its panel visit ends, and a
+  // panel somehow opened before any card (there is no visible entry
+  // point then) settles her the same way: either way, closing the
+  // panel leaves the pill in the corner.
+  const wasOpenRef = useRef(false);
+  useEffect(() => {
+    if (wasOpenRef.current && !open) settleRevealed();
+    wasOpenRef.current = open;
+  }, [open, settleRevealed]);
 
   useEffect(() => {
     if (welcomeDoneRef.current) return;
@@ -1194,8 +1241,11 @@ export function LylaWidget() {
   /* -------------------------------- render ---------------------------- */
 
   /** The corner holds exactly one chat element at a time: while a
-   *  proactive card is up, or the panel is open, the pill hands off. */
-  const pillHandedOff = open || proactiveNote !== null;
+   *  proactive card is up, or the panel is open, the pill hands off.
+   *  Before she has introduced herself this session it hands off the
+   *  same way, so nothing of her sits in the corner at first load;
+   *  when she settles, the same hand-off transition fades it back in. */
+  const pillHandedOff = open || proactiveNote !== null || !revealed;
 
   return (
     <>
@@ -1238,10 +1288,12 @@ export function LylaWidget() {
       )}
 
       {/* Minimized pill: her face and name, quiet until tapped. It stays
-          mounted and hands the corner off through .lyla-pill: while a
-          proactive card is up, or the panel is open, it fades and
-          slides away, so the corner never shows two chat elements at
-          once. When the card is dismissed it settles back. */}
+          mounted and hands the corner off through .lyla-pill: before
+          she has arrived this session, while a proactive card is up,
+          or while the panel is open, it fades and slides away (and is
+          neither clickable nor focusable), so the page loads clean and
+          the corner never shows two chat elements at once. Once she
+          has introduced herself it settles in and stays. */}
       <button
         type="button"
         onClick={() => setOpen(true)}
