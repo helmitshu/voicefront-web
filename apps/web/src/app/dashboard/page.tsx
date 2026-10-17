@@ -416,7 +416,7 @@ export default function OverviewPage() {
             number and settings states. It shows an on-a-call state only while
             the API reports a call with no end time, never a staged one. */}
         <div
-          className={`relative overflow-hidden rounded-[18px] border bg-shell-grad p-5 text-shell-ink shadow-card transition-colors sm:p-[22px] ${
+          className={`vf-stage-v2 relative overflow-hidden rounded-[18px] border bg-shell-grad p-5 text-shell-ink shadow-card transition-colors sm:p-[22px] ${
             liveCall ? 'border-[rgba(94,234,212,0.45)]' : 'border-shell-edge/15'
           }`}
         >
