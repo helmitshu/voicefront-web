@@ -759,6 +759,10 @@ export const AdminApi = {
     api<{ enabled: boolean }>('/api/admin/demo', { signal }),
   setDemoEnabled: (enabled: boolean) =>
     api<{ enabled: boolean }>('/api/admin/demo', { method: 'PATCH', body: { enabled } }),
+  instantDemo: (signal?: AbortSignal) =>
+    api<{ enabled: boolean }>('/api/admin/instant-demo', { signal }),
+  setInstantDemo: (enabled: boolean) =>
+    api<{ enabled: boolean }>('/api/admin/instant-demo', { method: 'PATCH', body: { enabled } }),
   billingGate: (signal?: AbortSignal) =>
     api<{ enabled: boolean }>('/api/admin/billing-gate', { signal }),
   visitorMap: (signal?: AbortSignal) =>
@@ -1608,7 +1612,8 @@ export interface VisitorMapVisitor {
   id: string;
   displayName: string;
   source: 'lyla' | 'form';
-  email: string;
+  /** Null on instant-call leads (phone-only capture). */
+  email: string | null;
   phone: string | null;
   businessName: string | null;
   websiteUrl: string | null;
@@ -1659,13 +1664,24 @@ export interface DemoCallRecord {
   transcript: string | null;
   recordingUrl: string | null;
   createdAt: string;
-  lead: { name: string; email: string; phone: string; mode: string } | null;
+  /** Name and email are null on instant-call leads (phone-only capture). */
+  lead: { name: string | null; email: string | null; phone: string; mode: string } | null;
 }
 
 export const DemoApi = {
-  status: () => api<{ enabled: boolean }>('/api/demo/status'),
+  status: () => api<{ enabled: boolean; instantEnabled: boolean }>('/api/demo/status'),
   lead: (input: DemoLeadInput) =>
     api<DemoLeadResponse>('/api/demo/lead', { method: 'POST', body: input }),
+  /** "Call me now": one phone number, the sales agent rings the visitor
+   *  within seconds. Only offered by the page when the founder's instant
+   *  switch is on (see DemoApi.status). */
+  instantCall: (input: { phone: string; turnstileToken?: string }) =>
+    api<DemoCallResponse>('/api/demo/instant-call', { method: 'POST', body: input }),
+  /** Instant in-browser demo: one click, no form, no phone number. Ava
+   *  talks inside a phone-shaped frame with a live transcript. Gated on
+   *  the instant switch alone (see DemoApi.status). */
+  instantSession: (input: { turnstileToken?: string } = {}) =>
+    api<DemoSessionResponse>('/api/demo/instant-session', { method: 'POST', body: input }),
   start: (input: DemoStartInput = {}) =>
     api<DemoSessionResponse>('/api/demo/session', { method: 'POST', body: input }),
   call: (input: DemoCallInput) =>
