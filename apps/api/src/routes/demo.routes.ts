@@ -28,7 +28,7 @@ import {
   clearDemoSummary,
 } from '../services/demo.service';
 import { placeOutboundCall } from '../services/vapi.service';
-import { evaluateGate, clientIp } from '../services/geo.service';
+import { evaluateGate, clientIp, detectIpLocation } from '../services/geo.service';
 import {
   composeSalesPrompt,
   salesOpener,
@@ -959,13 +959,22 @@ demoRouter.post(
       throw new HttpError(403, 'Bot check failed. Please try again.', 'BOT_CHECK_FAILED');
     }
     const gate = await evaluateGate(clientIp(req), phone);
+    // Visitor map: keep the approximate, derived location the geo lookup
+    // returns (city / region / coordinates). Best-effort — a failed lookup
+    // never blocks the lead. The raw IP is used only as the lookup key and
+    // is never stored.
+    const location = await detectIpLocation(clientIp(req));
     const session = await startDemoSession(industry, businessName ?? null);
     const lead = await createDemoLead({
       sessionId: session.sessionId,
       name,
       email,
       phone,
-      ipCountry: gate.ipCountry,
+      ipCountry: gate.ipCountry ?? location?.country ?? null,
+      ipCity: location?.city ?? null,
+      ipRegion: location?.region ?? null,
+      ipLat: location?.lat ?? null,
+      ipLng: location?.lng ?? null,
       phoneCountry: gate.phone.country,
       industry,
       businessName,

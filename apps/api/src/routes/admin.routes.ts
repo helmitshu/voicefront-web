@@ -47,6 +47,7 @@ import {
   setDemoNumbers,
 } from '../services/demo.service';
 import { isBillingGateEnabled, setBillingGateEnabled } from '../services/billing.service';
+import { getVisitorMap } from '../services/visitor-map.service';
 import {
   listFounderEntries,
   founderAvailability,
@@ -998,6 +999,17 @@ adminRouter.patch(
       {},
     );
     res.json({ enabled });
+  }),
+);
+
+/* Visitor map: where demo visitors are, from stored demo records only.
+ * Full admin only — the payload carries lead contact details the visitor
+ * provided. Locations are approximate (see visitor-map.service). */
+adminRouter.get(
+  '/visitor-map',
+  requireFullAdmin,
+  asyncHandler(async (_req, res) => {
+    res.json(await getVisitorMap());
   }),
 );
 
