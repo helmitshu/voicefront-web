@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { WaveBackground } from '@/components/WaveBackground';
 import { SiteHeader, SiteFooter } from '@/components/marketing/sections';
 import { LylaWidget } from '@/components/marketing/LylaWidget';
+import { ScrollReveal } from '@/components/marketing/ScrollReveal';
 
 /**
  * Shared chrome for every marketing page: the ambient wave backdrop, the fixed
@@ -14,6 +15,7 @@ export default function MarketingLayout({ children }: { children: ReactNode }) {
       <WaveBackground />
       <SiteHeader />
       <main className="pt-[100px]">{children}</main>
+      <ScrollReveal />
       <SiteFooter />
       {/* Lyla hosts the marketing pages only. She is never mounted in the
           dashboard shell; signed-in owners talk to Adam instead. */}
