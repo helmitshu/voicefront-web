@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { env } from '../config/env';
 import { HttpError } from '../lib/http';
-import { detectIpCountry } from './geo.service';
+import { detectIpCountry, detectIpLocation } from './geo.service';
 import { fetchClinicFacts, type ClinicFacts } from './clinic-facts.service';
 import { createDemoLead } from './demo.service';
 
@@ -979,12 +979,20 @@ async function toolCaptureLead(
   // that store; a chat lead the visitor gave no phone for is saved with an
   // empty phone and mode 'pending', exactly like a form lead that has not
   // picked a demo mode yet.
+  // Visitor map: same derived-location treatment as the demo form — the
+  // session IP is only a lookup key; just the approximate city / region /
+  // coordinates are stored, never the address itself.
+  const location = await detectIpLocation(toolCtx.session.ip);
   await createDemoLead({
     sessionId: `lyla_${randomUUID()}`,
     name,
     email,
     phone: '',
-    ipCountry: toolCtx.session.visitor.country,
+    ipCountry: toolCtx.session.visitor.country ?? location?.country ?? null,
+    ipCity: location?.city ?? null,
+    ipRegion: location?.region ?? null,
+    ipLat: location?.lat ?? null,
+    ipLng: location?.lng ?? null,
     phoneCountry: null,
     websiteUrl: website || null,
     mode: 'pending',

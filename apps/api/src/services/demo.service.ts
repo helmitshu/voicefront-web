@@ -485,6 +485,12 @@ export interface CreateLeadInput {
   email: string;
   phone: string;
   ipCountry: string | null;
+  /** Approximate IP-derived location (visitor map). Derived fields only —
+   *  the raw IP address is never passed in or stored. All optional. */
+  ipCity?: string | null;
+  ipRegion?: string | null;
+  ipLat?: number | null;
+  ipLng?: number | null;
   phoneCountry: string | null;
   industry?: string;
   businessName?: string | null;
@@ -502,6 +508,10 @@ export async function createDemoLead(input: CreateLeadInput) {
       email: input.email,
       phone: input.phone,
       ipCountry: input.ipCountry,
+      ipCity: input.ipCity ?? null,
+      ipRegion: input.ipRegion ?? null,
+      ipLat: input.ipLat ?? null,
+      ipLng: input.ipLng ?? null,
       phoneCountry: input.phoneCountry,
       industry: normalizeIndustry(input.industry),
       businessName: input.businessName?.trim() || null,

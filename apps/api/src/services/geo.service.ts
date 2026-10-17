@@ -176,6 +176,96 @@ export async function detectIpCountry(ip: string | null): Promise<string | null>
   }
 }
 
+/**
+ * Approximate, IP-derived location for the admin visitor map. Everything
+ * here comes from the same ipapi.co lookup family as detectIpCountry —
+ * network-based geolocation is city-level at best and often only right to
+ * the metro area, so consumers must label it approximate. The raw IP is
+ * used only as the lookup key (and the in-memory cache key below, exactly
+ * like the country cache); it is never returned or persisted.
+ */
+export interface IpLocation {
+  country: string;
+  city: string | null;
+  region: string | null;
+  lat: number | null;
+  lng: number | null;
+}
+
+const LOCATION_CACHE_TTL_MS = COUNTRY_CACHE_TTL_MS;
+const LOCATION_CACHE_MAX_ENTRIES = COUNTRY_CACHE_MAX_ENTRIES;
+const locationCache = new Map<string, { location: IpLocation; cachedAt: number }>();
+
+function readLocationCache(ip: string): IpLocation | null {
+  const entry = locationCache.get(ip);
+  if (!entry) return null;
+  if (Date.now() - entry.cachedAt > LOCATION_CACHE_TTL_MS) {
+    locationCache.delete(ip);
+    return null;
+  }
+  locationCache.delete(ip);
+  locationCache.set(ip, entry);
+  return entry.location;
+}
+
+function writeLocationCache(ip: string, location: IpLocation): void {
+  locationCache.delete(ip);
+  locationCache.set(ip, { location, cachedAt: Date.now() });
+  while (locationCache.size > LOCATION_CACHE_MAX_ENTRIES) {
+    const oldest = locationCache.keys().next().value;
+    if (oldest === undefined) break;
+    locationCache.delete(oldest);
+  }
+}
+
+function cleanPlaceName(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim().slice(0, 80);
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function cleanCoordinate(value: unknown, min: number, max: number): number | null {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return null;
+  return value >= min && value <= max ? value : null;
+}
+
+/**
+ * Resolves a client IP to an approximate location via ipapi.co's JSON
+ * endpoint. Best-effort like detectIpCountry: null on private IPs,
+ * timeouts, rate limits, malformed payloads, or any error. Successful
+ * results are cached in memory for a day, keyed by IP; failures are never
+ * cached. Returns derived fields only — never the IP itself.
+ */
+export async function detectIpLocation(ip: string | null): Promise<IpLocation | null> {
+  if (!ip || isPrivateIp(ip)) return null;
+  const cached = readLocationCache(ip);
+  if (cached) return cached;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 2500);
+    const res = await fetch(`https://ipapi.co/${encodeURIComponent(ip)}/json/`, {
+      signal: controller.signal,
+      headers: { 'User-Agent': 'voicefront-demo/1.0' },
+    });
+    clearTimeout(timer);
+    if (!res.ok) return null;
+    const body = (await res.json()) as Record<string, unknown>;
+    const country = typeof body.country_code === 'string' ? body.country_code.trim().toUpperCase() : '';
+    if (!/^[A-Z]{2}$/.test(country)) return null;
+    const location: IpLocation = {
+      country,
+      city: cleanPlaceName(body.city),
+      region: cleanPlaceName(body.region),
+      lat: cleanCoordinate(body.latitude, -90, 90),
+      lng: cleanCoordinate(body.longitude, -180, 180),
+    };
+    writeLocationCache(ip, location);
+    return location;
+  } catch {
+    return null;
+  }
+}
+
 export interface GateResult {
   ipCountry: string | null;
   phone: PhoneCountry;

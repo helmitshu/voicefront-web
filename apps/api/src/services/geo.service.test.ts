@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { detectIpCountry, parsePublicIp } from './geo.service';
+import { detectIpCountry, detectIpLocation, parsePublicIp } from './geo.service';
 
 /**
  * Service tests for geo.service: the success-only country cache (a second
@@ -99,5 +99,73 @@ describe('parsePublicIp', () => {
     expect(parsePublicIp('198.51.100.23, 10.0.0.1')).toBeNull();
     expect(parsePublicIp('')).toBeNull();
     expect(parsePublicIp(undefined)).toBeNull();
+  });
+});
+
+function okLocation(body: Record<string, unknown>) {
+  return { ok: true, json: async () => body };
+}
+
+describe('detectIpLocation', () => {
+  it('parses the JSON payload into derived fields only, never echoing the IP', async () => {
+    fetchStub.mockResolvedValue(
+      okLocation({
+        country_code: 'ca',
+        city: 'Surrey',
+        region: 'British Columbia',
+        latitude: 49.1,
+        longitude: -122.8,
+      }),
+    );
+    vi.stubGlobal('fetch', fetchStub);
+
+    const location = await detectIpLocation('203.0.113.20');
+    expect(location).toEqual({
+      country: 'CA',
+      city: 'Surrey',
+      region: 'British Columbia',
+      lat: 49.1,
+      lng: -122.8,
+    });
+    expect(JSON.stringify(location)).not.toContain('203.0.113.20');
+    expect(fetchStub.mock.calls[0][0]).toContain('/json/');
+  });
+
+  it('serves a second lookup for the same IP from cache without re-fetching', async () => {
+    fetchStub.mockResolvedValue(
+      okLocation({ country_code: 'US', city: 'Austin', region: 'Texas', latitude: 30.3, longitude: -97.7 }),
+    );
+    vi.stubGlobal('fetch', fetchStub);
+
+    await detectIpLocation('203.0.113.21');
+    await detectIpLocation('203.0.113.21');
+    expect(fetchStub).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not cache failures, and tolerates missing or malformed fields', async () => {
+    fetchStub
+      .mockResolvedValueOnce({ ok: false, json: async () => ({}) })
+      .mockResolvedValue(okLocation({ country_code: 'GB', latitude: 'north', longitude: null }));
+    vi.stubGlobal('fetch', fetchStub);
+
+    await expect(detectIpLocation('203.0.113.22')).resolves.toBeNull();
+    await expect(detectIpLocation('203.0.113.22')).resolves.toEqual({
+      country: 'GB',
+      city: null,
+      region: null,
+      lat: null,
+      lng: null,
+    });
+    expect(fetchStub).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns null for a payload without a valid country, and never fetches for private IPs', async () => {
+    fetchStub.mockResolvedValue(okLocation({ country_name: 'Nowhere' }));
+    vi.stubGlobal('fetch', fetchStub);
+
+    await expect(detectIpLocation('203.0.113.23')).resolves.toBeNull();
+    await expect(detectIpLocation('192.168.1.10')).resolves.toBeNull();
+    await expect(detectIpLocation(null)).resolves.toBeNull();
+    expect(fetchStub).toHaveBeenCalledTimes(1);
   });
 });
