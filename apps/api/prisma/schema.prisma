@@ -852,6 +852,16 @@ model CallLog {
   markupBpsApplied  Int        @default(0) @map("markup_bps_applied")
   status            CallStatus @default(UNKNOWN)
   endedReason       String?    @map("ended_reason")
+  /// Safe-landing rescue flag (reliability pack): set once, at end-of-call
+  /// finalize time, when the call broke in a provable way and no
+  /// appointment came out of it — the caller needs a human callback.
+  /// Cleared only by an owner/manager action; the finalize path never
+  /// rewrites it after first finalize, so a duplicate provider report can
+  /// neither re-flag a cleared call nor unset a flagged one.
+  rescueNeeded      Boolean    @default(false) @map("rescue_needed")
+  /// Why the rescue flag was set, in plain words (the failure signal that
+  /// fired). Null when not flagged, and nulled again when a human clears.
+  rescueReason      String?    @map("rescue_reason")
   /// When a missed-call text-back was sent for this call (dedupe + idempotency
   /// against provider webhook retries). Null = none sent.
   textBackSentAt    DateTime?  @map("textback_sent_at")
@@ -877,7 +887,25 @@ model CallLog {
   supportTickets SupportTicket[]
 
   @@index([tenantId, startedAt(sort: Desc)])
+  @@index([rescueNeeded, endedAt(sort: Desc)])
   @@map("call_logs")
+}
+
+/// Dedupe state for the success-rate alarm (reliability pack): one row
+/// per alarm scope ('platform', 'demo-transport', or 'tenant:<id>'),
+/// holding when that scope last alarmed. The alarm reads it before
+/// posting, so a restart can never re-alarm a wave it already reported —
+/// at most one alarm per scope per dedupe window.
+model ReliabilityAlarm {
+  id            String   @id @default(cuid())
+  scope         String   @unique
+  lastAlarmedAt DateTime @map("last_alarmed_at")
+  /// How many offending calls the last alarm counted, for the record.
+  lastCount     Int      @map("last_count")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("reliability_alarms")
 }
 
 /// A ticket a workspace files with the platform team, normally through the
