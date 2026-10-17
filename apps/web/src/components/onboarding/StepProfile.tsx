@@ -2,6 +2,7 @@
 
 import { useState } from 'react';
 import { TIMEZONE_OPTIONS, timezoneShortLabel, type BusinessHours } from '@/domain/agent-config';
+import { useAuth } from '@/lib/auth-context';
 import { AgentApi, ApiError, OnboardingApi, type AgentSettingsDto, type OnboardingView } from '@/lib/api';
 import { Button } from '@/components/ui/Button';
 import { Input, Select } from '@/components/ui/Field';
@@ -16,6 +17,10 @@ export function StepProfile({
   onCompleted: (view: OnboardingView, settings: AgentSettingsDto) => void;
   onError: (message: string) => void;
 }) {
+  const { refreshMe } = useAuth();
+  // Google sign-ups are never asked for a business name (the workspace gets
+  // a provisional one), so this field is where the real name gets set.
+  const [companyName, setCompanyName] = useState(settings.companyName);
   const [displayName, setDisplayName] = useState(settings.displayName);
   const [firstMessage, setFirstMessage] = useState(settings.firstMessage);
   // Pre-select the browser's timezone on first setup so the owner doesn't hunt
@@ -29,7 +34,7 @@ export function StepProfile({
     }
   });
   const [hours, setHours] = useState<BusinessHours>(settings.businessHours);
-  const [errors, setErrors] = useState<{ displayName?: string; firstMessage?: string }>({});
+  const [errors, setErrors] = useState<{ companyName?: string; displayName?: string; firstMessage?: string }>({});
   const [saving, setSaving] = useState(false);
 
   // Keep the saved timezone selectable even if it's not in the curated list.
@@ -39,6 +44,7 @@ export function StepProfile({
 
   async function save() {
     const nextErrors: typeof errors = {};
+    if (companyName.trim().length < 2) nextErrors.companyName = 'Add your business name.';
     if (displayName.trim().length < 2) nextErrors.displayName = 'Give your receptionist a name.';
     if (firstMessage.trim().length < 4) nextErrors.firstMessage = 'Add a short greeting callers will hear first.';
     setErrors(nextErrors);
@@ -47,11 +53,16 @@ export function StepProfile({
     setSaving(true);
     try {
       const updated = await AgentApi.update({
+        companyName: companyName.trim(),
         displayName: displayName.trim(),
         firstMessage: firstMessage.trim(),
         timezone,
         businessHours: hours,
       });
+      // The name lives on the account (me), not in the settings payload the
+      // parent keeps — refresh it so the page header and later steps show
+      // the name just saved. Best-effort: the save itself already landed.
+      await refreshMe().catch(() => {});
       const { onboarding } = await OnboardingApi.completeStep('PROFILE');
       onCompleted(onboarding, updated.settings);
     } catch (err) {
@@ -69,6 +80,15 @@ export function StepProfile({
           We&apos;ve pre-filled the basics for you. Tweak anything that&apos;s off, or just continue.
         </p>
       </div>
+
+      <Input
+        label="Business name"
+        value={companyName}
+        onChange={(e) => setCompanyName(e.target.value)}
+        error={errors.companyName}
+        hint="The name on your dashboard, and the business your receptionist names to callers."
+        placeholder="Bayview Dental Studio"
+      />
 
       <div className="grid gap-5 sm:grid-cols-2">
         <Input
