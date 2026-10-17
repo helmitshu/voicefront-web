@@ -14,11 +14,13 @@ import { ROICalculator } from '@/components/ROICalculator';
 import { WorkflowConsole } from '@/components/WorkflowConsole';
 import { Reveal, IndustryTabs, BeyondAnswering, FAQS } from './landing';
 
-// The interactive voice demo pulls in the Vapi web SDK and is only rendered on
+// The demo experience pulls in the Vapi web SDK and is only rendered on
 // the home page. Load it in its own chunk so pricing/product/book routes don't
 // ship the widget. ssr:false because it relies on browser-only audio APIs.
-const InteractiveDemo = dynamic(
-  () => import('./landing').then((m) => m.InteractiveDemo),
+// It resolves to the instant phone demo when the founder's instant switch
+// is on, and to the classic form-and-console demo otherwise.
+const DemoExperience = dynamic(
+  () => import('./landing').then((m) => m.DemoExperience),
   {
     ssr: false,
     loading: () => (
@@ -276,14 +278,16 @@ export function HeroSection() {
           </Reveal>
         </div>
         <Reveal delay={200} className="relative isolate min-w-0">
-          {/* The live personalized demo is the hero's main event: the prospect
-              hears Maya answer as their own clinic, not a scripted mock. */}
+          {/* The demo is the hero's main event: with the instant switch on it
+              is Ava's instant phone demo; otherwise the live personalized
+              console, where the prospect hears Maya answer as their own
+              clinic, not a scripted mock. */}
           <div
             aria-hidden
             className="pointer-events-none absolute -inset-10 -z-10 bg-[radial-gradient(50%_50%_at_55%_45%,rgba(16,169,142,0.32),transparent_70%),radial-gradient(42%_42%_at_82%_86%,rgba(199,148,63,0.18),transparent_70%)] blur-2xl"
           />
           <div id="demo" className="scroll-mt-32">
-            <InteractiveDemo />
+            <DemoExperience />
           </div>
         </Reveal>
       </div>
@@ -463,8 +467,8 @@ export function LiveDemoSection() {
             and the appointment is booked before they hang up.
           </p>
         </Reveal>
-        <Reveal delay={150} className="mt-14">
-          <InteractiveDemo />
+        <Reveal delay={120} className="mt-14">
+          <DemoExperience />
         </Reveal>
         <Reveal delay={250} className="mt-12 text-center">
           <Link

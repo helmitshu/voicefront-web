@@ -1252,6 +1252,259 @@ function DemoStagePanel({
   );
 }
 
+/* --------------------------- instant demo call ---------------------------- */
+
+/**
+ * The instant demo — the lowest-friction entry on the site: one click and
+ * Ava is talking in the browser, inside a phone-shaped frame with a live
+ * transcript. No form, no phone number. She runs her outbound script (she
+ * introduces herself and leads, because in every way that matters she
+ * placed this call). Rendered by DemoExperience only while the founder's
+ * instant switch is on. The bot check follows the lead form's pattern:
+ * its own widget instance, single-use tokens, reset after every attempt
+ * so a retry always gets a fresh one.
+ */
+export function InstantDemoPhone() {
+  const [phase, setPhase] = useState<'idle' | 'connecting' | 'live' | 'ended' | 'error'>('idle');
+  const [speaking, setSpeaking] = useState(false);
+  const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null);
+  const turnstileResetRef = useRef<(() => void) | null>(null);
+  const sessionRef = useRef<VoiceSession | null>(null);
+  const transcriptBoxRef = useRef<HTMLDivElement | null>(null);
+
+  // Leaving the page mid-call hangs up.
+  useEffect(() => {
+    return () => {
+      sessionRef.current?.stop();
+      sessionRef.current = null;
+    };
+  }, []);
+
+  // Keep the newest line in view, like a messaging app.
+  useEffect(() => {
+    const box = transcriptBoxRef.current;
+    if (box) box.scrollTop = box.scrollHeight;
+  }, [transcript]);
+
+  const awaitingTurnstile = Boolean(TURNSTILE_SITE_KEY) && !turnstileToken;
+  const inCall = phase === 'connecting' || phase === 'live';
+
+  async function start() {
+    setError(null);
+    if (TURNSTILE_SITE_KEY && !turnstileToken) return;
+    setTranscript([]);
+    setPhase('connecting');
+    try {
+      const res = await DemoApi.instantSession({
+        ...(turnstileToken ? { turnstileToken } : {}),
+      });
+      const session = new VoiceSession();
+      sessionRef.current = session;
+      await session.start(res.publicKey, res.assistant, {
+        onPhase: (p) => {
+          if (p === 'listening') {
+            setPhase('live');
+            setSpeaking(false);
+          } else if (p === 'assistant-speaking') {
+            setPhase('live');
+            setSpeaking(true);
+          } else if (p === 'ended') {
+            setPhase('ended');
+          } else if (p === 'error') {
+            setPhase('error');
+          }
+        },
+        onVolume: () => undefined,
+        onTranscript: (entry) => setTranscript((prev) => [...prev, entry]),
+        onError: (message) => setError(message),
+      });
+    } catch (err) {
+      setPhase('error');
+      setError(err instanceof ApiError ? err.message : 'Something went wrong starting the demo. Try again.');
+    } finally {
+      // Tokens are single-use: reset either way so a retry gets a fresh one.
+      turnstileResetRef.current?.();
+      setTurnstileToken(null);
+    }
+  }
+
+  function end() {
+    sessionRef.current?.stop();
+    sessionRef.current = null;
+    setPhase('ended');
+  }
+
+  function reset() {
+    setTranscript([]);
+    setError(null);
+    setPhase('idle');
+  }
+
+  const statusText =
+    phase === 'connecting'
+      ? 'Connecting\u2026'
+      : phase === 'live'
+        ? speaking
+          ? 'Ava is speaking\u2026'
+          : 'Listening\u2026'
+        : phase === 'ended'
+          ? 'Demo ended'
+          : phase === 'error'
+            ? 'Something went wrong'
+            : 'Instant demo \u00b7 tap to start';
+
+  return (
+    <div className="mx-auto max-w-md">
+      <div className="rounded-[2.6rem] border border-white/15 bg-white/[0.06] p-2.5 shadow-lift backdrop-blur">
+        <div className="overflow-hidden rounded-[2.1rem] bg-[#08120e]">
+          {/* Phone header: who you are talking to, plus live status. */}
+          <div className="flex items-center gap-3 border-b border-white/10 px-5 py-4">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-signal/25 font-display text-base font-semibold text-signal-soft">
+              A
+            </div>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-white">Ava · VoiceFront</p>
+              <p className="text-xs text-white/50">{statusText}</p>
+            </div>
+            <span
+              aria-hidden
+              className={`h-2.5 w-2.5 shrink-0 rounded-full ${
+                phase === 'live'
+                  ? 'animate-pulse bg-signal-soft'
+                  : phase === 'connecting'
+                    ? 'animate-pulse bg-gold-light'
+                    : 'bg-white/25'
+              }`}
+            />
+          </div>
+
+          {inCall ? (
+            <div ref={transcriptBoxRef} className="h-[340px] space-y-2.5 overflow-y-auto px-4 py-4">
+              {transcript.length === 0 ? (
+                <p className="pt-12 text-center text-sm leading-relaxed text-white/40">
+                  {phase === 'connecting'
+                    ? 'Connecting to Ava\u2026'
+                    : 'Say hello. Ava is listening, and the words appear here as you talk.'}
+                </p>
+              ) : (
+                transcript.map((entry, i) => (
+                  <div key={i} className={`flex ${entry.role === 'assistant' ? 'justify-start' : 'justify-end'}`}>
+                    <div
+                      className={`max-w-[82%] rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed ${
+                        entry.role === 'assistant'
+                          ? 'rounded-bl-md bg-white/10 text-white/90'
+                          : 'rounded-br-md bg-signal/80 text-white'
+                      }`}
+                    >
+                      {entry.text}
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          ) : (
+            <div className="flex h-[340px] flex-col items-center justify-center px-6 text-center">
+              {phase === 'ended' ? (
+                <>
+                  <h3 className="font-display text-[22px] font-semibold tracking-tight text-white">
+                    That’s the demo
+                  </h3>
+                  <p className="mt-2 max-w-xs text-sm leading-relaxed text-white/55">
+                    Ava just did live what she does on your phones: greeted you, understood what you
+                    need, booked it, and refused to double-book. All in about two minutes.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={reset}
+                    className="mt-6 rounded-full bg-white px-7 py-3 text-[15px] font-semibold text-ink shadow-lift transition-transform hover:-translate-y-0.5"
+                  >
+                    Talk again
+                  </button>
+                </>
+              ) : (
+                <>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-gold-light/90">
+                    No form. No phone number.
+                  </p>
+                  <h3 className="mt-2 font-display text-[22px] font-semibold tracking-tight text-white">
+                    Talk to Ava, right now
+                  </h3>
+                  <p className="mt-2 max-w-xs text-sm leading-relaxed text-white/55">
+                    One click and she starts talking, right here in your browser. She leads, you
+                    answer, and the conversation appears as you go. Your mic is all it needs.
+                  </p>
+                  {error && <p className="mt-3 text-xs text-[#ffb4ba]">{error}</p>}
+                  <button
+                    type="button"
+                    onClick={start}
+                    disabled={awaitingTurnstile}
+                    className="mt-6 rounded-full bg-white px-8 py-3 text-[15px] font-semibold text-ink shadow-lift transition-transform hover:-translate-y-0.5 disabled:opacity-60"
+                  >
+                    Instant call
+                  </button>
+                  <div className="mt-4">
+                    <TurnstileWidget onToken={setTurnstileToken} resetRef={turnstileResetRef} />
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Phone footer: hang up while live, a plain hint otherwise. */}
+          <div className="flex items-center justify-center border-t border-white/10 px-5 py-4">
+            {inCall ? (
+              <button
+                type="button"
+                onClick={end}
+                className="rounded-full bg-[#d64545] px-7 py-2.5 text-sm font-semibold text-white transition-transform hover:-translate-y-0.5"
+              >
+                End call
+              </button>
+            ) : (
+              <p className="text-[11px] leading-relaxed text-white/30">
+                Your microphone turns on when the call starts.
+              </p>
+            )}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The demo section's one experience. With the founder's instant switch on,
+ * the instant phone demo is the ONLY demo shown. Otherwise the classic
+ * form-and-console demo runs (and shows its own turned-off note when the
+ * master switch is off too).
+ */
+export function DemoExperience() {
+  const [mode, setMode] = useState<'loading' | 'instant' | 'console'>('loading');
+  useEffect(() => {
+    let alive = true;
+    DemoApi.status()
+      .then((s) => {
+        if (alive) setMode(s.instantEnabled ? 'instant' : 'console');
+      })
+      .catch(() => {
+        if (alive) setMode('console');
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+  if (mode === 'loading') {
+    return (
+      <div className="flex min-h-[420px] items-center justify-center">
+        <Spinner />
+      </div>
+    );
+  }
+  return mode === 'instant' ? <InstantDemoPhone /> : <InteractiveDemo />;
+}
+
 export function InteractiveDemo() {
   const [view, setView] = useState<DemoView>('form');
   const [lead, setLead] = useState<DemoLeadResponse | null>(null);
