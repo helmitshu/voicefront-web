@@ -16,6 +16,7 @@ import {
   blockDemoSlot,
   resetDemoSession,
   isDemoEnabled,
+  isInstantDemoEnabled,
   createDemoLead,
   setLeadMode,
   getSalesConfig,
@@ -91,6 +92,18 @@ const callSessionLimiter = rateLimit({
   message: { error: { message: 'This demo session has used its calls. Start a fresh demo to try again.', code: 'RATE_LIMITED' } },
 });
 
+/** The instant "Call me now" path has no session or form in front of it —
+ *  one field spends a real outbound call — so its per-IP throttle is
+ *  tighter than the regular call limit. The per-destination cap below
+ *  still applies on top, exactly as on /call. */
+const instantIpLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 5,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: { message: 'Too many demo calls. Please wait a while before trying again.', code: 'RATE_LIMITED' } },
+});
+
 /**
  * Cloudflare Turnstile check for the lead form (bot protection on the entry
  * gate). Env-gated: when TURNSTILE_SECRET_KEY is unset the check is skipped
@@ -128,7 +141,7 @@ const BlockSchema = SessionSchema.extend({
 });
 
 /** First name only, for a natural greeting ("Hi Sarah, ..."). */
-function firstName(name?: string): string | null {
+function firstName(name?: string | null): string | null {
   const f = (name ?? '').trim().split(/\s+/)[0];
   return f && /^[a-zA-Z][a-zA-Z'’-]*$/.test(f) ? f : null;
 }
@@ -139,7 +152,7 @@ function firstName(name?: string): string | null {
  * and getting it wrong sours the whole call. Intensity 2 nudges without
  * over-biasing common words.
  */
-function nameKeywords(name?: string): string[] {
+function nameKeywords(name?: string | null): string[] {
   return (name ?? '')
     .trim()
     .split(/\s+/)
@@ -165,11 +178,15 @@ function toE164(raw: string): string | null {
  * Builds Ava — her human sales persona + playbook + voice — wired with the
  * demo's booking tools, founder-booking tools, and webhook routing. Shared by
  * the in-browser test ('web') and the outbound "Get a call" flow ('phone').
+ * The instant "Call me now" flow passes { instant: true }: same Ava, but her
+ * script runs as the one who placed the call (self-introducing opener, asks
+ * the prospect's name first, narrates the demo — there is no screen).
  */
 async function buildSalesAssistant(
   session: Awaited<ReturnType<typeof startDemoSession>>,
   name: string | undefined,
   channel: CallChannel,
+  opts?: { instant?: boolean },
 ) {
   const tz = session.bundle.settings.timezone;
   const now = new Date();
@@ -188,8 +205,10 @@ async function buildSalesAssistant(
     timezone: tz,
     localToday,
     displayDay: { date: session.day.date, label: session.day.dayLabel },
-    // Only the in-browser demo has a screen for Ava to drive.
-    screenControl: channel === 'web',
+    // Only the in-browser demo has a screen for Ava to drive — and never on
+    // instant calls, where the prospect is just on the phone with her.
+    screenControl: channel === 'web' && !(opts?.instant ?? false),
+    instant: opts?.instant ?? false,
     sample: {
       // The prospect's own business name (if they typed one) wins over the
       // generic industry placeholder — already resolved onto the demo day.
@@ -209,7 +228,8 @@ async function buildSalesAssistant(
     backgroundSound: 'office',
     includeFounderBooking: true,
     // Web demo only: Ava drives the prospect's on-screen panel directly.
-    includeScreenControl: channel === 'web',
+    // Instant calls get no screen tools — there is no panel in front of them.
+    includeScreenControl: channel === 'web' && !(opts?.instant ?? false),
     // Help the transcriber hear the prospect's (often unusual) name correctly,
     // so Ava isn't working from a garbled spelling.
     transcriberKeywords: nameKeywords(name),
@@ -290,7 +310,7 @@ async function countRecentDemoCallsTo(customerNumber: string): Promise<number> {
  * likely to be mis-heard on the call. Deduped case-insensitively (the clinic
  * name often contributes its own "Dental").
  */
-function receptionistKeywords(clinicName: string, prospectName?: string): string[] {
+function receptionistKeywords(clinicName: string, prospectName?: string | null): string[] {
   const byWord = new Map<string, string>();
   for (const kw of [...GOLDEN_DEMO_KEYWORDS, ...nameKeywords(clinicName), ...nameKeywords(prospectName)]) {
     const word = kw.split(':')[0]?.toLowerCase();
@@ -329,7 +349,7 @@ function dialedNumberDisplay(e164: string): string {
 
 async function buildReceptionistAssistant(
   session: Awaited<ReturnType<typeof startDemoSession>>,
-  leadRow: { name: string; businessName: string | null; factsJson: unknown },
+  leadRow: { name: string | null; businessName: string | null; factsJson: unknown },
   prospectName: string | undefined,
   confirmedFacts: ClinicFacts | undefined,
   customerNumber?: string,
@@ -429,7 +449,7 @@ async function buildReceptionistAssistant(
  */
 async function placeReceptionistDemoCall(input: {
   sessionId: string;
-  lead: { name: string; businessName: string | null; factsJson: unknown };
+  lead: { name: string | null; businessName: string | null; factsJson: unknown };
   prospectName?: string;
   confirmedFacts?: ClinicFacts;
   customerNumber: string;
@@ -462,7 +482,7 @@ async function placeReceptionistDemoCall(input: {
  */
 async function startReceptionistWebDemo(input: {
   sessionId: string;
-  lead: { name: string; businessName: string | null; factsJson: unknown };
+  lead: { name: string | null; businessName: string | null; factsJson: unknown };
   prospectName?: string;
   confirmedFacts?: ClinicFacts;
   customerNumber: string;
@@ -920,11 +940,13 @@ demoRouter.post(
   }),
 );
 
-/** Whether the landing-page demo is currently switched on (founder toggle). */
+/** Whether the landing-page demo is currently switched on (founder toggle),
+ *  and whether the "Call me now" instant call is switched on with it. The
+ *  page renders the instant card only when both are true. */
 demoRouter.get(
   '/status',
   asyncHandler(async (_req, res) => {
-    res.json({ enabled: await isDemoEnabled() });
+    res.json({ enabled: await isDemoEnabled(), instantEnabled: await isInstantDemoEnabled() });
   }),
 );
 
@@ -1066,6 +1088,49 @@ demoRouter.post(
 
     // Record that this prospect went with the in-browser test.
     if (body.leadId) await setLeadMode(body.leadId, 'web');
+
+    res.json({
+      publicKey,
+      assistant,
+      sessionId: session.sessionId,
+      day: session.day,
+      appointments: session.appointments,
+      showCalendar: sales.showCalendar,
+    });
+  }),
+);
+
+const InstantSessionSchema = z.object({
+  turnstileToken: z.string().max(2048).optional(),
+});
+
+/**
+ * Instant demo session: one click in the browser, no form, no phone number.
+ * Ava runs her outbound script (she introduces herself and leads) inside a
+ * phone-shaped frame with a live transcript. Gated on the INSTANT switch
+ * only, deliberately NOT on the master demo switch: the owner's current
+ * setup is master OFF (the form demo hidden) with instant as the only demo.
+ */
+demoRouter.post(
+  '/instant-session',
+  instantIpLimiter,
+  asyncHandler(async (req, res) => {
+    if (!(await isInstantDemoEnabled())) {
+      throw new HttpError(403, 'The instant demo is currently turned off.', 'INSTANT_DISABLED');
+    }
+    const publicKey = await getSettingValue('VAPI_PUBLIC_KEY');
+    if (!publicKey) {
+      throw new HttpError(503, 'The live demo is not configured on this server yet.', 'VOICE_NOT_CONFIGURED');
+    }
+    const body = InstantSessionSchema.parse(req.body ?? {});
+    if (body.turnstileToken && !(await verifyTurnstile(body.turnstileToken, clientIp(req)))) {
+      throw new HttpError(403, 'Bot check failed. Please try again.', 'BOT_CHECK_FAILED');
+    }
+
+    const session = await startDemoSession();
+    const { assistant, sales } = await buildSalesAssistant(session, undefined, 'web', {
+      instant: true,
+    });
 
     res.json({
       publicKey,
@@ -1230,6 +1295,95 @@ demoRouter.post(
     if (body.leadId) await setLeadMode(body.leadId, 'call');
 
     res.json({ ok: true, mode: 'phone', callId, fromNumber: callerId.number, country: gate.ipCountry });
+  }),
+);
+
+const InstantCallSchema = z.object({
+  phone: z.string().trim().min(7).max(32),
+  /** Cloudflare Turnstile token from the instant card; verified when configured. */
+  turnstileToken: z.string().max(2048).optional(),
+});
+
+/**
+ * Instant demo call — "Call me now". The lowest-friction entry point on the
+ * site: the visitor types ONE phone number and the sales agent rings them
+ * within seconds. No form, no session up front, no clinic facts: the server
+ * creates the session and a phone-only lead (name and email stay NULL; the
+ * agent collects them on the call), then places the same Ava sales call
+ * /call places after its full form. Every protection /call carries applies
+ * here too — founder switches (demo AND instant), Turnstile, the US/CA geo
+ * gate, the per-destination daily cap, and a tighter per-IP limiter — plus
+ * the instant switch defaults OFF, so the endpoint stays dark until the
+ * founder turns it on from the admin demo page.
+ */
+demoRouter.post(
+  '/instant-call',
+  instantIpLimiter,
+  asyncHandler(async (req, res) => {
+    if (!(await isDemoEnabled())) {
+      throw new HttpError(403, 'The demo is currently turned off.', 'DEMO_DISABLED');
+    }
+    if (!(await isInstantDemoEnabled())) {
+      throw new HttpError(403, 'The instant call is turned off right now. Try the full demo below instead.', 'INSTANT_DISABLED');
+    }
+    const body = InstantCallSchema.parse(req.body ?? {});
+    if (!(await verifyTurnstile(body.turnstileToken, clientIp(req)))) {
+      throw new HttpError(403, 'Bot check failed. Please try again.', 'BOT_CHECK_FAILED');
+    }
+    const gate = await evaluateGate(clientIp(req), body.phone);
+    if (!gate.callAllowed) {
+      throw new HttpError(403, 'Outbound demo calls are only available in the US and Canada right now.', 'CALL_NOT_ALLOWED');
+    }
+    const customerNumber = toE164(body.phone);
+    if (!customerNumber) {
+      throw new HttpError(400, "That phone number doesn't look right. Double-check it and try again.", 'BAD_PHONE');
+    }
+
+    // Same per-destination daily cap as /call. There is no lead email on
+    // this path, so the founder's own test number is matched by phone.
+    const callCap =
+      phoneKey(customerNumber) === phoneKey(DEMO_OWNER_PHONE)
+        ? DEMO_OWNER_CALLS_PER_DAY
+        : DEMO_CALLS_PER_NUMBER_PER_DAY;
+    if ((await countRecentDemoCallsTo(customerNumber)) >= callCap) {
+      throw new HttpError(429, 'This number has already received its demo calls today.', 'NUMBER_CAP');
+    }
+
+    const numbers = await getDemoNumbers();
+    const callerId = pickDemoCallerId(numbers, gate.ipCountry);
+    if (!callerId) {
+      throw new HttpError(503, 'Outbound demo calling isn’t set up yet. Try the in-browser test instead.', 'NO_DEMO_NUMBER');
+    }
+
+    const session = await startDemoSession();
+    // Visitor map, same best-effort derived location as /lead; the raw IP
+    // is only the lookup key and is never stored.
+    const location = await detectIpLocation(clientIp(req));
+    const lead = await createDemoLead({
+      sessionId: session.sessionId,
+      phone: body.phone,
+      ipCountry: gate.ipCountry ?? location?.country ?? null,
+      ipCity: location?.city ?? null,
+      ipRegion: location?.region ?? null,
+      ipLat: location?.lat ?? null,
+      ipLng: location?.lng ?? null,
+      phoneCountry: gate.phone.country,
+      mode: 'instant',
+    });
+
+    // Instant path: same Ava, but with her outbound script — she placed
+    // this call, so she introduces herself, asks their name first, and
+    // narrates the demo (there is no screen in front of them).
+    const { assistant } = await buildSalesAssistant(session, undefined, 'phone', {
+      instant: true,
+    });
+    const call = await placeOutboundCall({
+      phoneNumberId: callerId.id,
+      customerNumber,
+      assistant,
+    });
+
+    res.json({ ok: true, mode: 'phone', callId: call.id, leadId: lead.id, fromNumber: callerId.number, country: gate.ipCountry });
   }),
 );
 

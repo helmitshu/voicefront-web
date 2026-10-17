@@ -40,6 +40,8 @@ import {
   DEMO_TENANT_SLUG,
   isDemoEnabled,
   setDemoEnabled,
+  isInstantDemoEnabled,
+  setInstantDemoEnabled,
   listRecentDemoCalls,
   getSalesConfig,
   setSalesConfig,
@@ -968,6 +970,33 @@ adminRouter.patch(
     const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body);
     await setDemoEnabled(enabled, adminEmail);
     await recordAdminAction(adminEmail, enabled ? 'demo.enable' : 'demo.disable', 'landing demo', {});
+    res.json({ enabled });
+  }),
+);
+
+/* --------------------- instant demo call on/off ---------------------------- */
+/* The founder's switch for the "Call me now" card: one phone-number field
+ * on the landing page, the sales agent rings the visitor within seconds.
+ * Same shape as the demo toggle above — full-admin, audited — and the
+ * setting itself defaults OFF (see demo.service), so the card stays hidden
+ * and the endpoint refuses until this is deliberately flipped on.        */
+
+adminRouter.get(
+  '/instant-demo',
+  requireFullAdmin,
+  asyncHandler(async (_req, res) => {
+    res.json({ enabled: await isInstantDemoEnabled() });
+  }),
+);
+
+adminRouter.patch(
+  '/instant-demo',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const adminEmail = getAdminEmail(req);
+    const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body);
+    await setInstantDemoEnabled(enabled, adminEmail);
+    await recordAdminAction(adminEmail, enabled ? 'instant-demo.enable' : 'instant-demo.disable', 'instant demo call', {});
     res.json({ enabled });
   }),
 );
