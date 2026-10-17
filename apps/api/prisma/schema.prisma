@@ -946,6 +946,14 @@ model DemoLead {
   phone         String
   /// Visitor's country via IP geolocation ("US", "CA", "GB", etc.). Nullable if lookup fails.
   ipCountry     String?  @map("ip_country")
+  /// Approximate city / region / coordinates from the same IP geolocation
+  /// lookup that produced ipCountry (ipapi.co JSON). Derived fields only:
+  /// the raw IP address is never stored on the lead (or anywhere else).
+  /// Nullable when the lookup failed or predate the visitor map.
+  ipCity        String?  @map("ip_city")
+  ipRegion      String?  @map("ip_region")
+  ipLat         Float?   @map("ip_lat")
+  ipLng         Float?   @map("ip_lng")
   /// Phone number's country code ("US", "CA", "GB", etc.). Parsed from the number.
   phoneCountry  String?  @map("phone_country")
   /// Prospect's self-reported industry ("clinic" | "contractor" | "other"),
