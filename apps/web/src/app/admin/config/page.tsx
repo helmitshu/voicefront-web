@@ -19,6 +19,8 @@ export default function AdminConfigPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [demoEnabled, setDemoEnabled] = useState<boolean | null>(null);
   const [demoBusy, setDemoBusy] = useState(false);
+  const [billingGate, setBillingGate] = useState<boolean | null>(null);
+  const [billingGateBusy, setBillingGateBusy] = useState(false);
   const [testCallUrl, setTestCallUrl] = useState('https://smilecraft.ca/new-patients/');
   const [testCallBusy, setTestCallBusy] = useState(false);
   const [testCallNote, setTestCallNote] = useState<string | null>(null);
@@ -39,6 +41,9 @@ export default function AdminConfigPage() {
     AdminApi.demoEnabled()
       .then(({ enabled }) => setDemoEnabled(enabled))
       .catch(() => setDemoEnabled(null));
+    AdminApi.billingGate()
+      .then(({ enabled }) => setBillingGate(enabled))
+      .catch(() => setBillingGate(null));
   }, []);
 
   async function repointWebhooks() {
@@ -112,6 +117,26 @@ export default function AdminConfigPage() {
       toast(err instanceof ApiError ? err.message : 'Could not change the demo.', 'error');
     } finally {
       setDemoBusy(false);
+    }
+  }
+
+  async function toggleBillingGate() {
+    if (billingGate === null) return;
+    const next = !billingGate;
+    setBillingGateBusy(true);
+    try {
+      await AdminApi.setBillingGate(next);
+      setBillingGate(next);
+      toast(
+        next
+          ? 'Billing gate is on. Starting a trial needs Stripe checkout.'
+          : 'Billing gate is off. Testers can start a free trial with no card.',
+        'success',
+      );
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not change the billing gate.', 'error');
+    } finally {
+      setBillingGateBusy(false);
     }
   }
 
@@ -221,6 +246,33 @@ export default function AdminConfigPage() {
               onClick={toggleDemo}
             >
               {demoEnabled ? 'Turn off demo' : 'Turn on demo'}
+            </Button>
+          </div>
+        </Card>
+
+        <Card>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="max-w-xl">
+              <div className="flex items-center gap-2.5">
+                <h3 className="font-display text-[15px] font-semibold tracking-tight text-ink">
+                  Billing gate
+                </h3>
+                {billingGate === true && <Badge tone="signal" dot>On</Badge>}
+                {billingGate === false && <Badge tone="warning" dot>Off</Badge>}
+              </div>
+              <p className="mt-1.5 text-sm leading-relaxed text-ink-muted">
+                On: starting a trial needs Stripe checkout. Off: testers can start a free trial with
+                no card. Turn it back on for real customers.
+              </p>
+            </div>
+            <Button
+              variant={billingGate ? 'secondary' : 'primary'}
+              size="sm"
+              loading={billingGateBusy}
+              disabled={billingGate === null}
+              onClick={toggleBillingGate}
+            >
+              {billingGate ? 'Turn off gate' : 'Turn on gate'}
             </Button>
           </div>
         </Card>
