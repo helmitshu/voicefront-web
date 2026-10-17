@@ -152,6 +152,9 @@ export interface Me {
 export type AuthResponse = Me & { token: string };
 
 export interface AgentSettingsDto {
+  /** The workspace's business name (Tenant.companyName): shown on the
+   *  dashboard and composed into the receptionist's prompt and greeting. */
+  companyName: string;
   displayName: string;
   systemPrompt: string;
   firstMessage: string;
@@ -201,6 +204,7 @@ export interface SyncStatus {
 export type AgentSettingsPatch = Partial<
   Pick<
     AgentSettingsDto,
+    | 'companyName'
     | 'displayName'
     | 'systemPrompt'
     | 'firstMessage'
@@ -244,6 +248,9 @@ export interface CallDto {
   leadQuality: string | null;
   appointmentBooked: boolean | null;
   successScore: number | null;
+  /** Safe Landing: the call failed and the patient still needs a callback. */
+  rescueNeeded: boolean;
+  rescueReason: string | null;
 }
 
 export interface CallDetailDto extends CallDto {
@@ -266,6 +273,7 @@ export interface CallStats {
   costCentsLast30Days: number;
   forwardedLast30Days: number;
   afterHoursShare: number;
+  rescueNeededLast7Days: number;
 }
 
 /** Current-month minute usage against the tenant's monthly cap. */
@@ -342,6 +350,9 @@ export type BillingTierChoice = 'STARTER' | 'CORE';
  */
 export interface BillingStatus {
   configured: boolean;
+  /** The founder's billing-gate switch. When false, a tester may start a
+   *  trial with no card and no Stripe (POST /api/billing/comped-trial). */
+  gateEnabled: boolean;
   state: string;
   tier: BillingTierChoice | null;
   pricingRegion: 'USD' | 'CAD';
@@ -358,6 +369,10 @@ export const BillingApi = {
   status: (signal?: AbortSignal) => api<{ billing: BillingStatus }>('/api/billing/status', { signal }),
   checkout: (input: { tier: BillingTierChoice; whiteGlove?: boolean }) =>
     api<{ url: string }>('/api/billing/checkout', { method: 'POST', body: input }),
+  /** Start a no-card trial. The server only honors this while the founder
+   *  has the billing gate switched off; otherwise it answers 403. */
+  compedTrial: (input: { tier: BillingTierChoice; whiteGlove?: boolean }) =>
+    api<{ billing: BillingStatus }>('/api/billing/comped-trial', { method: 'POST', body: input }),
   complete: (sessionId: string) =>
     api<{ billing: BillingStatus }>('/api/billing/checkout/complete', {
       method: 'POST',
@@ -744,6 +759,10 @@ export const AdminApi = {
     api<{ enabled: boolean }>('/api/admin/demo', { signal }),
   setDemoEnabled: (enabled: boolean) =>
     api<{ enabled: boolean }>('/api/admin/demo', { method: 'PATCH', body: { enabled } }),
+  billingGate: (signal?: AbortSignal) =>
+    api<{ enabled: boolean }>('/api/admin/billing-gate', { signal }),
+  setBillingGate: (enabled: boolean) =>
+    api<{ enabled: boolean }>('/api/admin/billing-gate', { method: 'PATCH', body: { enabled } }),
   migrateWebhooks: () =>
     api<{ serverUrl: string; total: number; updated: number; failed: number; details: Array<{ number: string; ok: boolean }> }>(
       '/api/admin/migrate-webhooks',
@@ -1331,6 +1350,7 @@ export const CallsApi = {
       outcome?: string;
       urgency?: string;
       leadQuality?: string;
+      rescueOnly?: boolean;
     },
     signal?: AbortSignal,
   ) => {
@@ -1342,11 +1362,14 @@ export const CallsApi = {
     if (params.outcome) query.set('outcome', params.outcome);
     if (params.urgency) query.set('urgency', params.urgency);
     if (params.leadQuality) query.set('leadQuality', params.leadQuality);
+    if (params.rescueOnly) query.set('rescueOnly', 'true');
     const qs = query.toString();
     return api<ListCallsResult>(`/api/calls${qs ? `?${qs}` : ''}`, { signal });
   },
   stats: () => api<{ stats: CallStats; usage: MonthlyUsage }>('/api/calls/stats'),
   detail: (id: string) => api<{ call: CallDetailDto; mediaToken: string | null }>(`/api/calls/${id}`),
+  clearRescue: (id: string) =>
+    api<{ call: CallDetailDto }>(`/api/calls/${id}/rescue-clear`, { method: 'POST' }),
 };
 
 /* ------------------------------- screening -------------------------------- */
