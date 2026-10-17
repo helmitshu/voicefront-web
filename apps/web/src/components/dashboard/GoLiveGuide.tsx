@@ -27,10 +27,10 @@ export function GoLiveGuide({ number }: { number: string }) {
   }
 
   return (
-    <div className="animate-fade-up overflow-hidden rounded-3xl border border-signal/20 bg-gradient-to-br from-signal-soft/70 to-white p-6 shadow-card md:p-7">
+    <div className="animate-fade-up vf-stage-v2 relative overflow-hidden rounded-3xl border border-signal/20 bg-gradient-to-br from-signal-soft/70 to-card p-6 shadow-card md:p-7">
       <div className="flex flex-wrap items-start justify-between gap-5">
         <div className="min-w-0">
-          <span className="inline-flex items-center gap-2 rounded-full bg-white/70 px-3 py-1 text-[12px] font-semibold text-signal-deep ring-1 ring-inset ring-signal/15">
+          <span className="inline-flex items-center gap-2 rounded-full bg-card/70 px-3 py-1 text-[12px] font-semibold text-signal-deep ring-1 ring-inset ring-signal/15">
             <span className="relative flex h-1.5 w-1.5">
               <span className="absolute h-full w-full animate-pulse-ring rounded-full bg-signal" />
               <span className="relative h-1.5 w-1.5 rounded-full bg-signal" />
@@ -46,7 +46,7 @@ export function GoLiveGuide({ number }: { number: string }) {
           </p>
         </div>
 
-        <div className="rounded-2xl border border-signal/15 bg-white px-4 py-3 text-center shadow-input">
+        <div className="rounded-2xl border border-signal/15 bg-card px-4 py-3 text-center shadow-input">
           <p className="text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-muted/70">Your number</p>
           <p className="mt-1 font-mono text-lg font-semibold tracking-tight text-ink">{formatPhone(number)}</p>
           <button
@@ -60,7 +60,7 @@ export function GoLiveGuide({ number }: { number: string }) {
       </div>
 
       <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-        <div className="rounded-2xl border border-line/70 bg-white/80 p-4">
+        <div className="rounded-2xl border border-line/70 bg-card/80 p-4">
           <p className="text-sm font-semibold text-ink">1 · Your number is live</p>
           <p className="mt-1 text-[13px] leading-relaxed text-ink-muted">
             Your receptionist answers on{' '}
@@ -74,7 +74,7 @@ export function GoLiveGuide({ number }: { number: string }) {
             Open receptionist settings →
           </Link>
         </div>
-        <div className="rounded-2xl border border-line/70 bg-white/80 p-4">
+        <div className="rounded-2xl border border-line/70 bg-card/80 p-4">
           <p className="text-sm font-semibold text-ink">2 · Forward your business line</p>
           <p className="mt-1 text-[13px] leading-relaxed text-ink-muted">
             From the phone or line you give customers, dial{' '}
@@ -89,7 +89,7 @@ export function GoLiveGuide({ number }: { number: string }) {
             Manage your lines in Settings →
           </Link>
         </div>
-        <div className="rounded-2xl border border-line/70 bg-white/80 p-4">
+        <div className="rounded-2xl border border-line/70 bg-card/80 p-4">
           <p className="text-sm font-semibold text-ink">3 · Hear her answer</p>
           <p className="mt-1 text-[13px] leading-relaxed text-ink-muted">
             Call your number from any phone and talk to your receptionist. Your first call shows up right here, live.
