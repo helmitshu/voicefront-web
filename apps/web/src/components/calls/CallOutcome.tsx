@@ -43,6 +43,20 @@ export function hasOutcome(call: CallDto): boolean {
   return Boolean(call.outcome || call.urgency || call.leadQuality || call.successScore != null);
 }
 
+/**
+ * Safe Landing badge: the call failed and the patient still needs a human
+ * callback. Rendered beside the outcome chips in the list and detail
+ * header so a flagged call can never hide behind "No action".
+ */
+export function RescueBadge({ call }: { call: CallDto }) {
+  if (!call.rescueNeeded) return null;
+  return (
+    <Badge tone="danger" dot>
+      Needs callback
+    </Badge>
+  );
+}
+
 /** Compact inline chips — used in the call list and detail header. */
 export function CallOutcomeChips({ call, showScore = false }: { call: CallDto; showScore?: boolean }) {
   const outcome = call.outcome ? OUTCOME_META[call.outcome] : null;
