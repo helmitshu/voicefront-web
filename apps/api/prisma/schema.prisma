@@ -941,8 +941,10 @@ model DemoLead {
   id            String   @id @default(cuid())
   /// Visitor's demo session (links to their isolated calendar).
   demoSessionId String   @map("demo_session_id")
-  name          String
-  email         String
+  /// Nullable: instant-call leads ("Call me now") are captured with a phone
+  /// number only; the name and email are collected on the call itself.
+  name          String?
+  email         String?
   phone         String
   /// Visitor's country via IP geolocation ("US", "CA", "GB", etc.). Nullable if lookup fails.
   ipCountry     String?  @map("ip_country")
