@@ -129,6 +129,9 @@ vi.mock('../lib/prisma', () => ({
     },
     callLog: { groupBy: () => Promise.resolve([]) },
     appointment: { groupBy: () => Promise.resolve([]) },
+    // The billing gate is read on the signup path (billing.service). No row
+    // here = gate ON = the long-standing behaviour these tests pin.
+    platformSetting: { findUnique: async () => null },
     $transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
       const tx = {
         tenant: {

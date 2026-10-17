@@ -67,6 +67,9 @@ vi.mock('../lib/prisma', () => ({
       findUnique: (args: unknown) => userFindUnique(args as never),
       update: (args: unknown) => userUpdate(args as never),
     },
+    // The billing gate is read on the signup path (billing.service). No row
+    // here = gate ON = the long-standing behaviour.
+    platformSetting: { findUnique: async () => null },
     $transaction: vi.fn(),
   },
 }));

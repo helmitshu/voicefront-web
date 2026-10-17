@@ -24,6 +24,14 @@ agentRouter.use(requireAuth);
 
 /** Tenant-facing settings shape; provider internals are never included. */
 interface AgentSettingsDto {
+  /**
+   * The workspace's business name. It lives on the Tenant, not in the
+   * settings row: it is what the dashboard shows and what the assistant
+   * builder composes the receptionist's prompt and greeting from. It rides
+   * along here so onboarding's Quick check can display and correct it
+   * through the same save as the rest of the step.
+   */
+  companyName: string;
   displayName: string;
   systemPrompt: string;
   firstMessage: string;
@@ -69,8 +77,9 @@ interface AgentSettingsDto {
   updatedAt: string;
 }
 
-function toDto(settings: AgentSettings): AgentSettingsDto {
+function toDto(settings: AgentSettings, companyName: string): AgentSettingsDto {
   return {
+    companyName,
     displayName: settings.displayName,
     systemPrompt: settings.systemPrompt,
     firstMessage: settings.firstMessage,
@@ -106,17 +115,31 @@ async function getSettingsOrThrow(tenantId: string): Promise<AgentSettings> {
   return settings;
 }
 
+async function getCompanyName(tenantId: string): Promise<string> {
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: tenantId },
+    select: { companyName: true },
+  });
+  return tenant?.companyName ?? '';
+}
+
 agentRouter.get(
   '/settings',
   asyncHandler(async (req, res) => {
     const auth = getAuth(req);
-    const settings = await getSettingsOrThrow(auth.tenantId);
-    res.json({ settings: toDto(settings) });
+    const [settings, companyName] = await Promise.all([
+      getSettingsOrThrow(auth.tenantId),
+      getCompanyName(auth.tenantId),
+    ]);
+    res.json({ settings: toDto(settings, companyName) });
   }),
 );
 
 const UpdateSchema = z
   .object({
+    // The business name (Tenant.companyName); bounds mirror /register's
+    // company name so a rename can never create a name signup would refuse.
+    companyName: z.string().trim().min(2, 'Company name is too short').max(80),
     displayName: z.string().trim().min(2).max(40),
     systemPrompt: z
       .string()
@@ -200,6 +223,7 @@ agentRouter.patch(
     const auth = getAuth(req);
     const patch = UpdateSchema.parse(req.body);
     const current = await getSettingsOrThrow(auth.tenantId); // 409 with a clear code if missing
+    let companyName = await getCompanyName(auth.tenantId);
 
     // Validate the voice pair as it will exist after the patch, so a
     // provider switch and a voiceId change can't sneak past separately.
@@ -248,6 +272,16 @@ agentRouter.patch(
     }
 
     try {
+      // A business rename writes to the Tenant (the name's source of truth);
+      // the sync below re-reads the tenant, so a synced assistant picks the
+      // new name up in its prompt and greeting on this same save.
+      if (patch.companyName !== undefined) {
+        await prisma.tenant.update({
+          where: { id: auth.tenantId },
+          data: { companyName: patch.companyName },
+        });
+        companyName = patch.companyName;
+      }
       const updated = await prisma.agentSettings.update({
         where: { tenantId: auth.tenantId },
         data,
@@ -255,7 +289,7 @@ agentRouter.patch(
       // If an assistant is assigned, push the new settings to Vapi. Best-effort:
       // the save already succeeded, so a sync hiccup only adds a gentle note.
       const sync = await syncAssistantForTenant(auth.tenantId);
-      res.json({ settings: toDto(updated), sync });
+      res.json({ settings: toDto(updated, companyName), sync });
     } catch (err) {
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
         throw new HttpError(

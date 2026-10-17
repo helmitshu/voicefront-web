@@ -21,6 +21,7 @@ import {
 import { consumeAccessCode } from '../services/access-code.service';
 import { verifyGoogleIdToken } from '../services/google-auth.service';
 import { getOnboarding, toOnboardingView } from '../services/onboarding.service';
+import { isBillingGateEnabled } from '../services/billing.service';
 
 export const authRouter = Router();
 
@@ -151,6 +152,12 @@ authRouter.post(
       personaName: persona.personaName,
     });
 
+    // Billing gate: while the founder has the gate switched off (tester
+    // access before Stripe exists), a new workspace is born billing-exempt
+    // so it can run its trial with no card. Gate on: the create below is
+    // untouched and the tenant takes the schema default (not exempt).
+    const billingGateOff = !(await isBillingGateEnabled());
+
     // Tenant + owner + onboarding + settings are one atomic unit: a partial
     // signup must never leave a tenant without settings or vice versa.
     // Slug collisions retry with a fresh random suffix.
@@ -161,7 +168,12 @@ authRouter.post(
       try {
         const result = await prisma.$transaction(async (tx) => {
           const tenant = await tx.tenant.create({
-            data: { companyName: body.companyName, industry: body.industry, slug },
+            data: {
+              companyName: body.companyName,
+              industry: body.industry,
+              slug,
+              ...(billingGateOff ? { billingExempt: true } : {}),
+            },
           });
           // Spend the invitation atomically with account creation: a failure
           // here rolls back the whole signup, and the conditional update makes
@@ -280,8 +292,10 @@ const GoogleSchema = z.object({
 /**
  * Default industry for workspaces created through Google sign-up when the
  * request does not carry the form's selected industry. New workspaces use
- * the sign-in name as a provisional company name; the owner finishes the
- * profile in onboarding. Whether the request-selected or default industry
+ * the Google profile name as a provisional company name when Google sent
+ * one; when it sent none, a neutral placeholder stands in (never the email
+ * or its prefix) and the owner sets the real business name in onboarding's
+ * Quick check step. Whether the request-selected or default industry
  * is used, the invite gate is mirrored from /register, so an invite-only
  * industry refuses with CODE_REQUIRED instead of slipping past the gate
  * (operators bypass, as with /register).
@@ -330,21 +344,36 @@ authRouter.post(
     // in, and "forgot password" style recovery is a non-issue.
     const passwordHash = await hashPassword(randomBytes(32).toString('base64url'));
     const persona = industryPersona(signupIndustry);
+    // The workspace name comes from the Google profile name only. When
+    // Google sent no name, fall back to a neutral placeholder — the email
+    // address and its prefix are never a company name. (profile.fullName
+    // still carries the email-prefix fallback, but that value is only the
+    // USER's display name, never the tenant's.)
+    const companyName = profile.profileName ?? 'My business';
     const defaults = industryDefaults(signupIndustry, {
-      companyName: profile.fullName,
+      companyName,
       personaName: persona.personaName,
     });
 
+    // Billing gate, same rule as /register: gate off at creation means the
+    // workspace is born billing-exempt; gate on leaves the create untouched.
+    const billingGateOff = !(await isBillingGateEnabled());
+
     // Same atomic unit as /register (tenant + owner + onboarding +
     // settings), with the same slug-collision retry.
-    const baseSlug = toSlug(profile.fullName);
+    const baseSlug = toSlug(companyName);
     let lastError: unknown = null;
     for (let attempt = 0; attempt < 5; attempt += 1) {
       const slug = attempt === 0 ? baseSlug : `${baseSlug}-${randomSuffix()}`;
       try {
         const result = await prisma.$transaction(async (tx) => {
           const tenant = await tx.tenant.create({
-            data: { companyName: profile.fullName, industry: signupIndustry, slug },
+            data: {
+              companyName,
+              industry: signupIndustry,
+              slug,
+              ...(billingGateOff ? { billingExempt: true } : {}),
+            },
           });
           const user = await tx.user.create({
             data: {

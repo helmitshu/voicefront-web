@@ -16,6 +16,8 @@ import express from 'express';
  *    GOOGLE_EMAIL_UNVERIFIED;
  *  - valid token + new email → creates tenant + OWNER user + onboarding +
  *    settings (mirroring /register), 201, in the exact login response shape;
+ *  - a token with no profile name names the workspace with a neutral
+ *    placeholder ("My business") — never the email address or its prefix;
  *  - a selected CLINIC/CONSTRUCTION industry is honored and invite-gated
  *    exactly like /register; an absent industry defaults to CONSTRUCTION;
  *  - valid token + existing email → 200 sign-in, no duplicate user;
@@ -100,6 +102,9 @@ const txFake = {
 vi.mock('../lib/prisma', () => ({
   prisma: {
     user: { findUnique: (args: unknown) => userFindUnique(args as never) },
+    // The billing gate is read on the signup path (billing.service). No row
+    // here = gate ON = the long-standing behaviour these tests pin.
+    platformSetting: { findUnique: async () => null },
     $transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(txFake),
   },
 }));
@@ -276,6 +281,32 @@ describe('POST /api/auth/google', () => {
     const claims = verifyAccessToken(body.token as unknown as string);
     expect(claims.sub).toBe(created.id);
     expect(claims.tid).toBe(created.tenantId);
+  });
+
+  it('never names the workspace from the email when Google sends no profile name', async () => {
+    // No `name` claim at all: the email local part must not become the
+    // company name (the founder hit exactly this — his workspace was named
+    // after his email). A neutral placeholder stands in until the owner
+    // sets the real business name in onboarding.
+    verifyIdToken.mockResolvedValue(
+      googlePayload({ email: 'nameless.clinic@example.com', email_verified: true }),
+    );
+    const { status, body } = await postGoogle('valid-token');
+
+    expect(status).toBe(201);
+    expect(users.size).toBe(1);
+    expect(tenants.size).toBe(1);
+    const created = [...users.values()][0];
+    expect(created.tenant.companyName).toBe('My business');
+    expect(created.tenant.companyName).not.toBe('nameless.clinic@example.com');
+    expect(created.tenant.companyName).not.toBe('nameless.clinic');
+    expect(body.tenant.companyName).toBe('My business');
+    expect(created.tenant.slug).toBe('my-business');
+    expect(tenantCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ companyName: 'My business' }),
+      }),
+    );
   });
 
   it('honors a CLINIC industry selection when that industry is open', async () => {

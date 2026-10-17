@@ -11,6 +11,7 @@ import {
   getBillingStatus,
   handleStripeEvent,
   recordStripeEvent,
+  startCompedTrial,
   verifyWebhookEvent,
 } from '../services/billing.service';
 
@@ -103,6 +104,49 @@ billingRouter.post(
     const auth = getAuth(req);
     const result = await createPortalSession({ tenantId: auth.tenantId });
     res.json(result);
+  }),
+);
+
+/**
+ * The comped trial: start a trial with no card and no Stripe. Same body
+ * discipline as checkout (a tier, an optional white-glove flag, nothing
+ * else). The service refuses with 403 unless the founder has switched the
+ * billing gate off in Admin → Keys & config; with the gate on, this route
+ * grants nothing.
+ */
+const CompedTrialSchema = z
+  .object({
+    tier: z.enum(['STARTER', 'CORE', 'GROWTH']),
+    whiteGlove: z.boolean().optional(),
+  })
+  .strict();
+
+billingRouter.post(
+  '/comped-trial',
+  ...ownerOnly,
+  checkoutLimiter,
+  asyncHandler(async (req, res) => {
+    const auth = getAuth(req);
+    const body = CompedTrialSchema.parse(req.body);
+    if (body.tier === 'GROWTH') {
+      throw new HttpError(
+        400,
+        'Growth is not on sale yet. Join the waitlist on the pricing page and we will reach out.',
+        'TIER_NOT_AVAILABLE',
+      );
+    }
+    const user = await prisma.user.findUnique({
+      where: { id: auth.userId },
+      select: { email: true },
+    });
+    if (!user) throw new HttpError(401, 'Please sign in to continue.', 'UNAUTHENTICATED');
+    const status = await startCompedTrial({
+      tenantId: auth.tenantId,
+      tier: body.tier,
+      whiteGlove: body.whiteGlove,
+      actorEmail: user.email,
+    });
+    res.json({ billing: status });
   }),
 );
 

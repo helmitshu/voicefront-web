@@ -46,6 +46,7 @@ import {
   getDemoNumbers,
   setDemoNumbers,
 } from '../services/demo.service';
+import { isBillingGateEnabled, setBillingGateEnabled } from '../services/billing.service';
 import {
   listFounderEntries,
   founderAvailability,
@@ -966,6 +967,36 @@ adminRouter.patch(
     const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body);
     await setDemoEnabled(enabled, adminEmail);
     await recordAdminAction(adminEmail, enabled ? 'demo.enable' : 'demo.disable', 'landing demo', {});
+    res.json({ enabled });
+  }),
+);
+
+/* ------------------------- billing gate on/off ---------------------------- */
+/* The founder's switch for letting a hand-picked tester start a trial with
+ * no card while Stripe is not set up yet. Full-admin, audited, same shape
+ * as the demo toggle above. Gate ON (the default) is today's behaviour.   */
+
+adminRouter.get(
+  '/billing-gate',
+  requireFullAdmin,
+  asyncHandler(async (_req, res) => {
+    res.json({ enabled: await isBillingGateEnabled() });
+  }),
+);
+
+adminRouter.patch(
+  '/billing-gate',
+  requireFullAdmin,
+  asyncHandler(async (req, res) => {
+    const adminEmail = getAdminEmail(req);
+    const { enabled } = z.object({ enabled: z.boolean() }).parse(req.body);
+    await setBillingGateEnabled(enabled, adminEmail);
+    await recordAdminAction(
+      adminEmail,
+      enabled ? 'billingGate.enable' : 'billingGate.disable',
+      'billing gate',
+      {},
+    );
     res.json({ enabled });
   }),
 );

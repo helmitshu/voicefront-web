@@ -82,6 +82,8 @@ const state = vi.hoisted(() => {
     urgency: string | null;
     leadQuality: string | null;
     appointmentBooked: boolean;
+    rescueNeeded: boolean;
+    rescueReason: string | null;
     summary: string | null;
     transcript: string | null;
     durationSeconds: number;
@@ -236,6 +238,7 @@ const state = vi.hoisted(() => {
       endedAt: new Date('2026-10-14T19:45:04Z'), endedReason: 'assistant-ended-call',
       callerNumber: '+14165550123', channel: 'phone', status: 'COMPLETED', outcome: 'BOOKED',
       intent: 'BOOK', urgency: 'LOW', leadQuality: 'WARM', appointmentBooked: true,
+      rescueNeeded: false, rescueReason: null,
       summary: 'Booked a cleaning for next week.',
       transcript: 'Caller: I need a cleaning. Receptionist: I can help with that.',
       durationSeconds: 184,
@@ -246,6 +249,7 @@ const state = vi.hoisted(() => {
       endedAt: new Date('2026-10-13T15:06:02Z'), endedReason: 'customer-ended-call',
       callerNumber: '+14165550177', channel: 'phone', status: 'COMPLETED', outcome: 'MESSAGE_TAKEN',
       intent: 'QUESTION', urgency: 'LOW', leadQuality: 'COLD', appointmentBooked: false,
+      rescueNeeded: true, rescueReason: 'The call failed (no-answer).',
       summary: 'Asked about parking.', transcript: '', durationSeconds: 62,
       successScore: 8, structuredData: { callerName: 'Pat Ng' },
     });
@@ -254,6 +258,7 @@ const state = vi.hoisted(() => {
       endedAt: new Date('2026-10-14T17:20:21Z'), endedReason: 'customer-hung-up',
       callerNumber: '+16045550155', channel: 'phone', status: 'COMPLETED', outcome: 'NO_ACTION',
       intent: 'OTHER', urgency: 'HIGH', leadQuality: 'HOT', appointmentBooked: false,
+      rescueNeeded: false, rescueReason: null,
       summary: 'Caller hung up.', transcript: 'Caller: This is the other workspace.',
       durationSeconds: 21,
       successScore: 2, structuredData: { callerName: 'Beta Caller' },
@@ -924,6 +929,33 @@ describe('support agent v2', () => {
     expect(seen).not.toContain('call_a1');
     expect(seen).not.toContain('call_a2');
     expect(seen).not.toContain('Jamie Lee');
+  });
+
+  it('list_calls_in_range carries the rescue flag and reason so Adam can answer callback questions', async () => {
+    state.geminiScript.push(
+      callReply('list_calls_in_range', {}),
+      textReply('One call still needs a callback.'),
+    );
+    const res = await chat(tokenA(), 'Which calls need a callback?');
+    expect(res.status).toBe(200);
+    const seen = JSON.stringify(state.geminiRequests);
+    expect(seen).toContain('call_a2');
+    expect(seen).toContain('"rescueNeeded":true');
+    expect(seen).toContain('The call failed (no-answer).');
+    // The booked call in the same list is reported clean.
+    expect(seen).toContain('"rescueNeeded":false');
+  });
+
+  it('get_call_details carries the rescue flag and reason for the flagged call', async () => {
+    state.geminiScript.push(
+      callReply('get_call_details', { callLogId: 'call_a2' }),
+      textReply('That call needs a callback.'),
+    );
+    const res = await chat(tokenA(), 'Tell me about that failed call.');
+    expect(res.status).toBe(200);
+    const seen = JSON.stringify(state.geminiRequests);
+    expect(seen).toContain('"rescueNeeded":true');
+    expect(seen).toContain('The call failed (no-answer).');
   });
 
   it('proposes a bad-call ticket, holds it unfiled, and files exactly one row on confirm', async () => {

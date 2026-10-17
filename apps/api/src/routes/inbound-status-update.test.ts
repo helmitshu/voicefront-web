@@ -155,7 +155,7 @@ vi.mock('../lib/prisma', () => ({
       update: vi.fn(async () => ({})),
     },
     demoLead: { findFirst: vi.fn(async () => null) },
-    appointment: { findFirst: vi.fn(async () => null) },
+    appointment: { findFirst: vi.fn(async () => null), count: vi.fn(async () => 0) },
     $transaction: (ops: Array<Promise<unknown>>) => Promise.all(ops),
   },
 }));

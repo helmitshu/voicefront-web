@@ -69,6 +69,8 @@ const state = vi.hoisted(() => {
   const onboardings = new Map<string, FakeOnboarding>();
   const pool = new Map<string, FakePoolNumber>();
   const settings = new Map<string, FakeSettings>();
+  const platformSettings = new Map<string, { key: string; valueEnc: string; updatedBy: string }>();
+  const auditEntries: Array<Record<string, unknown>> = [];
 
   /* ------------------------------ fake Stripe ---------------------------- */
   const prices = new Map<string, { id: string; currency: string }>();
@@ -244,6 +246,26 @@ const state = vi.hoisted(() => {
         return Promise.resolve(row);
       },
     },
+    platformSetting: {
+      findUnique: (args: { where: { key: string } }) =>
+        Promise.resolve(platformSettings.get(args.where.key) ?? null),
+      upsert: (args: {
+        where: { key: string };
+        create: { key: string; valueEnc: string; updatedBy: string };
+        update: { valueEnc: string; updatedBy: string };
+      }) => {
+        const existing = platformSettings.get(args.where.key);
+        const row = existing ? { ...existing, ...args.update } : { ...args.create };
+        platformSettings.set(args.where.key, row);
+        return Promise.resolve(row);
+      },
+    },
+    adminAuditLog: {
+      create: (args: { data: Record<string, unknown> }) => {
+        auditEntries.push(args.data);
+        return Promise.resolve(args.data);
+      },
+    },
   };
 
   function seed() {
@@ -254,6 +276,8 @@ const state = vi.hoisted(() => {
     onboardings.clear();
     pool.clear();
     settings.clear();
+    platformSettings.clear();
+    auditEntries.length = 0;
     prices.clear();
     stripeSubscriptions.clear();
     sessions.clear();
@@ -291,6 +315,7 @@ const state = vi.hoisted(() => {
 
   return {
     tenants, users, subscriptions, stripeEvents, onboardings, pool, settings,
+    platformSettings, auditEntries,
     stripeSubscriptions, sessions, sessionCreates, subscriptionRetrieves,
     prisma, FakeStripe, stripeSub, seed,
     setNextSessionSubscription: (id: string | null) => {
