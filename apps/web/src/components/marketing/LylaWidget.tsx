@@ -1256,7 +1256,7 @@ export function LylaWidget() {
           slide-and-fade, and it never outgrows the viewport. While it
           is up, the pill below hands the corner off to it. */}
       {proactiveNote && !open && (
-        <div className="lyla-bubble-in fixed bottom-24 right-3 z-40 w-[min(320px,calc(100vw-24px))] rounded-2xl border border-line bg-white p-3.5 shadow-lift sm:right-6">
+        <div className="lyla-bubble-in fixed bottom-24 right-3 z-[60] w-[min(320px,calc(100vw-24px))] rounded-2xl border border-line bg-white p-3.5 shadow-lift sm:right-6">
           <div className="flex items-start gap-2">
             <button
               type="button"
@@ -1328,7 +1328,7 @@ export function LylaWidget() {
       {panelMounted && (
         <div
           data-shown={panelShown}
-          className="lyla-panel fixed bottom-3 right-3 z-40 flex h-[min(560px,calc(100dvh-24px))] w-[min(400px,calc(100vw-24px))] flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-lift sm:bottom-5 sm:right-6"
+          className="lyla-panel fixed bottom-3 right-3 z-[60] flex h-[min(560px,calc(100dvh-24px))] w-[min(400px,calc(100vw-24px))] flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-lift sm:bottom-5 sm:right-6"
         >
           <div className="flex shrink-0 items-center gap-3 border-b border-line px-4 py-3">
             <span className={guiding || sending ? 'lyla-avatar-ring' : undefined}>
