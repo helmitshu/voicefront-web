@@ -761,6 +761,8 @@ export const AdminApi = {
     api<{ enabled: boolean }>('/api/admin/demo', { method: 'PATCH', body: { enabled } }),
   billingGate: (signal?: AbortSignal) =>
     api<{ enabled: boolean }>('/api/admin/billing-gate', { signal }),
+  visitorMap: (signal?: AbortSignal) =>
+    api<VisitorMapResult>('/api/admin/visitor-map', { signal }),
   setBillingGate: (enabled: boolean) =>
     api<{ enabled: boolean }>('/api/admin/billing-gate', { method: 'PATCH', body: { enabled } }),
   migrateWebhooks: () =>
@@ -1588,6 +1590,67 @@ export interface DemoWebCallResponse {
 }
 
 export type DemoCallResult = DemoCallResponse | DemoWebCallResponse;
+/* ------------------------- admin visitor map ------------------------- */
+
+export interface VisitorMapLocation {
+  city: string | null;
+  region: string | null;
+  country: string;
+  countryName: string;
+  lat: number;
+  lng: number;
+  /** "city" with stored coordinates, or "country" for a centroid pin. */
+  precision: 'city' | 'country';
+  precisionLabel: string;
+}
+
+export interface VisitorMapVisitor {
+  id: string;
+  displayName: string;
+  source: 'lyla' | 'form';
+  email: string;
+  phone: string | null;
+  businessName: string | null;
+  websiteUrl: string | null;
+  industry: string;
+  mode: string;
+  businessFacts: { address: string | null; services: string[]; hours: string[] } | null;
+  country: string | null;
+  countryName: string | null;
+  location: VisitorMapLocation | null;
+  firstSeenAt: string;
+  lastActivityAt: string;
+  callCount: number;
+  holdBooked: boolean;
+  hold: { service: string | null; date: string | null; time: string | null; status: string } | null;
+  timeline: Array<{ at: string; kind: 'lead' | 'call' | 'hold'; label: string }>;
+}
+
+export interface VisitorMapPoint {
+  key: string;
+  lat: number;
+  lng: number;
+  precision: 'city' | 'country';
+  precisionLabel: string;
+  label: string;
+  country: string;
+  countryName: string;
+  count: number;
+  visitorIds: string[];
+}
+
+export interface VisitorMapResult {
+  stats: {
+    totalVisitors: number;
+    locatedVisitors: number;
+    unlocatedVisitors: number;
+    countries: number;
+    last7Days: number;
+  };
+  points: VisitorMapPoint[];
+  visitors: VisitorMapVisitor[];
+}
+
 export interface DemoCallRecord {
   id: string;
   durationSeconds: number;
