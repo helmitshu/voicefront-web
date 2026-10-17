@@ -91,6 +91,17 @@ const NAV: NavItem[] = [
     ),
   },
   {
+    href: '/admin/visitor-map',
+    label: 'Visitor map',
+    fullAdminOnly: true,
+    icon: (
+      <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" className="h-[18px] w-[18px]">
+        <circle cx="10" cy="10" r="7.5" />
+        <path d="M2.5 10h15M10 2.5c-4.5 4.8-4.5 10.2 0 15 4.5-4.8 4.5-10.2 0-15Z" strokeLinejoin="round" />
+      </svg>
+    ),
+  },
+  {
     href: '/admin/calendar',
     label: 'My calendar',
     fullAdminOnly: true,
