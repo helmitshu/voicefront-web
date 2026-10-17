@@ -131,7 +131,7 @@ export function StatCard({
 }) {
   void accent;
   return (
-    <Card className="group relative overflow-hidden hover:shadow-card-hover" padded={false}>
+    <Card className="vf-glass-card group relative overflow-hidden hover:shadow-card-hover" padded={false}>
       {/* The demo KPI's signal strip across the top edge. */}
       <span aria-hidden className="bg-grad pointer-events-none absolute inset-x-0 top-0 h-[2px] opacity-[0.85]" />
       <div className="p-4 pb-3.5 sm:p-5 sm:pb-4">
