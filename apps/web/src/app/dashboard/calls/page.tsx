@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { ApiError, CallsApi, type ListCallsResult } from '@/lib/api';
 import { formatCents, formatDateTime, formatDuration, formatPhone } from '@/lib/format';
 import { Card, CallStatusBadge, EmptyState } from '@/components/ui/Card';
-import { CallOutcomeChips } from '@/components/calls/CallOutcome';
+import { CallOutcomeChips, RescueBadge } from '@/components/calls/CallOutcome';
 import { Button } from '@/components/ui/Button';
 import { Input, Select } from '@/components/ui/Field';
 import { Spinner } from '@/components/ui/Spinner';
@@ -48,6 +48,7 @@ export default function CallsPage() {
   const [outcome, setOutcome] = useState('');
   const [urgency, setUrgency] = useState('');
   const [lead, setLead] = useState('');
+  const [rescueOnly, setRescueOnly] = useState(false);
   const [page, setPage] = useState(1);
   const [reloadKey, setReloadKey] = useState(0);
   const [result, setResult] = useState<ListCallsResult | null>(null);
@@ -81,6 +82,7 @@ export default function CallsPage() {
         outcome: outcome || undefined,
         urgency: urgency || undefined,
         leadQuality: lead || undefined,
+        rescueOnly: rescueOnly || undefined,
       },
       controller.signal,
     )
@@ -94,7 +96,7 @@ export default function CallsPage() {
         setLoading(false);
       });
     return () => controller.abort();
-  }, [page, debouncedSearch, range, outcome, urgency, lead, reloadKey]);
+  }, [page, debouncedSearch, range, outcome, urgency, lead, rescueOnly, reloadKey]);
 
   // Changing any outcome filter jumps back to the first page of results.
   function setFilter(setter: (v: string) => void, value: string) {
@@ -161,13 +163,29 @@ export default function CallsPage() {
             ))}
           </Select>
         </div>
-        {(outcome || urgency || lead) && (
+        <button
+          type="button"
+          aria-pressed={rescueOnly}
+          onClick={() => {
+            setRescueOnly((v) => !v);
+            setPage(1);
+          }}
+          className={`self-start rounded-full border px-3.5 py-2 text-sm font-medium transition-colors sm:self-center ${
+            rescueOnly
+              ? 'border-danger/40 bg-danger/10 text-danger'
+              : 'border-line bg-card text-ink-muted hover:text-ink'
+          }`}
+        >
+          Needs callback only
+        </button>
+        {(outcome || urgency || lead || rescueOnly) && (
           <button
             type="button"
             onClick={() => {
               setOutcome('');
               setUrgency('');
               setLead('');
+              setRescueOnly(false);
               setPage(1);
             }}
             className="self-start text-sm font-medium text-ink-muted transition-colors hover:text-ink sm:self-center"
@@ -197,10 +215,12 @@ export default function CallsPage() {
         ) : result && result.calls.length === 0 ? (
           <div className="p-6">
             <EmptyState
-              title={debouncedSearch || outcome || urgency || lead ? 'No calls match your filters' : 'No calls in this period'}
+              title={debouncedSearch || outcome || urgency || lead || rescueOnly ? 'No calls match your filters' : 'No calls in this period'}
               description={
-                debouncedSearch || outcome || urgency || lead
-                  ? 'Try widening the date range or clearing a filter.'
+                debouncedSearch || outcome || urgency || lead || rescueOnly
+                  ? rescueOnly
+                    ? 'No calls are waiting on a callback in this period. Good news.'
+                    : 'Try widening the date range or clearing a filter.'
                   : 'Calls will appear here as soon as your receptionist answers one.'
               }
             />
@@ -232,7 +252,10 @@ export default function CallsPage() {
                       <p className="line-clamp-2 text-sm leading-relaxed text-ink-muted">
                         {call.summary ?? 'No summary available.'}
                       </p>
-                      <CallOutcomeChips call={call} />
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        <CallOutcomeChips call={call} />
+                        <RescueBadge call={call} />
+                      </div>
                     </div>
                     <div className="hidden w-20 text-right sm:block">
                       <p className="font-mono text-sm text-ink">{formatDuration(call.durationSeconds)}</p>
