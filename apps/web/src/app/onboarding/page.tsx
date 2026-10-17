@@ -78,6 +78,7 @@ export default function OnboardingPage() {
   );
   const [whiteGlove, setWhiteGlove] = useState(false);
   const [startingCheckout, setStartingCheckout] = useState(false);
+  const [startingComped, setStartingComped] = useState(false);
   const [checkoutNote, setCheckoutNote] = useState<string | null>(null);
   const [openingPortal, setOpeningPortal] = useState(false);
   const returnHandled = useRef(false);
@@ -155,6 +156,22 @@ export default function OnboardingPage() {
     } catch (err) {
       toast(err instanceof ApiError ? err.message : 'Could not start checkout. Please try again.', 'error');
       setStartingCheckout(false);
+    }
+  }
+
+  // The no-card trial start, offered only while the billing gate is off
+  // (the server refuses it otherwise). On success the workspace comes back
+  // billing-exempt, so this panel gives way to the go-live bar — the same
+  // end state a finished Stripe trial start lands on.
+  async function startCompedTrial() {
+    setStartingComped(true);
+    try {
+      const { billing: applied } = await BillingApi.compedTrial({ tier: tierChoice, whiteGlove });
+      setBilling(applied);
+      toast('Your free trial is on — finish setup and go live below.', 'success');
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not start your trial. Please try again.', 'error');
+      setStartingComped(false);
     }
   }
 
@@ -313,11 +330,17 @@ export default function OnboardingPage() {
       {showTrialStep && billing && (
         <div className="mt-6 rounded-3xl border border-signal/25 bg-signal-soft/50 p-6">
           <p className="font-display text-lg font-semibold text-ink">Start your 7-day free trial</p>
-          <p className="mt-0.5 text-sm text-ink-muted">
-            7 days free, card required today. Your card is charged{' '}
-            {PLAN_DISPLAY[tierChoice].price[priceRegion]} {priceRegion} on day 8 unless you cancel.
-            Cancel anytime.
-          </p>
+          {billing.gateEnabled ? (
+            <p className="mt-0.5 text-sm text-ink-muted">
+              7 days free, card required today. Your card is charged{' '}
+              {PLAN_DISPLAY[tierChoice].price[priceRegion]} {priceRegion} on day 8 unless you cancel.
+              Cancel anytime.
+            </p>
+          ) : (
+            <p className="mt-0.5 text-sm text-ink-muted">
+              7 days free, no card needed today. Pick your plan and start.
+            </p>
+          )}
           {checkoutNote && (
             <p className="mt-3 rounded-xl border border-line bg-card px-4 py-3 text-sm text-ink">{checkoutNote}</p>
           )}
@@ -361,7 +384,13 @@ export default function OnboardingPage() {
               everything for you. Charged when your trial converts, not today.
             </span>
           </label>
-          {billing.configured ? (
+          {!billing.gateEnabled ? (
+            <div className="mt-6">
+              <Button size="lg" loading={startingComped} onClick={startCompedTrial}>
+                Start your free trial
+              </Button>
+            </div>
+          ) : billing.configured ? (
             <div className="mt-6">
               <Button size="lg" loading={startingCheckout} onClick={startCheckout}>
                 Start free trial
