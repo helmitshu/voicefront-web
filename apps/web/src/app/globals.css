@@ -125,7 +125,9 @@ html[data-theme='pearl'] .theme-root {
 html[data-theme='midnight'] .theme-root {
   --vf-ink: 233 242 246;
   --vf-ink-soft: 195 211 220;
-  --vf-ink-muted: 143 165 178;
+  /* Midnight v2 (Oct 2026): muted lifted one step (143 165 178 -> 169 191 202)
+     for small-text readability; every other token is the original Midnight. */
+  --vf-ink-muted: 169 191 202;
   --vf-faint: 114 134 147;
   --vf-ink-deep: 4 9 13;
   --vf-ink-deeper: 3 7 10;
@@ -265,6 +267,47 @@ html[data-theme='deepteal'] .theme-root {
 .theme-root .font-display {
   font-family: 'Sora', 'Space Grotesk', system-ui, sans-serif;
   letter-spacing: -0.015em;
+}
+
+/* --------------------- Midnight v2 treatments (Oct 2026) ---------------------
+   Look-only upgrades scoped to Midnight inside the signed-in shell: an
+   aurora depth layer on the shell root, a glass sheen on KPI cards, and a
+   stage treatment on the receptionist panel. Pearl and Deep Teal render
+   exactly as before, and marketing/auth never see these classes. Static
+   gradients only, so the aurora and glass need no motion stilling; the one
+   animated piece (the stage sweep) is stilled below alongside the logo
+   sweep in both the reduced-motion and calm blocks. */
+html[data-theme='midnight'] .vf-aurora-root {
+  background-image:
+    radial-gradient(56% 34% at 88% -4%, rgba(45, 212, 191, 0.14), transparent 62%),
+    radial-gradient(44% 30% at -6% 104%, rgba(56, 189, 248, 0.1), transparent 60%);
+  background-attachment: fixed;
+}
+html[data-theme='midnight'] .theme-root .vf-glass-card {
+  background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.045), rgba(255, 255, 255, 0) 46%);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.06),
+    var(--vf-shadow-sm);
+}
+html[data-theme='midnight'] .theme-root .vf-stage-v2 {
+  background-image:
+    radial-gradient(120% 140% at 18% 0%, rgba(14, 46, 36, 0.9), rgba(4, 9, 13, 0) 55%),
+    linear-gradient(180deg, rgb(var(--vf-shell-2)), rgb(var(--vf-shell)) 30%);
+}
+@keyframes vf-stage-sweep {
+  0%, 55% { transform: translateX(-160%) skewX(-18deg); opacity: 0; }
+  68% { opacity: 0.5; }
+  88%, 100% { transform: translateX(340%) skewX(-18deg); opacity: 0; }
+}
+html[data-theme='midnight'] .theme-root .vf-stage-v2::after {
+  content: '';
+  position: absolute;
+  top: -30%;
+  bottom: -30%;
+  width: 22%;
+  background: linear-gradient(100deg, transparent, rgba(94, 234, 212, 0.07), transparent);
+  animation: vf-stage-sweep 5.2s ease-in-out infinite;
+  pointer-events: none;
 }
 
 @layer utilities {
@@ -415,6 +458,10 @@ html[data-theme='deepteal'] .theme-root {
     animation: none !important;
     opacity: 0;
   }
+  html[data-theme='midnight'] .theme-root .vf-stage-v2::after {
+    animation: none !important;
+    opacity: 0;
+  }
   .live-dot {
     animation: none !important;
   }
@@ -451,6 +498,10 @@ html[data-calm='true'] .logo-eq-bar {
 }
 html[data-calm='true'] .logo-sweep,
 html[data-calm='true'] .logo-ring {
+  animation: none !important;
+  opacity: 0;
+}
+html[data-calm='true'][data-theme='midnight'] .theme-root .vf-stage-v2::after {
   animation: none !important;
   opacity: 0;
 }
