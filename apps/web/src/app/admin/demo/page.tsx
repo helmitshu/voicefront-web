@@ -46,6 +46,11 @@ export default function AdminDemoPage() {
   const [error, setError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
 
+  // The "Call me now" instant demo switch (defaults off server-side).
+  const [instantEnabled, setInstantEnabled] = useState<boolean | null>(null);
+  const [instantError, setInstantError] = useState<string | null>(null);
+  const [togglingInstant, setTogglingInstant] = useState(false);
+
   // Outbound demo caller-ID numbers.
   const [available, setAvailable] = useState<VapiNumberOption[]>([]);
   const [numbers, setNumbers] = useState<DemoNumbers | null>(null);
@@ -55,6 +60,12 @@ export default function AdminDemoPage() {
   const load = useCallback(() => {
     setConfigError(null);
     setNumbersError(null);
+    setInstantError(null);
+    AdminApi.instantDemo()
+      .then(({ enabled }) => setInstantEnabled(enabled))
+      .catch((err: unknown) =>
+        setInstantError(err instanceof ApiError ? err.message : 'Could not load the instant call switch.'),
+      );
     AdminApi.salesConfig()
       .then((c) => {
         setConfig(c);
@@ -100,6 +111,26 @@ export default function AdminDemoPage() {
       toast(err instanceof ApiError ? err.message : 'Could not save.', 'error');
     } finally {
       setSavingConfig(false);
+    }
+  }
+
+  async function toggleInstant() {
+    if (instantEnabled === null) return;
+    const next = !instantEnabled;
+    setTogglingInstant(true);
+    try {
+      const { enabled } = await AdminApi.setInstantDemo(next);
+      setInstantEnabled(enabled);
+      toast(
+        enabled
+          ? 'Instant call is live — visitors can now get a call from one phone number.'
+          : 'Instant call is off — the card is hidden from the landing page.',
+        'success',
+      );
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not change that.', 'error');
+    } finally {
+      setTogglingInstant(false);
     }
   }
 
@@ -203,6 +234,39 @@ export default function AdminDemoPage() {
         </div>
       </Card>
 
+      {/* --------------------------- instant demo call --------------------------- */}
+      <Card>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="max-w-xl">
+            <div className="flex items-center gap-2.5">
+              <h3 className="font-display text-[15px] font-semibold tracking-tight text-ink">Instant demo call</h3>
+              {instantEnabled !== null &&
+                (instantEnabled ? <Badge tone="signal" dot>On</Badge> : <Badge tone="warning" dot>Off</Badge>)}
+            </div>
+            <p className="mt-1.5 text-sm leading-relaxed text-ink-muted">
+              When on, the instant demo becomes the site’s only demo: one click and Ava is talking in the
+              visitor’s browser, in a phone-shaped frame with a live transcript. No form, no phone number —
+              she introduces herself, leads the conversation, and collects the details on the call. It runs
+              on this switch alone, so it keeps working even with the master demo switch off. It is off by
+              default because every tap spends real voice minutes; the bot check and a per-IP rate limit
+              still apply.
+            </p>
+            {instantError && (
+              <p className="mt-1.5 text-[13px] font-medium text-danger">Couldn’t load this switch. {instantError}</p>
+            )}
+          </div>
+          <Button
+            variant={instantEnabled ? 'secondary' : 'primary'}
+            size="sm"
+            loading={togglingInstant}
+            disabled={instantEnabled === null}
+            onClick={toggleInstant}
+          >
+            {instantEnabled ? 'Turn off' : 'Turn on'}
+          </Button>
+        </div>
+      </Card>
+
       {/* --------------------------- demo phone numbers --------------------------- */}
       <Card>
         <h3 className="font-display text-[15px] font-semibold tracking-tight text-ink">Outbound demo numbers</h3>
@@ -282,12 +346,16 @@ export default function AdminDemoPage() {
                         <span className="font-display text-[15px] font-semibold text-ink">
                           {c.lead?.name ?? 'Anonymous visitor'}
                         </span>
-                        {c.lead && <Badge tone="neutral">{c.lead.mode === 'call' ? 'Phone' : 'Web'}</Badge>}
+                        {c.lead && (
+                          <Badge tone="neutral">
+                            {c.lead.mode === 'call' ? 'Phone' : c.lead.mode === 'instant' ? 'Instant' : 'Web'}
+                          </Badge>
+                        )}
                         <span className="text-xs text-ink-muted">{fmtWhen(c.createdAt)}</span>
                       </div>
                       {c.lead && (
                         <p className="mt-0.5 truncate text-[13px] text-ink-muted">
-                          {c.lead.email} · {c.lead.phone}
+                          {[c.lead.email, c.lead.phone].filter(Boolean).join(' · ')}
                         </p>
                       )}
                       {c.summary && <p className="mt-1.5 line-clamp-2 text-[13px] text-ink">{c.summary}</p>}
