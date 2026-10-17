@@ -40,6 +40,30 @@ export async function setDemoEnabled(enabled: boolean, adminEmail: string): Prom
 }
 
 /**
+ * Founder switch for the "Call me now" instant demo: one phone-number field
+ * on the landing page and the sales agent rings the visitor within seconds,
+ * no form. Same PlatformSetting pattern as DEMO_ENABLED, but defaults OFF
+ * when no row exists — the instant path spends outbound-call money with the
+ * least friction of any entry point, so it stays dark until the founder
+ * deliberately turns it on from the admin demo page.
+ */
+const INSTANT_DEMO_ENABLED_KEY = 'INSTANT_DEMO_ENABLED';
+
+export async function isInstantDemoEnabled(): Promise<boolean> {
+  const row = await prisma.platformSetting.findUnique({ where: { key: INSTANT_DEMO_ENABLED_KEY } });
+  return row ? row.valueEnc === 'true' : false;
+}
+
+export async function setInstantDemoEnabled(enabled: boolean, adminEmail: string): Promise<void> {
+  const valueEnc = enabled ? 'true' : 'false';
+  await prisma.platformSetting.upsert({
+    where: { key: INSTANT_DEMO_ENABLED_KEY },
+    create: { key: INSTANT_DEMO_ENABLED_KEY, valueEnc, updatedBy: adminEmail },
+    update: { valueEnc, updatedBy: adminEmail },
+  });
+}
+
+/**
  * Founder-editable sales-agent identity for the demo (plain text in reserved
  * PlatformSetting rows, same non-secret pattern as DEMO_ENABLED). The admin UI
  * (founder portal) writes these; defaults keep the demo working out of the box.
@@ -481,8 +505,10 @@ export async function resumeDemoSession(sessionId: string): Promise<DemoSession>
 
 export interface CreateLeadInput {
   sessionId: string;
-  name: string;
-  email: string;
+  /** Optional: instant-call leads arrive with a phone number only. Empty
+   *  or missing values are stored as NULL, never as placeholder text. */
+  name?: string | null;
+  email?: string | null;
   phone: string;
   ipCountry: string | null;
   /** Approximate IP-derived location (visitor map). Derived fields only —
@@ -504,8 +530,8 @@ export async function createDemoLead(input: CreateLeadInput) {
   return prisma.demoLead.create({
     data: {
       demoSessionId: input.sessionId,
-      name: input.name,
-      email: input.email,
+      name: input.name?.trim() || null,
+      email: input.email?.trim() || null,
       phone: input.phone,
       ipCountry: input.ipCountry,
       ipCity: input.ipCity ?? null,
@@ -576,7 +602,8 @@ export interface DemoCallWithLead {
   transcript: string | null;
   recordingUrl: string | null;
   createdAt: Date;
-  lead: { name: string; email: string; phone: string; mode: string } | null;
+  /** Name and email are null on instant-call leads (phone-only capture). */
+  lead: { name: string | null; email: string | null; phone: string; mode: string } | null;
 }
 
 /** Recent demo calls joined to their lead, newest first — for the founder view. */

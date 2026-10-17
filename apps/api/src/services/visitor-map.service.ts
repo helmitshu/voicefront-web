@@ -100,7 +100,8 @@ export interface VisitorMapVisitor {
   displayName: string;
   /** "lyla" when Lyla captured the lead in chat, "form" for the demo form. */
   source: 'lyla' | 'form';
-  email: string;
+  /** Null on instant-call leads, which are captured with a phone only. */
+  email: string | null;
   /** Null when the visitor never provided one (Lyla leads). */
   phone: string | null;
   businessName: string | null;
@@ -288,7 +289,7 @@ export async function getVisitorMap(): Promise<VisitorMapResult> {
 
     return {
       id: lead.id,
-      displayName: lead.name.trim() || 'Demo visitor',
+      displayName: (lead.name ?? '').trim() || 'Demo visitor',
       source,
       email: lead.email,
       phone: lead.phone.trim() ? lead.phone : null,
