@@ -140,7 +140,7 @@ export function StatCard({
           {icon && (
             <span
               aria-hidden
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface3 text-signal"
+              className="vf-stat-chip flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-surface3 text-signal"
             >
               {icon}
             </span>
