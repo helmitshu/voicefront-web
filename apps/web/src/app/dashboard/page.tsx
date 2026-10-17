@@ -340,7 +340,23 @@ export default function OverviewPage() {
           <Spinner className="h-5 w-5 text-signal" />
         </div>
       ) : (
-        <div className="grid grid-cols-2 gap-2.5 sm:gap-4 lg:grid-cols-4">
+        <>
+          {stats.rescueNeededLast7Days > 0 && (
+            <Link
+              href="/dashboard/calls"
+              className="mb-4 flex items-center justify-between gap-3 rounded-2xl border border-danger/30 bg-danger-soft/40 px-4 py-3 transition-colors hover:bg-danger-soft/60"
+            >
+              <p className="text-sm text-ink">
+                <span className="font-semibold">
+                  {stats.rescueNeededLast7Days} caller{stats.rescueNeededLast7Days === 1 ? '' : 's'} still need
+                  {stats.rescueNeededLast7Days === 1 ? 's' : ''} a callback
+                </span>{' '}
+                <span className="text-ink-muted">from calls that ended broken in the last 7 days.</span>
+              </p>
+              <span className="shrink-0 text-sm font-medium text-danger">Review calls →</span>
+            </Link>
+          )}
+          <div className="grid grid-cols-2 gap-2.5 sm:gap-4 lg:grid-cols-4">
           <StatCard
             label="Calls · last 7 days"
             value={String(Math.round(tweenedCalls7))}
@@ -388,7 +404,8 @@ export default function OverviewPage() {
               </svg>
             }
           />
-        </div>
+          </div>
+        </>
       )}
 
         </div>
