@@ -7,12 +7,13 @@ import { LYLA_PERSONA, lylaInitials } from './lyla-persona';
 /**
  * Lyla, the landing page host. Mounted ONLY by the marketing layout.
  *
- * Quiet on load: her face sits minimized in the corner, no auto-open, no
- * popups. She watches the page the way a good host watches a room
- * (section in view, dwell, the demo form's state, repeat visits, exit
- * intent) and the behavior engine below may speak first at most twice a
- * session, once per trigger, and only while the chat is closed. Two
- * dismissals mute her for the session.
+ * Quiet on load: her face sits minimized in the corner, no auto-open.
+ * Five seconds into the session she greets the room once with a small
+ * preview card; past that, she watches the page the way a good host
+ * watches a room (section in view, dwell, the demo form's state, repeat
+ * visits, exit intent) and the behavior engine below may speak first at
+ * most twice a session, once per trigger, welcome included, and only
+ * while the chat is closed. Two dismissals mute her for the session.
  *
  * She is a separate agent from Adam: this widget talks only to
  * /api/public/*, which has no auth and no tenant context. When her chat
@@ -96,7 +97,7 @@ interface VisitorState {
   formState?: string;
 }
 
-type ProactiveTrigger = 'pricing_dwell' | 'form_stall' | 'exit_intent';
+type ProactiveTrigger = 'welcome' | 'pricing_dwell' | 'form_stall' | 'exit_intent';
 
 class LylaApiError extends Error {
   constructor(
@@ -109,9 +110,17 @@ class LylaApiError extends Error {
   }
 }
 
+/** Her welcome line, word for word. The welcome is a local greeting,
+ *  never an API proactive call (the public agent's trigger list has no
+ *  welcome), so this text is the only line that trigger can show. */
+const WELCOME_MESSAGE =
+  "Hi, I'm Lyla, an AI host from VoiceFront. I can answer questions or set up your personalized demo.";
+
 /** Her canned proactive lines, used only when the model call itself
- *  cannot happen. They mirror the API's fallbacks. */
+ *  cannot happen. They mirror the API's fallbacks; the welcome entry is
+ *  the welcome line itself, for completeness of the record. */
 const PROACTIVE_FALLBACK_LINES: Record<ProactiveTrigger, string> = {
+  welcome: WELCOME_MESSAGE,
   pricing_dwell:
     'Want a hand picking between the two plans? Tell me when your calls go unanswered and I will point you at the right one.',
   form_stall: 'Want me to finish that with you here? Give me the details and I will type them in.',
@@ -164,21 +173,158 @@ export function parseLylaStreamEvents(buffer: string): { events: LylaStreamEvent
 
 /* ----------------------------- page actions ---------------------------- */
 
-function ringElement(el: HTMLElement): void {
-  const previousShadow = el.style.boxShadow;
-  const previousTransition = el.style.transition;
-  el.style.transition = 'box-shadow 300ms ease';
-  el.style.boxShadow = '0 0 0 3px rgba(13, 148, 136, 0.6), 0 0 0 7px rgba(13, 148, 136, 0.18)';
-  window.setTimeout(() => {
-    el.style.boxShadow = previousShadow;
-    el.style.transition = previousTransition;
-  }, 2600);
+/* ------------------------- guided page movement ------------------------ */
+/* Lyla does not teleport the visitor: she walks the page to the target
+ * with an eased scroll while a cutout overlay dims the rest of the room,
+ * then sets a spotlight on the target for a breath (the .lyla-spotlight
+ * keyframes in globals.css: a soft teal ring, a gentle scale, a shadow
+ * pulse). The visitor can take the page back at any moment: a wheel or
+ * touch input cancels the move mid-flight. Every run cleans up after
+ * itself, on arrival, on interruption, on a second action, and on
+ * unmount. When motion is not welcome (prefers-reduced-motion or the
+ * app's calm mode), a guide is a plain instant scroll and nothing else. */
+
+const GUIDE_MIN_MS = 600;
+const GUIDE_MAX_MS = 1400;
+const GUIDE_SPOTLIGHT_MS = 2400;
+/** Matches the html scroll-padding-top (7rem) anchor navigation uses. */
+const GUIDE_TOP_OFFSET_PX = 112;
+
+function motionSettled(): boolean {
+  return (
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches ||
+    document.documentElement.dataset.calm === 'true'
+  );
 }
 
-function scrollAndRing(el: HTMLElement | null, ringDelayMs = 500): void {
+function easeInOutCubic(t: number): number {
+  return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+}
+
+interface GuidingHooks {
+  onGuidingChange?: (guiding: boolean) => void;
+}
+
+/** The running guide's cleanup, so a second action (or the widget
+ *  unmounting) can end the current move before starting anything new. */
+let activeGuideCleanup: (() => void) | null = null;
+
+export function cancelActiveGuide(): void {
+  activeGuideCleanup?.();
+}
+
+function guideToElement(
+  el: HTMLElement | null,
+  options?: { block?: 'start' | 'center'; hooks?: GuidingHooks },
+): void {
   if (!el) return;
-  el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  window.setTimeout(() => ringElement(el), ringDelayMs);
+  cancelActiveGuide();
+  const block = options?.block ?? 'start';
+  const hooks = options?.hooks;
+  if (motionSettled()) {
+    // Instant path: the stylesheet also stills every animation, so no
+    // overlay, no spotlight, no guiding state, just the jump. The html
+    // scroll-behavior is overridden for this call only, because the
+    // global smooth setting would otherwise animate the jump anyway.
+    const html = document.documentElement;
+    const previousBehavior = html.style.scrollBehavior;
+    html.style.scrollBehavior = 'auto';
+    el.scrollIntoView({ block });
+    html.style.scrollBehavior = previousBehavior;
+    return;
+  }
+
+  hooks?.onGuidingChange?.(true);
+  document.body.classList.add('lyla-guiding');
+
+  // The dim: a fixed cutout whose giant shadow darkens everything but
+  // the hole over the target. It tracks the target every frame, because
+  // the target travels while the page scrolls beneath it.
+  const overlay = document.createElement('div');
+  overlay.className = 'lyla-guide-overlay';
+  overlay.setAttribute('aria-hidden', 'true');
+  overlay.style.opacity = '0';
+  document.body.appendChild(overlay);
+  const placeOverlay = () => {
+    const rect = el.getBoundingClientRect();
+    const pad = 10;
+    const left = Math.max(8, rect.left - pad);
+    const top = Math.max(8, rect.top - pad);
+    const right = Math.min(window.innerWidth - 8, rect.right + pad);
+    const bottom = Math.min(window.innerHeight - 8, rect.bottom + pad);
+    overlay.style.left = `${left}px`;
+    overlay.style.top = `${top}px`;
+    overlay.style.width = `${Math.max(0, right - left)}px`;
+    overlay.style.height = `${Math.max(0, bottom - top)}px`;
+  };
+  placeOverlay();
+  requestAnimationFrame(() => {
+    overlay.style.opacity = '1';
+  });
+
+  // Manual smooth scrolling for the length of the move; the page's own
+  // anchors get their smooth behavior back the moment it ends.
+  const html = document.documentElement;
+  const previousBehavior = html.style.scrollBehavior;
+  html.style.scrollBehavior = 'auto';
+
+  const startY = window.scrollY;
+  const startRect = el.getBoundingClientRect();
+  const destY =
+    block === 'center'
+      ? startY + startRect.top - Math.max(0, (window.innerHeight - startRect.height) / 2)
+      : startY + startRect.top - GUIDE_TOP_OFFSET_PX;
+  const distance = Math.abs(destY - startY);
+  const duration = Math.round(Math.min(GUIDE_MAX_MS, Math.max(GUIDE_MIN_MS, 500 + distance * 0.4)));
+
+  let frame = 0;
+  let spotlightTimer = 0;
+  let overlayTimer = 0;
+  let finished = false;
+  const cleanup = () => {
+    if (finished) return;
+    finished = true;
+    cancelAnimationFrame(frame);
+    window.clearTimeout(spotlightTimer);
+    window.clearTimeout(overlayTimer);
+    window.removeEventListener('wheel', onInterrupt);
+    window.removeEventListener('touchstart', onInterrupt);
+    document.body.classList.remove('lyla-guiding');
+    el.classList.remove('lyla-spotlight');
+    overlay.remove();
+    html.style.scrollBehavior = previousBehavior;
+    if (activeGuideCleanup === cleanup) activeGuideCleanup = null;
+    hooks?.onGuidingChange?.(false);
+  };
+  const onInterrupt = () => cleanup();
+  window.addEventListener('wheel', onInterrupt, { passive: true });
+  window.addEventListener('touchstart', onInterrupt, { passive: true });
+  activeGuideCleanup = cleanup;
+
+  if (distance < 8) {
+    // Already there: skip the travel, settle with the spotlight alone.
+    overlay.style.opacity = '0';
+    overlayTimer = window.setTimeout(() => overlay.remove(), 340);
+    el.classList.add('lyla-spotlight');
+    spotlightTimer = window.setTimeout(cleanup, GUIDE_SPOTLIGHT_MS);
+    return;
+  }
+  const startAt = performance.now();
+  const step = (now: number) => {
+    const t = Math.min(1, (now - startAt) / duration);
+    window.scrollTo(0, startY + (destY - startY) * easeInOutCubic(t));
+    placeOverlay();
+    if (t < 1) {
+      frame = requestAnimationFrame(step);
+      return;
+    }
+    // Arrived: the dim lifts and the target takes the spotlight.
+    overlay.style.opacity = '0';
+    overlayTimer = window.setTimeout(() => overlay.remove(), 340);
+    el.classList.add('lyla-spotlight');
+    spotlightTimer = window.setTimeout(cleanup, GUIDE_SPOTLIGHT_MS);
+  };
+  frame = requestAnimationFrame(step);
 }
 
 /** Cleanup for a still-pending demo-status listener, so a second
@@ -188,8 +334,10 @@ let pendingDemoStatusCleanup: (() => void) | null = null;
 /**
  * Executes the page actions Lyla returned, in order, after her reply has
  * rendered. Small and DOM-only on purpose: the web app has no test
- * runner, so this stays a thin shell over three primitives (scroll and
- * ring, a window event the demo form listens for, and navigation).
+ * runner, so this stays a thin shell over three primitives (the guided
+ * move above, a window event the demo form listens for, and navigation).
+ * Guided moves report their run through onGuidingChange, so her
+ * presence can show that she is showing the visitor around.
  *
  * For start_demo the hooks carry the honest handoff: onStartDemo steps
  * her panel aside so the visitor can see the form she just submitted
@@ -202,22 +350,25 @@ export function executeLylaActions(
   hooks?: {
     onStartDemo?: () => void;
     onDemoStatus?: (report: PageReport) => void;
+    onGuidingChange?: (guiding: boolean) => void;
   },
 ): void {
   for (const action of actions) {
     switch (action.type) {
       case 'guide_to_section':
-        scrollAndRing(document.getElementById(action.section));
+        guideToElement(document.getElementById(action.section), { hooks });
         break;
       case 'highlight_plan': {
-        const pricing = document.getElementById('pricing');
-        pricing?.scrollIntoView({ behavior: 'smooth', block: 'start' });
         const card = document.querySelector<HTMLElement>(`[data-plan="${action.plan}"]`);
-        if (card) window.setTimeout(() => ringElement(card), 500);
+        if (card) {
+          guideToElement(card, { block: 'center', hooks });
+        } else {
+          guideToElement(document.getElementById('pricing'), { hooks });
+        }
         break;
       }
       case 'prefill_demo': {
-        scrollAndRing(document.getElementById('demo'));
+        guideToElement(document.getElementById('demo'), { hooks });
         window.setTimeout(() => {
           window.dispatchEvent(new CustomEvent('lyla:prefill', { detail: action.fields }));
         }, 350);
@@ -225,7 +376,7 @@ export function executeLylaActions(
       }
       case 'start_demo': {
         hooks?.onStartDemo?.();
-        document.getElementById('demo')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        guideToElement(document.getElementById('demo'), { hooks });
         window.setTimeout(() => {
           window.dispatchEvent(new CustomEvent('lyla:start-demo'));
           if (!hooks?.onDemoStatus) return;
@@ -350,7 +501,7 @@ function LylaTurnstile({
       aria-hidden={!visible}
       className={
         visible
-          ? 'flex justify-center px-4 py-2'
+          ? 'flex shrink-0 justify-center px-4 py-2'
           : 'pointer-events-none absolute bottom-24 right-6 -z-10 h-16 w-[300px] overflow-hidden opacity-0'
       }
     />
@@ -381,12 +532,43 @@ function LylaAvatar({ sizeClass }: { sizeClass: string }) {
   );
 }
 
+/**
+ * Her working indicator: her face and three lifting dots, with the
+ * current tool status as a quiet label when the stream provides one.
+ * Replaces every plain-text spinner in the panel, so "she is working"
+ * always looks like her, never like a system message.
+ */
+function LylaTyping({ label }: { label?: string }) {
+  return (
+    <div
+      className="lyla-msg flex max-w-[85%] items-center gap-2.5 self-start rounded-2xl rounded-bl-md bg-paper px-3.5 py-2.5"
+      role="status"
+      aria-label={label ? `${LYLA_PERSONA.name}: ${label}` : `${LYLA_PERSONA.name} is typing`}
+    >
+      <LylaAvatar sizeClass="h-6 w-6 text-[10px]" />
+      <span className="flex items-center gap-1" aria-hidden>
+        <span className="lyla-dot" />
+        <span className="lyla-dot" style={{ animationDelay: '0.15s' }} />
+        <span className="lyla-dot" style={{ animationDelay: '0.3s' }} />
+      </span>
+      {label && <span className="text-[12px] italic text-ink-muted">{label}…</span>}
+    </div>
+  );
+}
+
 /* --------------------------- behavior engine --------------------------- */
 
 const OBSERVED_SECTIONS = ['demo', 'how', 'pricing', 'faq', 'book', 'sample-call'];
 const PRICING_DWELL_TRIGGER_SECONDS = 20;
 const FORM_STALL_SECONDS = 12;
 const MAX_PROACTIVE_PER_SESSION = 2;
+/** Her welcome lands five seconds after the session's first marketing
+ *  page view. The moment and its spending live in sessionStorage, so
+ *  moving between marketing pages neither restarts the clock nor fires
+ *  the greeting twice. */
+const WELCOME_DELAY_MS = 5000;
+const WELCOME_START_KEY = 'lyla-welcome-started-at';
+const WELCOME_DONE_KEY = 'lyla-welcome-done';
 
 interface BehaviorState {
   section: string | null;
@@ -455,6 +637,12 @@ export function LylaWidget() {
   const [sessionPhase, setSessionPhase] = useState<SessionPhase>('idle');
   const [turnsExhausted, setTurnsExhausted] = useState(false);
   const [proactiveNote, setProactiveNote] = useState<{ trigger: ProactiveTrigger; line: string } | null>(null);
+  /** True while one of her guided page moves is running. */
+  const [guiding, setGuiding] = useState(false);
+  /** The panel's mount machine: it stays mounted for the length of its
+   *  close transition, shown once the opening frame has painted. */
+  const [panelMounted, setPanelMounted] = useState(false);
+  const [panelShown, setPanelShown] = useState(false);
 
   const sessionIdRef = useRef<string | null>(null);
   /** The page's latest unreported action outcome; rides exactly one
@@ -470,6 +658,12 @@ export function LylaWidget() {
   const proactiveDismissalsRef = useRef(0);
   const proactiveMutedRef = useRef(false);
   const proactiveBusyRef = useRef(false);
+  /** Mirror of the proactive card on screen, for the welcome timer,
+   *  which fires outside the scheduler's render scope. */
+  const proactiveNoteRef = useRef<{ trigger: ProactiveTrigger; line: string } | null>(null);
+  /** The welcome has had its one moment on this mount (fired, cancelled,
+   *  or skipped); the cross-page guard lives in sessionStorage. */
+  const welcomeDoneRef = useRef(false);
   const openRef = useRef(false);
   const sendingRef = useRef(false);
   const messagesRef = useRef<ChatMessage[]>([]);
@@ -481,6 +675,36 @@ export function LylaWidget() {
   openRef.current = open;
   sendingRef.current = sending;
   messagesRef.current = messages;
+  proactiveNoteRef.current = proactiveNote;
+
+  /* Panel mount machine: mount first, paint the closed state, then
+     transition in; on close, transition out and unmount only once the
+     panel has settled away. The durations match .lyla-panel. */
+  useEffect(() => {
+    if (open) {
+      setPanelMounted(true);
+      let inner = 0;
+      const outer = requestAnimationFrame(() => {
+        inner = requestAnimationFrame(() => setPanelShown(true));
+      });
+      return () => {
+        cancelAnimationFrame(outer);
+        cancelAnimationFrame(inner);
+      };
+    }
+    setPanelShown(false);
+    const timer = window.setTimeout(() => setPanelMounted(false), 300);
+    return () => window.clearTimeout(timer);
+  }, [open ]);
+
+  /* Nothing she starts outlives the widget: a guided move in flight
+     and a pending demo-status listener are both ended on unmount. */
+  useEffect(() => {
+    return () => {
+      cancelActiveGuide();
+      pendingDemoStatusCleanup?.();
+    };
+  }, []);
 
   /* ------------------------- session lifecycle ------------------------ */
 
@@ -717,6 +941,65 @@ export function LylaWidget() {
     setOpen(true);
   }, [proactiveNote]);
 
+  /* ------------------------------ welcome ----------------------------- */
+  /* Five seconds after the session's first marketing page view, she
+   * greets the room once. The greeting is a local line, never an API
+   * call: the public agent's trigger list has no welcome, and a hello
+   * must not burn a chat session (or a Turnstile solve) on every visit.
+   * At its moment it obeys the same manners as every proactive line:
+   * panel closed, not muted, budget left, no proactive request already
+   * in flight, and no other proactive card already up. It spends one of
+   * the session's two proactive slots like any other trigger, and the
+   * moment is spent even when she stays quiet. */
+
+  const markWelcomeDone = useCallback(() => {
+    welcomeDoneRef.current = true;
+    try {
+      window.sessionStorage.setItem(WELCOME_DONE_KEY, '1');
+    } catch {
+      /* Storage unavailable: the ref still guards this page view. */
+    }
+  }, []);
+
+  // Opening the panel before her moment cancels the welcome for the
+  // session: a visitor who already found her needs no greeting.
+  useEffect(() => {
+    if (open) markWelcomeDone();
+  }, [open, markWelcomeDone]);
+
+  useEffect(() => {
+    if (welcomeDoneRef.current) return;
+    let startedAt = Date.now();
+    try {
+      if (window.sessionStorage.getItem(WELCOME_DONE_KEY)) {
+        welcomeDoneRef.current = true;
+        return;
+      }
+      const stored = Number(window.sessionStorage.getItem(WELCOME_START_KEY));
+      if (Number.isFinite(stored) && stored > 0) {
+        startedAt = stored;
+      } else {
+        window.sessionStorage.setItem(WELCOME_START_KEY, String(startedAt));
+      }
+    } catch {
+      /* Storage unavailable: this page view's clock stands alone. */
+    }
+    const timer = window.setTimeout(
+      () => {
+        markWelcomeDone();
+        if (openRef.current || proactiveMutedRef.current || proactiveBusyRef.current) return;
+        if (proactiveUsedRef.current >= MAX_PROACTIVE_PER_SESSION) return;
+        if (proactiveNoteRef.current) return;
+        if (proactiveFiredRef.current.has('welcome')) return;
+        proactiveFiredRef.current.add('welcome');
+        proactiveUsedRef.current += 1;
+        setProactiveNote({ trigger: 'welcome', line: WELCOME_MESSAGE });
+      },
+      Math.max(0, startedAt + WELCOME_DELAY_MS - Date.now()),
+    );
+    return () => window.clearTimeout(timer);
+  }, [markWelcomeDone]);
+
   /* ------------------------------ chatting ---------------------------- */
 
   const stopReveal = useCallback(() => {
@@ -764,6 +1047,7 @@ export function LylaWidget() {
               onDemoStatus: (report) => {
                 pageReportRef.current = report;
               },
+              onGuidingChange: (next) => setGuiding(next),
             }),
           60,
         );
@@ -909,57 +1193,95 @@ export function LylaWidget() {
 
   /* -------------------------------- render ---------------------------- */
 
+  /** The corner holds exactly one chat element at a time: while a
+   *  proactive card is up, or the panel is open, the pill hands off. */
+  const pillHandedOff = open || proactiveNote !== null;
+
   return (
     <>
-      {/* Proactive bubble: one short line, dismissible, never a popup. */}
+      {/* Proactive card, Messenger style: her picture, her name and
+          title, and the message in full, the way a chat preview lands.
+          The card itself is the tap target and opens the panel; the ✕
+          dismisses without opening. It arrives with the .lyla-bubble-in
+          slide-and-fade, and it never outgrows the viewport. While it
+          is up, the pill below hands the corner off to it. */}
       {proactiveNote && !open && (
-        <div className="fixed bottom-24 right-4 z-40 w-[min(92vw,320px)] rounded-2xl border border-line bg-white p-4 shadow-lift sm:right-6">
-          <div className="flex items-start gap-3">
-            <LylaAvatar sizeClass="h-9 w-9 text-[13px]" />
-            <p className="flex-1 text-[13.5px] leading-relaxed text-ink">{proactiveNote.line}</p>
+        <div className="lyla-bubble-in fixed bottom-24 right-3 z-40 w-[min(320px,calc(100vw-24px))] rounded-2xl border border-line bg-white p-3.5 shadow-lift sm:right-6">
+          <div className="flex items-start gap-2">
+            <button
+              type="button"
+              onClick={openFromProactive}
+              aria-label={`Chat with ${LYLA_PERSONA.name}: ${proactiveNote.line}`}
+              className="flex min-w-0 flex-1 items-start gap-3 text-left"
+            >
+              <LylaAvatar sizeClass="h-10 w-10 text-sm" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[13px] font-semibold leading-tight text-ink">
+                  {LYLA_PERSONA.name}
+                </span>
+                <span className="block text-[11px] leading-tight text-ink-muted">{LYLA_PERSONA.role}</span>
+                <span className="mt-1 block break-words text-[13.5px] leading-snug text-ink">
+                  {proactiveNote.line}
+                </span>
+              </span>
+            </button>
             <button
               type="button"
               onClick={dismissProactive}
               aria-label="Dismiss"
-              className="rounded-full px-1 text-ink-muted transition-colors hover:text-ink"
+              className="shrink-0 rounded-full px-1 text-ink-muted transition-colors hover:text-ink"
             >
               ✕
             </button>
           </div>
-          <button
-            type="button"
-            onClick={openFromProactive}
-            className="mt-3 w-full rounded-full bg-ink px-4 py-2 text-[13px] font-semibold text-white transition-transform hover:-translate-y-0.5"
-          >
-            Chat with {LYLA_PERSONA.name}
-          </button>
         </div>
       )}
 
-      {/* Minimized pill: her face and name, quiet until tapped. */}
-      {!open && (
-        <button
-          type="button"
-          onClick={() => setOpen(true)}
-          className="fixed bottom-5 right-4 z-40 flex items-center gap-3 rounded-full border border-line bg-white py-2 pl-2 pr-4 shadow-lift transition-transform hover:-translate-y-0.5 sm:right-6"
-          aria-label={`Chat with ${LYLA_PERSONA.name}, ${LYLA_PERSONA.role}`}
-        >
-          <span className="relative">
+      {/* Minimized pill: her face and name, quiet until tapped. It stays
+          mounted and hands the corner off through .lyla-pill: while a
+          proactive card is up, or the panel is open, it fades and
+          slides away, so the corner never shows two chat elements at
+          once. When the card is dismissed it settles back. */}
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        data-handed-off={pillHandedOff}
+        tabIndex={pillHandedOff ? -1 : undefined}
+        className="lyla-pill fixed bottom-5 right-4 z-40 flex items-center gap-3 rounded-full border border-line bg-white py-2 pl-2 pr-4 shadow-lift sm:right-6"
+        aria-label={`Chat with ${LYLA_PERSONA.name}, ${LYLA_PERSONA.role}`}
+      >
+        <span className={`relative ${guiding || sending || proactiveNote ? 'lyla-avatar-ring' : ''}`}>
+          <span className="lyla-avatar-float block">
             <LylaAvatar sizeClass="h-10 w-10 text-sm" />
-            <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-teal-500 ring-2 ring-white" />
           </span>
-          <span className="text-left">
-            <span className="block text-[13.5px] font-semibold leading-tight text-ink">{LYLA_PERSONA.name}</span>
-            <span className="block text-[11.5px] leading-tight text-ink-muted">{LYLA_PERSONA.role}</span>
+          <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-teal-500 ring-2 ring-white" />
+        </span>
+        <span className="text-left">
+          <span className="block text-[13.5px] font-semibold leading-tight text-ink">{LYLA_PERSONA.name}</span>
+          <span className="block text-[11.5px] leading-tight text-ink-muted">
+            {guiding ? 'Showing you around…' : LYLA_PERSONA.role}
           </span>
-        </button>
-      )}
+        </span>
+      </button>
 
-      {/* Chat panel */}
-      {open && (
-        <div className="fixed bottom-5 right-4 z-40 flex h-[min(560px,calc(100dvh-6rem))] w-[min(92vw,380px)] flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-lift sm:right-6">
-          <div className="flex items-center gap-3 border-b border-line px-4 py-3">
-            <LylaAvatar sizeClass="h-10 w-10 text-sm" />
+      {/* Chat panel: breathes in and out on .lyla-panel rather than
+          snapping; it stays mounted until the close has settled. Its
+          geometry is sized against the viewport itself, never past it:
+          at most 400px wide and 24px short of the full viewport width,
+          at most 24px short of the full viewport height, with a margin
+          on every side at every size and zoom, so no edge of it can
+          ever leave the screen. Inside, the header and the composer
+          never shrink and the message list takes what is left and
+          scrolls on its own. */}
+      {panelMounted && (
+        <div
+          data-shown={panelShown}
+          className="lyla-panel fixed bottom-3 right-3 z-40 flex h-[min(560px,calc(100dvh-24px))] w-[min(400px,calc(100vw-24px))] flex-col overflow-hidden rounded-2xl border border-line bg-white shadow-lift sm:bottom-5 sm:right-6"
+        >
+          <div className="flex shrink-0 items-center gap-3 border-b border-line px-4 py-3">
+            <span className={guiding || sending ? 'lyla-avatar-ring' : undefined}>
+              <LylaAvatar sizeClass="h-10 w-10 text-sm" />
+            </span>
             <div className="flex-1">
               <p className="text-[14px] font-semibold leading-tight text-ink">{LYLA_PERSONA.name}</p>
               <p className="text-[11.5px] leading-tight text-ink-muted">{LYLA_PERSONA.role}</p>
@@ -983,7 +1305,7 @@ export function LylaWidget() {
             visible={sessionPhase === 'starting'}
           />
 
-          <div ref={scrollBoxRef} className="flex flex-1 flex-col gap-2.5 overflow-y-auto px-4 py-4">
+          <div ref={scrollBoxRef} className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-4 py-4">
             {sessionPhase === 'unavailable' ? (
               <div className="rounded-2xl rounded-bl-md bg-paper px-3.5 py-2.5 text-[13.5px] leading-relaxed text-ink">
                 Chat is not available right now. The demo form on this page will get you straight in, it
@@ -1015,30 +1337,27 @@ export function LylaWidget() {
                     key={index}
                     className={
                       message.role === 'user'
-                        ? 'max-w-[85%] self-end rounded-2xl rounded-br-md bg-ink px-3.5 py-2.5 text-[13.5px] leading-relaxed text-white'
-                        : 'max-w-[85%] self-start rounded-2xl rounded-bl-md bg-paper px-3.5 py-2.5 text-[13.5px] leading-relaxed text-ink'
+                        ? 'lyla-msg max-w-[85%] self-end rounded-2xl rounded-br-md bg-ink px-3.5 py-2.5 text-[13.5px] leading-relaxed text-white'
+                        : 'lyla-msg max-w-[85%] self-start rounded-2xl rounded-bl-md bg-paper px-3.5 py-2.5 text-[13.5px] leading-relaxed text-ink'
                     }
                   >
                     {message.text}
                   </div>
                 ))}
-                {streamStatus && (
-                  <p className="self-start px-1 text-[12px] italic text-ink-muted">{streamStatus}…</p>
-                )}
+                {sessionPhase === 'starting' && messages.length === 0 && <LylaTyping label="Saying hello" />}
+                {streamStatus && <LylaTyping label={streamStatus} />}
                 {streamText && (
-                  <div className="max-w-[85%] self-start rounded-2xl rounded-bl-md bg-paper px-3.5 py-2.5 text-[13.5px] leading-relaxed text-ink">
+                  <div className="lyla-msg max-w-[85%] self-start rounded-2xl rounded-bl-md bg-paper px-3.5 py-2.5 text-[13.5px] leading-relaxed text-ink">
                     {streamText}
                   </div>
                 )}
-                {sending && !streamStatus && !streamText && (
-                  <p className="self-start px-1 text-[12px] italic text-ink-muted">{LYLA_PERSONA.name} is typing…</p>
-                )}
+                {sending && !streamStatus && !streamText && <LylaTyping />}
               </>
             )}
           </div>
 
           <form
-            className="flex items-center gap-2 border-t border-line px-3 py-3"
+            className="flex shrink-0 items-center gap-2 border-t border-line px-3 py-3"
             onSubmit={(event) => {
               event.preventDefault();
               void sendText(input);
@@ -1063,8 +1382,10 @@ export function LylaWidget() {
       )}
 
       {/* The bot check also needs to exist while the panel is closed, so a
-          proactive-triggered session start can find a token. */}
-      {!open && (
+          proactive-triggered session start can find a token. Keyed on
+          panelMounted rather than open, so it never coexists with the
+          panel's own challenge during the close transition. */}
+      {!panelMounted && (
         <LylaTurnstile
           onToken={(token) => {
             turnstileTokenRef.current = token;
