@@ -48,7 +48,7 @@ function VisitorDetail({ visitor }: { visitor: VisitorMapVisitor }) {
       <dl className="grid gap-x-6 gap-y-1.5 text-sm sm:grid-cols-2">
         <div>
           <dt className="text-xs font-medium uppercase tracking-wide text-ink-muted">Email</dt>
-          <dd className="text-ink">{visitor.email}</dd>
+          <dd className="text-ink">{visitor.email ?? 'Not collected'}</dd>
         </div>
         <div>
           <dt className="text-xs font-medium uppercase tracking-wide text-ink-muted">Phone</dt>
