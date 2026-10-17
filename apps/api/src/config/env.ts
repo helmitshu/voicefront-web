@@ -120,6 +120,21 @@ const EnvSchema = z.object({
    */
   TEAM_DAILY_RUN_CAP: z.coerce.number().int().positive().default(40),
   /**
+   * Success-rate alarm thresholds (reliability pack). An hourly job
+   * looks at the last RESCUE_ALARM_WINDOW_MINUTES of finalized calls:
+   * a single workspace with RESCUE_ALARM_TENANT_THRESHOLD or more
+   * rescue-needed calls, that many across the whole platform, or that
+   * many demo calls dying on a call.start.error-* transport failure,
+   * posts one alarm to the AI Team channel and files a failure case.
+   * A scope re-alarms at most once per RESCUE_ALARM_DEDUPE_HOURS; the
+   * dedupe state lives in the reliability_alarms table.
+   */
+  RESCUE_ALARM_TENANT_THRESHOLD: z.coerce.number().int().positive().default(3),
+  RESCUE_ALARM_PLATFORM_THRESHOLD: z.coerce.number().int().positive().default(5),
+  RESCUE_ALARM_DEMO_TRANSPORT_THRESHOLD: z.coerce.number().int().positive().default(2),
+  RESCUE_ALARM_WINDOW_MINUTES: z.coerce.number().int().positive().default(60),
+  RESCUE_ALARM_DEDUPE_HOURS: z.coerce.number().int().positive().default(6),
+  /**
    * Lyla's own Gemini key (the public landing-page host), from her own
    * Google project on the same billing account, so public chat spend and
    * quota stay separate from the signed-in product. Optional for now:
