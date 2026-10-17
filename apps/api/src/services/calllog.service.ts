@@ -3,6 +3,8 @@ import { prisma } from '../lib/prisma';
 import { HttpError } from '../lib/http';
 import { deriveCallStatus } from '../domain/call-status';
 import { applyMarkup, dollarsToCents } from '../domain/billing';
+import { classifyCallRescue } from './call-rescue.service';
+import { recordAdminAction } from './platform-config.service';
 
 /**
  * Tenant-facing call shape. Provider cost, provider call id, and the raw
@@ -31,6 +33,10 @@ export interface CallDto extends CallOutcomeDto {
   status: CallLog['status'];
   summary: string | null;
   hasRecording: boolean;
+  /** True when the call failed in a way that needs a human callback (Safe Landing). */
+  rescueNeeded: boolean;
+  /** Plain-words reason the call was flagged, or null when not flagged. */
+  rescueReason: string | null;
 }
 
 export interface CallDetailDto extends CallDto {
@@ -57,6 +63,8 @@ export function toCallDto(log: CallLog): CallDto {
     leadQuality: log.leadQuality,
     appointmentBooked: log.appointmentBooked,
     successScore: log.successScore,
+    rescueNeeded: log.rescueNeeded,
+    rescueReason: log.rescueReason,
   };
 }
 
@@ -150,6 +158,54 @@ export async function ingestEndOfCallReport(input: IngestReportInput): Promise<C
 
   const outcome = normalizeCallOutcome(input.structuredData, input.successEvaluation);
 
+  // --- Safe Landing rescue classification ---------------------------------
+  // This finalize path only ever sees real tenant calls: the webhook routes
+  // demo calls and simulated calls to their own tables before reaching here,
+  // so no CallLog is ever a demo or a simulation and none can be flagged.
+  // "Booked" must be proven, not merely claimed: the provider's structured
+  // flag OR a real Appointment row tied to this call id.
+  let appointmentBooked = outcome.appointmentBooked === true;
+  if (!appointmentBooked) {
+    try {
+      const linked = await prisma.appointment.count({
+        where: { tenantId: tenant.id, externalCallId: input.externalCallId, demoSessionId: null },
+      });
+      appointmentBooked = linked > 0;
+    } catch {
+      // A failed proof lookup must never fail the finalize; fall back to
+      // the provider's structured flag alone.
+    }
+  }
+  // The classifier is pure and total, but belt-and-braces: any surprise here
+  // defaults to NO flag rather than failing the finalize.
+  let rescue = { rescueNeeded: false as boolean, rescueReason: null as string | null };
+  try {
+    rescue = classifyCallRescue({
+      endedReason: input.endedReason,
+      transcript: input.transcript,
+      durationSeconds,
+      appointmentBooked,
+    });
+  } catch {
+    rescue = { rescueNeeded: false, rescueReason: null };
+  }
+  // First-finalize rule: rescue fields are written on create, and on update
+  // only while the stored row is still the live IN_PROGRESS marker (i.e. this
+  // report is the first finalize). A duplicate/late report for an already
+  // finalized call omits them, so it can never unset a flag a human cleared
+  // nor re-flag a call a human already handled.
+  let firstFinalize = true;
+  try {
+    const existing = await prisma.callLog.findUnique({
+      where: { externalCallId: input.externalCallId },
+      select: { status: true },
+    });
+    firstFinalize = !existing || existing.status === 'IN_PROGRESS';
+  } catch {
+    // If the lookup fails the upsert below is the arbiter; writing the
+    // rescue fields is the safer default for a first report.
+  }
+
   const data = {
     tenantId: tenant.id,
     channel: input.channel,
@@ -173,8 +229,8 @@ export async function ingestEndOfCallReport(input: IngestReportInput): Promise<C
 
   return prisma.callLog.upsert({
     where: { externalCallId: input.externalCallId },
-    create: { externalCallId: input.externalCallId, ...data },
-    update: data,
+    create: { externalCallId: input.externalCallId, ...data, ...rescue },
+    update: firstFinalize ? { ...data, ...rescue } : data,
   });
 }
 
@@ -234,6 +290,8 @@ export interface ListCallsParams {
   urgency?: string;
   /** Filter by lead-quality enum. */
   leadQuality?: string;
+  /** Only calls flagged as needing a callback (Safe Landing). */
+  rescueOnly?: boolean;
 }
 
 export interface ListCallsResult {
@@ -267,6 +325,7 @@ export async function listCalls(params: ListCallsParams): Promise<ListCallsResul
   if (urgency) where.urgency = urgency;
   const leadQuality = pickEnum(params.leadQuality, LEAD_QUALITIES);
   if (leadQuality) where.leadQuality = leadQuality;
+  if (params.rescueOnly) where.rescueNeeded = true;
 
   const [total, rows] = await prisma.$transaction([
     prisma.callLog.count({ where }),
@@ -300,6 +359,8 @@ export interface CallStats {
   costCentsLast30Days: number;
   forwardedLast30Days: number;
   afterHoursShare: number; // 0..1 of last-30-day calls handled while closed is not tracked; placeholder uses endedAt nulls
+  /** Calls flagged as needing a callback (Safe Landing) in the last 7 days. */
+  rescueNeededLast7Days: number;
 }
 
 export async function getCallStats(tenantId: string): Promise<CallStats> {
@@ -312,7 +373,7 @@ export async function getCallStats(tenantId: string): Promise<CallStats> {
     // or outcome yet; it joins the stats once its end-of-call report
     // finalizes the row, and a stale never-finalized row never inflates them.
     where: { tenantId, startedAt: { gte: since30 }, status: { not: 'IN_PROGRESS' } },
-    select: { startedAt: true, durationSeconds: true, billedCostCents: true, status: true },
+    select: { startedAt: true, durationSeconds: true, billedCostCents: true, status: true, rescueNeeded: true },
     orderBy: { startedAt: 'desc' },
     take: 5000,
   });
@@ -320,8 +381,12 @@ export async function getCallStats(tenantId: string): Promise<CallStats> {
   let seconds30 = 0;
   let cost30 = 0;
   let forwarded30 = 0;
+  let rescue7 = 0;
   for (const row of rows) {
-    if (row.startedAt >= since7) calls7 += 1;
+    if (row.startedAt >= since7) {
+      calls7 += 1;
+      if (row.rescueNeeded) rescue7 += 1;
+    }
     seconds30 += row.durationSeconds;
     cost30 += row.billedCostCents;
     if (row.status === 'FORWARDED') forwarded30 += 1;
@@ -333,5 +398,29 @@ export async function getCallStats(tenantId: string): Promise<CallStats> {
     costCentsLast30Days: cost30,
     forwardedLast30Days: forwarded30,
     afterHoursShare: 0,
+    rescueNeededLast7Days: rescue7,
   };
+}
+
+/**
+ * Clears a call's rescue flag after a human has called the patient back.
+ * The route gates this to OWNER/MANAGER; the clear is audited through the
+ * same AdminAuditLog every other privileged action uses. Clearing an
+ * unflagged call is a harmless no-op write (idempotent), still audited.
+ */
+export async function clearCallRescue(
+  tenantId: string,
+  callId: string,
+  userEmail: string,
+): Promise<CallDetailDto> {
+  const log = await getCallForTenant(tenantId, callId);
+  const updated = await prisma.callLog.update({
+    where: { id: log.id },
+    data: { rescueNeeded: false, rescueReason: null },
+  });
+  await recordAdminAction(userEmail, 'calls.rescue_clear', tenantId, {
+    callLogId: log.id,
+    priorReason: log.rescueReason,
+  });
+  return toCallDetailDto(updated);
 }

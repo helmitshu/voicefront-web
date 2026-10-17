@@ -30,6 +30,7 @@ import { prisma } from '../lib/prisma';
 import { HttpError } from '../lib/http';
 import { normalizePricingRegion, type PricingRegion } from './pricing-region.service';
 import { releaseNumberForTenant } from './phone-pool.service';
+import { recordAdminAction } from './platform-config.service';
 
 export type BillingTier = 'STARTER' | 'CORE';
 export type MirrorStatus = 'TRIALING' | 'ACTIVE' | 'PAST_DUE' | 'CANCELED';
@@ -137,6 +138,9 @@ function webBaseUrl(): string {
 
 export interface BillingStatusView {
   configured: boolean;
+  /** The founder's billing-gate switch: when false, a tester may start a
+   *  trial with no card and no Stripe (see startCompedTrial). */
+  gateEnabled: boolean;
   /** 'NOT_STARTED' before any checkout, else the mirrored Stripe status. */
   state: string;
   tier: BillingTier | null;
@@ -159,6 +163,7 @@ export async function getBillingStatus(tenantId: string): Promise<BillingStatusV
   const row = await prisma.subscription.findUnique({ where: { tenantId } });
   return {
     configured: isBillingConfigured(),
+    gateEnabled: await isBillingGateEnabled(),
     state: row ? row.status : 'NOT_STARTED',
     tier: row ? (row.tier as BillingTier) : null,
     pricingRegion: normalizePricingRegion(row?.pricingRegion ?? tenant.pricingRegion),
@@ -169,6 +174,75 @@ export async function getBillingStatus(tenantId: string): Promise<BillingStatusV
     monthlyMinuteLimit: tenant.monthlyMinuteLimit,
     billingExempt: tenant.billingExempt,
   };
+}
+
+/* ------------------------------ billing gate ----------------------------- */
+
+/**
+ * The founder's on/off switch for the billing gate, so a hand-picked tester
+ * can try the product before Stripe exists. Stored as a plain 'true'/'false'
+ * in a reserved PlatformSetting row (the same non-secret pattern as the
+ * landing demo's master toggle — it is a switch, not a credential).
+ * Defaults ON when no row exists: the gate being on is today's behaviour
+ * and the safe default.
+ */
+const BILLING_GATE_KEY = 'BILLING_GATE_ENABLED';
+
+export async function isBillingGateEnabled(): Promise<boolean> {
+  const row = await prisma.platformSetting.findUnique({ where: { key: BILLING_GATE_KEY } });
+  return row ? row.valueEnc === 'true' : true;
+}
+
+export async function setBillingGateEnabled(enabled: boolean, adminEmail: string): Promise<void> {
+  const valueEnc = enabled ? 'true' : 'false';
+  await prisma.platformSetting.upsert({
+    where: { key: BILLING_GATE_KEY },
+    create: { key: BILLING_GATE_KEY, valueEnc, updatedBy: adminEmail },
+    update: { valueEnc, updatedBy: adminEmail },
+  });
+}
+
+/**
+ * A comped trial: the no-card, no-Stripe trial start, available ONLY while
+ * the billing gate is off. The workspace becomes billing-exempt (the exact
+ * state pre-launch workspaces already run in), with the tenant status and
+ * minute cap set from the chosen tier using the same mapping checkout
+ * applies when a real subscription lands. There is deliberately no
+ * Subscription row and no Stripe object: nothing here pretends a payment
+ * relationship exists. The white-glove ask has no column of its own, so it
+ * is recorded in the audit entry only.
+ */
+export async function startCompedTrial(input: {
+  tenantId: string;
+  tier: BillingTier;
+  whiteGlove?: boolean;
+  actorEmail: string;
+}): Promise<BillingStatusView> {
+  if (await isBillingGateEnabled()) {
+    throw new HttpError(
+      403,
+      'Starting a trial without a card is not available right now.',
+      'BILLING_GATE_ON',
+    );
+  }
+  const tenant = await prisma.tenant.findUnique({
+    where: { id: input.tenantId },
+    select: { id: true, companyName: true },
+  });
+  if (!tenant) throw new HttpError(404, 'Workspace not found.', 'NOT_FOUND');
+  await prisma.tenant.update({
+    where: { id: input.tenantId },
+    data: {
+      billingExempt: true,
+      subscriptionStatus: 'TRIALING',
+      monthlyMinuteLimit: TIER_MINUTE_CAPS[input.tier],
+    },
+  });
+  await recordAdminAction(input.actorEmail, 'billing.compedTrial', tenant.companyName, {
+    tier: input.tier,
+    whiteGlove: input.whiteGlove ?? false,
+  });
+  return getBillingStatus(input.tenantId);
 }
 
 /* -------------------------------- checkout ------------------------------- */

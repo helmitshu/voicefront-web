@@ -51,6 +51,8 @@ const state = vi.hoisted(() => {
   const subscriptions = new Map<string, FakeSubscriptionRow>(); // by tenantId
   const stripeEvents = new Map<string, { id: string; type: string }>();
   const onboardings = new Map<string, FakeOnboarding>();
+  const platformSettings = new Map<string, { key: string; valueEnc: string; updatedBy: string }>();
+  const auditEntries: Array<Record<string, unknown>> = [];
 
   /* ------------------------------ fake Stripe ---------------------------- */
   const prices = new Map<string, { id: string; currency: string }>();
@@ -230,6 +232,28 @@ const state = vi.hoisted(() => {
         return Promise.resolve({ count: row ? 1 : 0 });
       },
     },
+    platformSetting: {
+      findUnique: (args: { where: { key: string } }) =>
+        Promise.resolve(platformSettings.get(args.where.key) ?? null),
+      upsert: (args: {
+        where: { key: string };
+        create: { key: string; valueEnc: string; updatedBy: string };
+        update: { valueEnc: string; updatedBy: string };
+      }) => {
+        const existing = platformSettings.get(args.where.key);
+        const row = existing
+          ? { ...existing, ...args.update }
+          : { ...args.create };
+        platformSettings.set(args.where.key, row);
+        return Promise.resolve(row);
+      },
+    },
+    adminAuditLog: {
+      create: (args: { data: Record<string, unknown> }) => {
+        auditEntries.push(args.data);
+        return Promise.resolve(args.data);
+      },
+    },
   };
 
   const releaseNumberForTenant = vi.fn((_tenantId: string) => Promise.resolve());
@@ -241,6 +265,8 @@ const state = vi.hoisted(() => {
     subscriptions.clear();
     stripeEvents.clear();
     onboardings.clear();
+    platformSettings.clear();
+    auditEntries.length = 0;
     prices.clear();
     stripeSubscriptions.clear();
     sessions.clear();
@@ -283,7 +309,8 @@ const state = vi.hoisted(() => {
   }
 
   return {
-    tenants, subscriptions, stripeEvents, onboardings, prices, stripeSubscriptions, sessions,
+    tenants, subscriptions, stripeEvents, onboardings, platformSettings, auditEntries,
+    prices, stripeSubscriptions, sessions,
     customersCreated, sessionCreates, portalCreates, subscriptionRetrieves,
     prisma, FakeStripe, stripeSub,
     releaseNumberForTenant, claimNumberForTenant, createAssistantForTenant,

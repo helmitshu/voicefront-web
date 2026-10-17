@@ -667,6 +667,8 @@ async function toolListCallsInRange(
       urgency: true,
       leadQuality: true,
       appointmentBooked: true,
+      rescueNeeded: true,
+      rescueReason: true,
       summary: true,
       durationSeconds: true,
       successScore: true,
@@ -693,6 +695,8 @@ async function toolListCallsInRange(
       urgency: c.urgency,
       leadQuality: c.leadQuality,
       appointmentBooked: c.appointmentBooked,
+      rescueNeeded: c.rescueNeeded,
+      rescueReason: c.rescueReason,
       successScore: c.successScore,
       durationSeconds: c.durationSeconds,
       summary: c.summary ? c.summary.slice(0, 1000) : null,
@@ -727,6 +731,8 @@ async function toolGetCallDetails(
       urgency: true,
       leadQuality: true,
       appointmentBooked: true,
+      rescueNeeded: true,
+      rescueReason: true,
       summary: true,
       transcript: true,
       durationSeconds: true,
@@ -753,6 +759,8 @@ async function toolGetCallDetails(
     urgency: call.urgency,
     leadQuality: call.leadQuality,
     appointmentBooked: call.appointmentBooked,
+    rescueNeeded: call.rescueNeeded,
+    rescueReason: call.rescueReason,
     successScore: call.successScore,
     successScoreMeaning: SUCCESS_SCORE_MEANING,
     durationSeconds: call.durationSeconds,
@@ -1722,7 +1730,7 @@ const TOOL_DECLARATIONS = [
   {
     name: 'list_calls_in_range',
     description:
-      "Lists this workspace's calls in a date range, newest first, up to 100 calls. Returns each call's outcome and successScore. successScore is the provider's 1-to-10 success evaluation of how well the receptionist handled the call: 10 is strongest, 1 is weakest, and null means the call was not scored. Use startDate and endDate as YYYY-MM-DD (read as whole days in the workspace timezone) or ISO date-times; when omitted, the range is the last 30 days. Use this for call-quality questions and assessments.",
+      "Lists this workspace's calls in a date range, newest first, up to 100 calls. Returns each call's outcome and successScore. successScore is the provider's 1-to-10 success evaluation of how well the receptionist handled the call: 10 is strongest, 1 is weakest, and null means the call was not scored. Each call also carries rescueNeeded and rescueReason: rescueNeeded true means the call failed and the patient still needs a human callback, with rescueReason saying why. Use this to answer which calls need a callback. Use startDate and endDate as YYYY-MM-DD (read as whole days in the workspace timezone) or ISO date-times; when omitted, the range is the last 30 days. Use this for call-quality questions and assessments.",
     parameters: {
       type: 'OBJECT',
       properties: {
@@ -1738,7 +1746,7 @@ const TOOL_DECLARATIONS = [
   {
     name: 'get_call_details',
     description:
-      "Reads one call from THIS workspace by callLogId, returning its full summary and full transcript plus outcome and successScore. Use it to inspect the lowest-scored or failed calls from list_calls_in_range. If transcriptAvailable is false, the transcript is missing or empty and must be described that way. A call id from another workspace returns an error and no data.",
+      "Reads one call from THIS workspace by callLogId, returning its full summary and full transcript plus outcome and successScore. It also returns rescueNeeded and rescueReason (whether this call failed and still needs a human callback, and why). Use it to inspect the lowest-scored or failed calls from list_calls_in_range. If transcriptAvailable is false, the transcript is missing or empty and must be described that way. A call id from another workspace returns an error and no data.",
     parameters: {
       type: 'OBJECT',
       properties: {

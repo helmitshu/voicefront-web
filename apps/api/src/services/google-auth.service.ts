@@ -16,6 +16,13 @@ export interface GoogleProfile {
   email: string;
   /** Display name from the token, or the email local part when Google sent none. */
   fullName: string;
+  /**
+   * The name Google actually sent in the token, trimmed, or null when the
+   * token carried none. Never derived from the email: the workspace
+   * (company) name defaults from THIS value, so a missing profile name can
+   * never leak the email address or its prefix into the company name.
+   */
+  profileName: string | null;
 }
 
 export async function verifyGoogleIdToken(credential: string): Promise<GoogleProfile> {
@@ -50,6 +57,7 @@ export async function verifyGoogleIdToken(credential: string): Promise<GooglePro
     );
   }
 
-  const fullName = payload.name?.trim() || email.split('@')[0] || email;
-  return { email, fullName };
+  const profileName = payload.name?.trim() || null;
+  const fullName = profileName || email.split('@')[0] || email;
+  return { email, fullName, profileName };
 }
