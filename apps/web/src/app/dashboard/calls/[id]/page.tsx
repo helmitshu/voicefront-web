@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/Button';
 import { Spinner } from '@/components/ui/Spinner';
 import { AudioPlayer } from '@/components/calls/AudioPlayer';
 import { TranscriptView } from '@/components/calls/TranscriptView';
-import { CallOutcomePanel } from '@/components/calls/CallOutcome';
+import { CallOutcomePanel, RescueBadge } from '@/components/calls/CallOutcome';
 
 const CHANNEL_LABEL: Record<string, string> = {
   phone: 'Phone call',
@@ -35,6 +35,21 @@ export default function CallDetailPage({ params }: { params: { id: string } }) {
   const [error, setError] = useState<{ status: number; message: string } | null>(null);
   const [blocking, setBlocking] = useState(false);
   const [blocked, setBlocked] = useState(false);
+  const [clearingRescue, setClearingRescue] = useState(false);
+
+  async function clearRescue() {
+    if (!call) return;
+    setClearingRescue(true);
+    try {
+      const res = await CallsApi.clearRescue(call.id);
+      setCall(res.call);
+      toast('Callback marked done. Thanks for closing the loop.', 'success');
+    } catch (err) {
+      toast(err instanceof ApiError ? err.message : 'Could not clear that flag.', 'error');
+    } finally {
+      setClearingRescue(false);
+    }
+  }
 
   async function blockCaller() {
     if (!call?.callerNumber) return;
@@ -130,6 +145,7 @@ export default function CallDetailPage({ params }: { params: { id: string } }) {
             {formatPhone(call.callerNumber)}
           </h2>
           <CallStatusBadge status={call.status} />
+          <RescueBadge call={call} />
           {canManage && call.channel === 'phone' && call.callerNumber && (
             <Button
               variant="ghost"
@@ -145,6 +161,26 @@ export default function CallDetailPage({ params }: { params: { id: string } }) {
         </div>
         <p className="mt-1.5 text-sm text-ink-muted">{formatDateTime(call.startedAt)}</p>
       </div>
+
+      {call.rescueNeeded && (
+        <Card className="border-danger/30 bg-danger-soft/40">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-ink">This caller still needs a callback</p>
+              <p className="mt-0.5 text-sm text-ink-muted">
+                {call.rescueReason ?? 'The call ended without a booking.'}
+              </p>
+            </div>
+            {canManage ? (
+              <Button variant="secondary" size="sm" loading={clearingRescue} onClick={clearRescue}>
+                Mark callback done
+              </Button>
+            ) : (
+              <p className="text-xs text-ink-muted">An owner or manager can mark this done.</p>
+            )}
+          </div>
+        </Card>
+      )}
 
       <Card>
         <CardHeader title="Recording" />
