@@ -117,7 +117,7 @@ export function SignedInShell({
   return (
     <div className="vf-aurora-root flex min-h-screen bg-paper">
       {/* Sidebar */}
-      <aside className={`sticky top-0 hidden h-screen w-[268px] flex-col md:flex ${t.sidebar}`}>
+      <aside className={`vf-side-v2 sticky top-0 hidden h-screen w-[268px] flex-col md:flex ${t.sidebar}`}>
         <div className="px-5 pb-[18px] pt-[22px]">
           <Link href={homeHref}>
             <Logo tone="light" animated />
